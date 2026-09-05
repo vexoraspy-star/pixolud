@@ -99,13 +99,13 @@ export default async function Home() {
           {games.length > 0 && (
             <div className="mx-auto mt-8 flex max-w-lg flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm font-medium text-white/90">
               <span>
-                🎮 {games.length} {t(games.length > 1 ? "home.statsGames" : "home.statsGame")}
+                🎮 {games.length} {t(games.length !== 1 ? "home.statsGames" : "home.statsGame")}
               </span>
               <span>
-                👥 {memberCount} {t(memberCount > 1 ? "home.statsMembers" : "home.statsMember")}
+                👥 {memberCount} {t(memberCount !== 1 ? "home.statsMembers" : "home.statsMember")}
               </span>
               <span>
-                ▶ {totalPlays.toLocaleString(locale)} {t(totalPlays > 1 ? "home.statsPlays" : "home.statsPlay")}
+                ▶ {totalPlays.toLocaleString(locale)} {t(totalPlays !== 1 ? "home.statsPlays" : "home.statsPlay")}
               </span>
             </div>
           )}
@@ -135,10 +135,10 @@ export default async function Home() {
       ) : (
         <>
           {gameOfTheDay && <GameOfTheDay game={gameOfTheDay} locale={locale} t={t} />}
-          <Section title={t("home.featured")} games={featured} seeAll={t("home.seeAll")} />
-          <Section title={t("home.recent")} games={recent} seeAll={t("home.seeAll")} />
-          <Section title={t("home.popular")} games={popular} seeAll={t("home.seeAll")} />
-          <Section title={t("home.topRated")} games={topRated} seeAll={t("home.seeAll")} />
+          <Section title={t("home.featured")} games={featured} seeAll={t("home.seeAll")} locale={locale} />
+          <Section title={t("home.recent")} games={recent} seeAll={t("home.seeAll")} locale={locale} />
+          <Section title={t("home.popular")} games={popular} seeAll={t("home.seeAll")} locale={locale} />
+          <Section title={t("home.topRated")} games={topRated} seeAll={t("home.seeAll")} locale={locale} />
         </>
       )}
 
@@ -202,7 +202,7 @@ function GameOfTheDay({
           <span className="mt-1 text-xs text-zinc-400">
             {t("common.by")} {game.authorBadge ? `${game.authorBadge} ` : ""}
             {game.authorPseudo} · {game.plays.toLocaleString(locale)}{" "}
-            {t(game.plays > 1 ? "home.statsPlays" : "home.statsPlay")}
+            {t(game.plays !== 1 ? "home.statsPlays" : "home.statsPlay")}
           </span>
         </div>
       </Link>
@@ -214,10 +214,12 @@ function Section({
   title,
   games,
   seeAll,
+  locale,
 }: {
   title: string;
   games: Game[];
   seeAll: string;
+  locale: Locale;
 }) {
   if (games.length === 0) return null;
   return (
@@ -235,7 +237,7 @@ function Section({
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {games.map((game) => (
-          <GameCard key={game.id} game={game} />
+          <GameCard key={game.id} game={game} locale={locale} />
         ))}
       </div>
     </section>

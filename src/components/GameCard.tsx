@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Game } from "@/lib/types";
+import { translate, type Locale } from "@/lib/i18n";
 
-export default function GameCard({ game }: { game: Game }) {
+export default function GameCard({ game, locale = "fr" }: { game: Game; locale?: Locale }) {
+  const t = (key: string) => translate(locale, key);
   return (
     <Link
       href={`/jeu/${game.slug}`}
@@ -37,14 +39,15 @@ export default function GameCard({ game }: { game: Game }) {
         </p>
         <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
           <span>
-            par {game.authorBadge ? `${game.authorBadge} ` : ""}
+            {t("common.by")} {game.authorBadge ? `${game.authorBadge} ` : ""}
             {game.authorPseudo}
           </span>
           <span className="flex items-center gap-1">
             {game.ratingCount > 0
               ? `⭐ ${game.rating.toFixed(1)} · `
               : ""}
-            {game.plays.toLocaleString("fr-FR")} parties
+            {game.plays.toLocaleString(locale)}{" "}
+            {t(game.plays !== 1 ? "home.statsPlays" : "home.statsPlay")}
           </span>
         </div>
       </div>
