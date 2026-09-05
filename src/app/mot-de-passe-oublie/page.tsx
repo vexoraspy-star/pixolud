@@ -1,5 +1,7 @@
 import Link from "next/link";
 import AuthCard from "@/components/AuthCard";
+import { translate } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { requestPasswordReset } from "./actions";
 
 export default async function MotDePasseOubliePage({
@@ -8,15 +10,16 @@ export default async function MotDePasseOubliePage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
+  const locale = await getLocale();
+  const t = (key: string) => translate(locale, key);
 
   return (
     <AuthCard>
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
-        Mot de passe oublié
+        {t("auth.forgotTitle")}
       </h1>
       <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-        Indique ton adresse email, on t&apos;enverra un lien de
-        réinitialisation.
+        {t("auth.forgotSubtitle")}
       </p>
 
       {error && (
@@ -27,7 +30,7 @@ export default async function MotDePasseOubliePage({
 
       <form action={requestPasswordReset} className="mt-8 flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Adresse email
+          {t("auth.email")}
           <input
             name="email"
             type="email"
@@ -40,13 +43,13 @@ export default async function MotDePasseOubliePage({
           type="submit"
           className="mt-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
         >
-          Envoyer le lien de réinitialisation
+          {t("auth.sendResetLink")}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
         <Link href="/connexion" className="font-medium text-violet-600 hover:underline">
-          ← Retour à la connexion
+          {t("auth.backToLogin")}
         </Link>
       </p>
     </AuthCard>

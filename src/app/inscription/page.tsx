@@ -1,5 +1,7 @@
 import Link from "next/link";
 import AuthCard from "@/components/AuthCard";
+import { translate } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { signup } from "./actions";
 
 export default async function InscriptionPage({
@@ -8,14 +10,16 @@ export default async function InscriptionPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
+  const locale = await getLocale();
+  const t = (key: string) => translate(locale, key);
 
   return (
     <AuthCard>
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
-        Créer un compte
+        {t("auth.signupTitle")}
       </h1>
       <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-        Rejoins la communauté pour créer, publier et jouer à des mini-jeux.
+        {t("auth.signupSubtitle")}
       </p>
 
       {error && (
@@ -25,13 +29,13 @@ export default async function InscriptionPage({
       )}
 
       <form action={signup} className="mt-8 flex flex-col gap-4">
-        <Field label="Pseudo" name="pseudo" type="text" placeholder="Ton pseudo public" />
-        <Field label="Adresse email" name="email" type="email" placeholder="toi@exemple.com" />
+        <Field label={t("auth.pseudo")} name="pseudo" type="text" placeholder={t("auth.pseudoPlaceholder")} />
+        <Field label={t("auth.email")} name="email" type="email" placeholder="toi@exemple.com" />
         <Field
-          label="Mot de passe"
+          label={t("auth.password")}
           name="password"
           type="password"
-          placeholder="8 caractères minimum"
+          placeholder={t("auth.passwordPlaceholder")}
           minLength={8}
         />
 
@@ -43,16 +47,16 @@ export default async function InscriptionPage({
             className="mt-0.5 size-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
           />
           <span>
-            J&apos;ai lu et j&apos;accepte les{" "}
+            {t("auth.acceptCguPrefix")}{" "}
             <Link href="/cgu" className="font-medium text-violet-600 hover:underline">
-              Conditions Générales d&apos;Utilisation
+              {t("auth.cguLink")}
             </Link>{" "}
-            et la{" "}
+            {t("auth.and")}{" "}
             <Link
               href="/confidentialite"
               className="font-medium text-violet-600 hover:underline"
             >
-              Politique de Confidentialité
+              {t("auth.privacyLink")}
             </Link>
             .
           </span>
@@ -62,14 +66,14 @@ export default async function InscriptionPage({
           type="submit"
           className="mt-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
         >
-          Créer mon compte
+          {t("auth.signupButton")}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        Déjà un compte ?{" "}
+        {t("auth.haveAccount")}{" "}
         <Link href="/connexion" className="font-medium text-violet-600 hover:underline">
-          Se connecter
+          {t("auth.loginTitle")}
         </Link>
       </p>
     </AuthCard>

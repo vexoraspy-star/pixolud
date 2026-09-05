@@ -3,6 +3,8 @@ import GameCard from "@/components/GameCard";
 import { getMemberCount, getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORIES, type Game } from "@/lib/types";
+import { translate, type Locale } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 
 function pickGameOfTheDay(games: Game[]): Game | null {
   if (games.length === 0) return null;
@@ -26,6 +28,8 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const locale = await getLocale();
+  const t = (key: string) => translate(locale, key);
 
   const games = await getPublishedGames();
   const memberCount = await getMemberCount();
@@ -54,26 +58,23 @@ export default async function Home() {
       <section className="border-b border-zinc-200 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-orange-500 dark:border-zinc-800">
         <div className="mx-auto max-w-6xl px-4 py-16 text-center sm:px-6 sm:py-24">
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-            Crée, publie et joue à des mini-jeux 2D
+            {t("home.title")}
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-base text-white/90 sm:text-lg">
-            Pixolud est la plateforme communautaire où n&apos;importe qui peut
-            imaginer un mini-jeu — plateforme, puzzle, arcade, labyrinthe,
-            quiz — le publier et le faire découvrir à d&apos;autres joueurs.
-            Sans écrire une ligne de code.
+            {t("home.subtitle")}
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
               href={user ? "/editeur" : "/inscription"}
               className="rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-violet-700 shadow hover:bg-zinc-100"
             >
-              {user ? "Créer un jeu" : "Créer un compte gratuitement"}
+              {user ? t("home.ctaCreateGame") : t("home.ctaSignup")}
             </Link>
             <Link
               href="/catalogue"
               className="rounded-full border border-white/60 px-6 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
             >
-              Explorer le catalogue
+              {t("home.ctaExplore")}
             </Link>
           </div>
 
@@ -84,22 +85,28 @@ export default async function Home() {
             <input
               type="search"
               name="q"
-              placeholder="Rechercher un jeu, un créateur..."
+              placeholder={t("home.searchPlaceholder")}
               className="flex-1 px-5 py-3 text-sm text-zinc-900 outline-none"
             />
             <button
               type="submit"
               className="m-1 rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
             >
-              Rechercher
+              {t("home.searchButton")}
             </button>
           </form>
 
           {games.length > 0 && (
             <div className="mx-auto mt-8 flex max-w-lg flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm font-medium text-white/90">
-              <span>🎮 {games.length} jeu{games.length > 1 ? "x" : ""} publié{games.length > 1 ? "s" : ""}</span>
-              <span>👥 {memberCount} membre{memberCount > 1 ? "s" : ""}</span>
-              <span>▶ {totalPlays.toLocaleString("fr-FR")} partie{totalPlays > 1 ? "s" : ""} jouée{totalPlays > 1 ? "s" : ""}</span>
+              <span>
+                🎮 {games.length} {t(games.length > 1 ? "home.statsGames" : "home.statsGame")}
+              </span>
+              <span>
+                👥 {memberCount} {t(memberCount > 1 ? "home.statsMembers" : "home.statsMember")}
+              </span>
+              <span>
+                ▶ {totalPlays.toLocaleString(locale)} {t(totalPlays > 1 ? "home.statsPlays" : "home.statsPlay")}
+              </span>
             </div>
           )}
         </div>
@@ -123,47 +130,47 @@ export default async function Home() {
 
       {games.length === 0 ? (
         <section className="mx-auto w-full max-w-6xl px-4 py-16 text-center sm:px-6">
-          <p className="text-zinc-500 dark:text-zinc-400">
-            Aucun jeu publié pour l&apos;instant — sois le premier à en créer un !
-          </p>
+          <p className="text-zinc-500 dark:text-zinc-400">{t("home.emptyState")}</p>
         </section>
       ) : (
         <>
-          {gameOfTheDay && <GameOfTheDay game={gameOfTheDay} />}
-          <Section title="👑 Mis en avant" games={featured} />
-          <Section title="🆕 Ajoutés récemment" games={recent} />
-          <Section title="🔥 Jeux populaires" games={popular} />
-          <Section title="⭐ Les mieux notés" games={topRated} />
+          {gameOfTheDay && <GameOfTheDay game={gameOfTheDay} locale={locale} t={t} />}
+          <Section title={t("home.featured")} games={featured} seeAll={t("home.seeAll")} />
+          <Section title={t("home.recent")} games={recent} seeAll={t("home.seeAll")} />
+          <Section title={t("home.popular")} games={popular} seeAll={t("home.seeAll")} />
+          <Section title={t("home.topRated")} games={topRated} seeAll={t("home.seeAll")} />
         </>
       )}
 
       {/* CTA bas de page */}
       <section className="border-t border-zinc-200 bg-zinc-50 py-16 text-center dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">
-          Envie de créer ton propre jeu ?
-        </h2>
+        <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">{t("home.bottomTitle")}</h2>
         <p className="mx-auto mt-2 max-w-xl text-zinc-500 dark:text-zinc-400">
-          {user
-            ? "Direction l'éditeur pour créer et publier ton prochain mini-jeu."
-            : "Rejoins la communauté et publie ton premier mini-jeu en quelques minutes grâce à notre éditeur simple, sans code."}
+          {user ? t("home.bottomTextLoggedIn") : t("home.bottomTextLoggedOut")}
         </p>
         <Link
           href={user ? "/editeur" : "/inscription"}
           className="mt-6 inline-block rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
         >
-          {user ? "Créer un jeu" : "Commencer maintenant"}
+          {user ? t("home.ctaCreateGame") : t("home.bottomButton")}
         </Link>
       </section>
     </div>
   );
 }
 
-function GameOfTheDay({ game }: { game: Game }) {
+function GameOfTheDay({
+  game,
+  locale,
+  t,
+}: {
+  game: Game;
+  locale: Locale;
+  t: (key: string) => string;
+}) {
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <h2 className="mb-4 text-xl font-bold text-zinc-900 dark:text-white">
-        🎲 Jeu du jour
-      </h2>
+      <h2 className="mb-4 text-xl font-bold text-zinc-900 dark:text-white">{t("home.gameOfDay")}</h2>
       <Link
         href={`/jeu/${game.slug}`}
         className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white transition hover:-translate-y-0.5 hover:shadow-lg sm:flex-row dark:border-zinc-800 dark:bg-zinc-900"
@@ -190,11 +197,12 @@ function GameOfTheDay({ game }: { game: Game }) {
             {game.title}
           </h3>
           <p className="line-clamp-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {game.description || "Aucune description."}
+            {game.description || "—"}
           </p>
           <span className="mt-1 text-xs text-zinc-400">
-            par {game.authorBadge ? `${game.authorBadge} ` : ""}
-            {game.authorPseudo} · {game.plays.toLocaleString("fr-FR")} parties
+            {t("common.by")} {game.authorBadge ? `${game.authorBadge} ` : ""}
+            {game.authorPseudo} · {game.plays.toLocaleString(locale)}{" "}
+            {t(game.plays > 1 ? "home.statsPlays" : "home.statsPlay")}
           </span>
         </div>
       </Link>
@@ -202,7 +210,15 @@ function GameOfTheDay({ game }: { game: Game }) {
   );
 }
 
-function Section({ title, games }: { title: string; games: Game[] }) {
+function Section({
+  title,
+  games,
+  seeAll,
+}: {
+  title: string;
+  games: Game[];
+  seeAll: string;
+}) {
   if (games.length === 0) return null;
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -214,7 +230,7 @@ function Section({ title, games }: { title: string; games: Game[] }) {
           href="/catalogue"
           className="text-sm font-medium text-violet-600 hover:underline"
         >
-          Voir tout →
+          {seeAll}
         </Link>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
