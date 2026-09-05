@@ -79,13 +79,19 @@ export default function PlateformePlayer({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
-        <span>💀 {falls} chute{falls > 1 ? "s" : ""}</span>
-        {won && <span className="font-semibold text-emerald-500">🎉 Gagné !</span>}
+      <div className="flex items-center gap-3">
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
+          💀 {falls} chute{falls > 1 ? "s" : ""}
+        </span>
+        {won && (
+          <span className="animate-bounce rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 px-3 py-1 text-xs font-bold text-white shadow-md shadow-emerald-500/30">
+            🎉 Gagné !
+          </span>
+        )}
       </div>
 
       <div
-        className="grid gap-1 rounded-2xl border border-zinc-200 bg-zinc-100 p-2 shadow-inner dark:border-zinc-800 dark:bg-zinc-900"
+        className="grid gap-1 rounded-3xl border border-zinc-200 bg-gradient-to-b from-sky-50 to-zinc-100 p-2 shadow-inner dark:border-zinc-800 dark:from-zinc-900 dark:to-black"
         style={{ gridTemplateColumns: `repeat(${data.width}, minmax(0, 1fr))` }}
       >
         {Array.from({ length: data.height }).map((_, y) =>
@@ -99,13 +105,19 @@ export default function PlateformePlayer({
                 key={key}
                 className={`flex size-8 items-center justify-center rounded-md text-base transition-colors sm:size-10 sm:text-lg ${
                   isPlatform
-                    ? "bg-gradient-to-br from-amber-700 to-amber-900 shadow-sm"
+                    ? "bg-gradient-to-br from-amber-600 to-amber-800 shadow-sm"
                     : isEnd
-                      ? "bg-rose-100 dark:bg-rose-900/50"
-                      : "bg-white dark:bg-zinc-950"
+                      ? "bg-gradient-to-br from-rose-100 to-rose-200 shadow-inner dark:from-rose-900/50 dark:to-rose-950/50"
+                      : "bg-white/60 dark:bg-zinc-950/60"
                 }`}
               >
-                {isPlayer ? "🟣" : isEnd ? "🏁" : ""}
+                {isPlayer ? (
+                  <span className="drop-shadow">🟣</span>
+                ) : isEnd ? (
+                  "🏁"
+                ) : (
+                  ""
+                )}
               </div>
             );
           }),

@@ -60,9 +60,9 @@ export default function PuzzlePlayer({
 
   if (won) {
     return (
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">🎉</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-3 rounded-3xl bg-gradient-to-br from-violet-50 to-fuchsia-50 px-10 py-8 text-center shadow-inner dark:from-violet-950/30 dark:to-fuchsia-950/30">
+        <span className="text-5xl">🎉</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Gagné en {moves} coups !
         </p>
       </div>
@@ -71,22 +71,27 @@ export default function PuzzlePlayer({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">Coups : {moves}</p>
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
+        Coups : {moves}
+      </span>
       <div
-        className="grid gap-2"
+        className="grid gap-2 rounded-3xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-zinc-100 p-3 shadow-inner dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950"
         style={{ gridTemplateColumns: `repeat(${Math.min(cards.length, 6)}, minmax(0, 1fr))` }}
       >
         {cards.map((sym, i) => {
           const isVisible = flipped.includes(i) || matched.has(i);
+          const isMatched = matched.has(i);
           return (
             <button
               key={i}
               type="button"
               onClick={() => handleFlip(i)}
-              className={`flex size-14 items-center justify-center rounded-lg text-2xl transition-colors sm:size-16 ${
-                isVisible
-                  ? "bg-violet-100 dark:bg-violet-900/50"
-                  : "bg-zinc-700 hover:bg-zinc-600 dark:bg-zinc-800"
+              className={`flex size-14 items-center justify-center rounded-xl text-2xl shadow-sm transition-all duration-200 sm:size-16 ${
+                isMatched
+                  ? "scale-95 bg-gradient-to-br from-emerald-100 to-teal-100 opacity-80 dark:from-emerald-900/40 dark:to-teal-900/40"
+                  : isVisible
+                    ? "scale-105 bg-gradient-to-br from-violet-100 to-fuchsia-100 shadow-md dark:from-violet-900/50 dark:to-fuchsia-900/50"
+                    : "bg-gradient-to-br from-zinc-600 to-zinc-800 hover:scale-105 hover:from-zinc-500 hover:to-zinc-700 dark:from-zinc-700 dark:to-zinc-900"
               }`}
             >
               {isVisible ? sym : ""}

@@ -79,9 +79,9 @@ export default function CoursePlayer({
     const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
     const medal = avg < 300 ? "🥇" : avg < 500 ? "🥈" : "🥉";
     return (
-      <div className="flex flex-col items-center gap-2 text-center">
-        <span className="text-4xl">{medal}</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-2 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 px-10 py-8 text-center shadow-inner dark:from-amber-950/30 dark:to-orange-950/30">
+        <span className="text-5xl">{medal}</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Temps de réaction moyen : {avg} ms
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -93,17 +93,17 @@ export default function CoursePlayer({
 
   return (
     <div className="flex flex-col items-center gap-4 text-center">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
         Manche {round + 1} / {data.rounds}
-      </p>
+      </span>
 
       <div
-        className={`flex size-48 items-center justify-center rounded-full text-lg font-bold text-white transition-colors ${
+        className={`flex size-48 items-center justify-center rounded-full text-lg font-bold text-white shadow-lg transition-all duration-150 ${
           phase === "go"
-            ? "bg-emerald-500"
+            ? "scale-105 bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-500/40"
             : phase === "tooSoon"
-              ? "bg-rose-500"
-              : "bg-zinc-400 dark:bg-zinc-700"
+              ? "bg-gradient-to-br from-rose-400 to-rose-600 shadow-rose-500/40"
+              : "bg-gradient-to-br from-zinc-400 to-zinc-500 dark:from-zinc-700 dark:to-zinc-800"
         }`}
       >
         {phase === "idle" && "Espace pour commencer"}
@@ -119,7 +119,7 @@ export default function CoursePlayer({
           <button
             type="button"
             onClick={nextOrFinish}
-            className="mt-2 rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+            className="mt-2 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-violet-600/30 transition hover:scale-105 active:scale-95"
           >
             {round + 1 >= data.rounds ? "Voir le résultat" : "Manche suivante"}
           </button>

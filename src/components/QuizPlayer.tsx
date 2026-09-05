@@ -45,9 +45,9 @@ export default function QuizPlayer({
 
   if (finished) {
     return (
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">🎉</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-3 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 px-10 py-8 text-center shadow-inner dark:from-amber-950/30 dark:to-orange-950/30">
+        <span className="text-5xl">🎉</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Score final : {score} / {data.questions.length}
         </p>
       </div>
@@ -55,12 +55,14 @@ export default function QuizPlayer({
   }
 
   return (
-    <div className="flex w-full max-w-xl flex-col items-center gap-4">
-      <div className="flex w-full items-center justify-between text-sm text-zinc-500 dark:text-zinc-400">
-        <span>
+    <div className="flex w-full max-w-xl flex-col items-center gap-4 rounded-3xl border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-6 shadow-sm dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+      <div className="flex w-full items-center justify-between">
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
           Question {index + 1} / {data.questions.length}
         </span>
-        <span>Score : {score}</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm dark:bg-zinc-800 dark:text-violet-400">
+          Score : {score}
+        </span>
       </div>
 
       <h2 className="text-center text-lg font-semibold text-zinc-900 dark:text-white">
@@ -72,12 +74,12 @@ export default function QuizPlayer({
           const isCorrect = i === question.correctIndex;
           const isSelected = selected === i;
           let style =
-            "border-zinc-300 bg-white hover:border-violet-400 dark:border-zinc-700 dark:bg-zinc-900";
+            "border-zinc-300 bg-white hover:border-violet-400 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900";
           if (selected !== null) {
             if (isCorrect) {
-              style = "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30";
+              style = "border-emerald-500 bg-gradient-to-r from-emerald-50 to-teal-50 shadow-md dark:from-emerald-900/30 dark:to-teal-900/30";
             } else if (isSelected) {
-              style = "border-rose-500 bg-rose-50 dark:bg-rose-900/30";
+              style = "border-rose-500 bg-gradient-to-r from-rose-50 to-red-50 dark:from-rose-900/30 dark:to-red-900/30";
             }
           }
           return (
@@ -86,7 +88,7 @@ export default function QuizPlayer({
               type="button"
               onClick={() => handleAnswer(i)}
               disabled={selected !== null}
-              className={`rounded-lg border px-4 py-3 text-left text-sm font-medium text-zinc-800 transition-colors dark:text-zinc-100 ${style}`}
+              className={`rounded-xl border px-4 py-3 text-left text-sm font-medium text-zinc-800 transition-all dark:text-zinc-100 ${style}`}
             >
               {opt}
             </button>
@@ -98,7 +100,7 @@ export default function QuizPlayer({
         <button
           type="button"
           onClick={next}
-          className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+          className="rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-600/30 transition hover:scale-105 active:scale-95"
         >
           {index + 1 >= data.questions.length ? "Voir le score" : "Question suivante"}
         </button>

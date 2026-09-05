@@ -273,11 +273,15 @@ export default function ArenaGame({ initialPseudo }: { initialPseudo: string }) 
       </div>
 
       <div className="flex w-full flex-col gap-4 lg:flex-row">
-        <div className="relative mx-auto overflow-hidden rounded-2xl border border-zinc-200 shadow-inner dark:border-zinc-800">
+        <div
+          className="relative mx-auto w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-inner dark:border-zinc-800"
+          style={{ maxWidth: ARENA_GRID_W * ARENA_CELL_PX }}
+        >
           <canvas
             ref={canvasRef}
             width={ARENA_GRID_W * ARENA_CELL_PX}
             height={ARENA_GRID_H * ARENA_CELL_PX}
+            className="block h-auto w-full"
           />
           {justDied && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-lg font-bold text-white">

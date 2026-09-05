@@ -62,13 +62,19 @@ export default function MazePlayer({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
-        <span>⏱️ {seconds}s</span>
-        {won && <span className="font-semibold text-emerald-500">🎉 Gagné !</span>}
+      <div className="flex items-center gap-3">
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
+          ⏱️ {seconds}s
+        </span>
+        {won && (
+          <span className="animate-bounce rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 px-3 py-1 text-xs font-bold text-white shadow-md shadow-emerald-500/30">
+            🎉 Gagné !
+          </span>
+        )}
       </div>
 
       <div
-        className="grid gap-1 rounded-2xl border border-zinc-200 bg-zinc-100 p-2 shadow-inner dark:border-zinc-800 dark:bg-zinc-900"
+        className="grid gap-1 rounded-3xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-zinc-200 p-2 shadow-inner dark:border-zinc-800 dark:from-zinc-900 dark:to-black"
         style={{ gridTemplateColumns: `repeat(${data.width}, minmax(0, 1fr))` }}
       >
         {Array.from({ length: data.height }).map((_, y) =>
@@ -84,12 +90,12 @@ export default function MazePlayer({
                   isWall
                     ? "bg-gradient-to-br from-zinc-600 to-zinc-800 shadow-sm dark:from-zinc-500 dark:to-zinc-700"
                     : isEnd
-                      ? "bg-rose-100 dark:bg-rose-900/50"
-                      : "bg-white dark:bg-zinc-950"
+                      ? "bg-gradient-to-br from-rose-100 to-rose-200 shadow-inner dark:from-rose-900/50 dark:to-rose-950/50"
+                      : "bg-white shadow-sm dark:bg-zinc-950"
                 }`}
               >
                 {isPlayer ? (
-                  <span className="block size-4 rounded-full bg-violet-600 shadow-[0_0_8px_rgba(139,92,246,0.7)] transition-transform duration-150 sm:size-5" />
+                  <span className="block size-4 rounded-full bg-gradient-to-br from-violet-400 to-violet-600 shadow-[0_0_10px_rgba(139,92,246,0.8)] transition-transform duration-150 sm:size-5" />
                 ) : isEnd ? (
                   "🏁"
                 ) : (

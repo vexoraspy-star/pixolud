@@ -147,7 +147,7 @@ export default function MusiquePlayer({
   if (status === "idle") {
     return (
       <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">🎵</span>
+        <span className="animate-pulse text-5xl drop-shadow-sm">🎵</span>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {totalNotes} note{totalNotes > 1 ? "s" : ""} à jouer. Le son démarre
           quand tu cliques.
@@ -155,7 +155,7 @@ export default function MusiquePlayer({
         <button
           type="button"
           onClick={start}
-          className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+          className="rounded-full bg-gradient-to-br from-pink-500 to-purple-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-purple-600/30 transition hover:scale-105 active:scale-95"
         >
           🔊 Commencer
         </button>
@@ -166,15 +166,15 @@ export default function MusiquePlayer({
   if (status === "finished") {
     const perfect = score === totalNotes;
     return (
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">{perfect ? "🎉" : "🎵"}</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-3 rounded-3xl bg-gradient-to-br from-pink-50 to-purple-50 px-10 py-8 text-center shadow-inner dark:from-pink-950/30 dark:to-purple-950/30">
+        <span className="text-5xl">{perfect ? "🎉" : "🎵"}</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Score : {score} / {totalNotes}
         </p>
         <button
           type="button"
           onClick={restart}
-          className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+          className="rounded-full bg-gradient-to-br from-pink-500 to-purple-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-purple-600/30 transition hover:scale-105 active:scale-95"
         >
           Rejouer
         </button>
@@ -184,9 +184,9 @@ export default function MusiquePlayer({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
         Score : {score} / {totalNotes}
-      </p>
+      </span>
 
       <div className="flex gap-2">
         {Array.from({ length: MUSIQUE_LANES }).map((_, lane) => (

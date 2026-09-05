@@ -77,15 +77,15 @@ export default function RunnerPlayer({
 
   if (status === "won") {
     return (
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">🎉</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-3 rounded-3xl bg-gradient-to-br from-emerald-50 to-teal-50 px-10 py-8 text-center shadow-inner dark:from-emerald-950/30 dark:to-teal-950/30">
+        <span className="text-5xl">🎉</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Parcours terminé !
         </p>
         <button
           type="button"
           onClick={restart}
-          className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+          className="rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-600/30 transition hover:scale-105 active:scale-95"
         >
           Rejouer
         </button>
@@ -95,15 +95,15 @@ export default function RunnerPlayer({
 
   if (status === "lost") {
     return (
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="text-4xl">💥</span>
-        <p className="text-lg font-bold text-zinc-900 dark:text-white">
+      <div className="flex flex-col items-center gap-3 rounded-3xl bg-gradient-to-br from-rose-50 to-red-50 px-10 py-8 text-center shadow-inner dark:from-rose-950/30 dark:to-red-950/30">
+        <span className="text-5xl">💥</span>
+        <p className="text-xl font-bold text-zinc-900 dark:text-white">
           Touché ! Distance parcourue : {pos}
         </p>
         <button
           type="button"
           onClick={restart}
-          className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+          className="rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-600/30 transition hover:scale-105 active:scale-95"
         >
           Réessayer
         </button>
@@ -115,10 +115,10 @@ export default function RunnerPlayer({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
         Distance : {pos} / {data.length - 1}
-      </p>
-      <div className="relative h-40 w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-b from-sky-50 to-zinc-100 shadow-inner sm:h-48 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+      </span>
+      <div className="relative h-40 w-full max-w-md overflow-hidden rounded-3xl border border-zinc-200 bg-gradient-to-b from-sky-100 via-sky-50 to-zinc-100 shadow-inner sm:h-48 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-black">
         <div className="absolute inset-x-2 bottom-2 flex gap-1">
           {windowCells.map((cellPos, i) => {
             const isObstacle = obstacleSet.has(cellPos);
@@ -127,19 +127,19 @@ export default function RunnerPlayer({
             return (
               <div
                 key={cellPos}
-                className={`relative flex size-12 shrink-0 items-center justify-center rounded-md text-xl sm:size-14 ${
+                className={`relative flex size-12 shrink-0 items-center justify-center rounded-md text-xl shadow-sm sm:size-14 ${
                   isFinish
-                    ? "bg-rose-100 dark:bg-rose-900/50"
+                    ? "bg-gradient-to-br from-rose-100 to-rose-200 dark:from-rose-900/50 dark:to-rose-950/50"
                     : isObstacle
-                      ? "bg-zinc-700 dark:bg-zinc-600"
-                      : "bg-white dark:bg-zinc-950"
+                      ? "bg-gradient-to-br from-zinc-600 to-zinc-800 dark:from-zinc-600 dark:to-zinc-800"
+                      : "bg-white/70 dark:bg-zinc-950/70"
                 }`}
               >
                 {isFinish && !isPlayerHere ? "🏁" : ""}
                 {isObstacle && !isPlayerHere ? "🪨" : ""}
                 {isPlayerHere && (
                   <span
-                    className={`absolute text-2xl transition-transform duration-200 ${
+                    className={`absolute text-2xl drop-shadow transition-transform duration-200 ${
                       isJumping ? "-translate-y-16" : ""
                     }`}
                   >
