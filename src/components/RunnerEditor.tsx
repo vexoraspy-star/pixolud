@@ -229,6 +229,11 @@ export default function RunnerEditor({
         >
           Tester
         </Link>
+        {!isRunnerPlayable(runner) && (
+          <span className="text-xs text-zinc-400">
+            Laisse au moins une case libre entre deux obstacles 🪨 pour qu&apos;ils soient tous franchissables.
+          </span>
+        )}
       </div>
     </div>
   );

@@ -16,10 +16,17 @@ export function emptyRunner(): RunnerData {
 }
 
 export function isRunnerPlayable(data: RunnerData): boolean {
-  return (
-    typeof data?.length === "number" &&
-    data.length > 0 &&
-    Array.isArray(data.obstacles) &&
-    data.obstacles.every((o) => o > 0 && o < data.length - 1)
-  );
+  if (
+    typeof data?.length !== "number" ||
+    data.length <= 0 ||
+    !Array.isArray(data.obstacles) ||
+    !data.obstacles.every((o) => o > 0 && o < data.length - 1)
+  ) {
+    return false;
+  }
+
+  // Un saut ne peut franchir qu'un seul obstacle à la fois : deux obstacles
+  // côte à côte (ou séparés d'une seule case) rendraient le niveau impossible.
+  const sorted = [...data.obstacles].sort((a, b) => a - b);
+  return sorted.every((o, i) => i === 0 || o - sorted[i - 1] >= 2);
 }

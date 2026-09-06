@@ -224,7 +224,7 @@ export default function MazeEditor({
         </Link>
         {!isMazePlayable(maze) && (
           <span className="text-xs text-zinc-400">
-            Place un 🚩 départ et une 🏁 arrivée pour pouvoir publier.
+            Place un 🚩 départ et une 🏁 arrivée reliés par un chemin libre pour pouvoir publier.
           </span>
         )}
       </div>

@@ -89,13 +89,15 @@ function isPublishable(category: string, data: unknown): boolean {
 }
 
 const PUBLISH_ERROR_MESSAGES: Record<string, string> = {
-  Labyrinthe: "Place un départ et une arrivée avant de publier.",
+  Labyrinthe:
+    "Place un départ et une arrivée reliés par un chemin libre (sans mur qui bloque tout) avant de publier.",
   Quiz: "Ajoute au moins une question complète (avec ses 4 réponses et la bonne cochée) avant de publier.",
   Puzzle: "Choisis entre 3 et 8 symboles avant de publier.",
   Arcade: "Configure une durée et une cible avant de publier.",
   Course: "Choisis un nombre de manches avant de publier.",
   Plateforme: "Place au moins une plateforme, un départ et une arrivée.",
-  Runner: "Configure la longueur du parcours avant de publier.",
+  Runner:
+    "Configure la longueur du parcours et laisse au moins une case libre entre deux obstacles avant de publier.",
   Musique: "Place au moins une note avant de publier.",
 };
 

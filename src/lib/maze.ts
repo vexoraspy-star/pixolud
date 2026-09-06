@@ -22,7 +22,33 @@ export function emptyMaze(big = false): MazeData {
 }
 
 export function isMazePlayable(maze: MazeData): boolean {
-  return maze?.start != null && maze?.end != null;
+  if (maze?.start == null || maze?.end == null) return false;
+
+  const wallSet = new Set(maze.walls.map(([x, y]) => cellKey(x, y)));
+  const endKey = cellKey(...maze.end);
+  if (wallSet.has(cellKey(...maze.start)) || wallSet.has(endKey)) return false;
+
+  const visited = new Set([cellKey(...maze.start)]);
+  const queue: [number, number][] = [maze.start];
+  while (queue.length > 0) {
+    const [x, y] = queue.shift()!;
+    if (cellKey(x, y) === endKey) return true;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= maze.width || ny >= maze.height) continue;
+      const key = cellKey(nx, ny);
+      if (wallSet.has(key) || visited.has(key)) continue;
+      visited.add(key);
+      queue.push([nx, ny]);
+    }
+  }
+  return false;
 }
 
 export function cellKey(x: number, y: number): string {
