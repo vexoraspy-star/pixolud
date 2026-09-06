@@ -12,6 +12,7 @@ import { isMusiquePlayable, type MusiqueData } from "@/lib/musique";
 import { isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
+import { isEducationPlayable, type EducationData } from "@/lib/education";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -23,6 +24,7 @@ import MusiquePlayer from "@/components/MusiquePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
+import EducationPlayer from "@/components/EducationPlayer";
 import PartyLobby from "@/components/PartyLobby";
 
 type AnyData =
@@ -36,7 +38,8 @@ type AnyData =
   | MusiqueData
   | CalculData
   | PetitBacData
-  | DevinettesData;
+  | DevinettesData
+  | EducationData;
 
 export default async function PlayGamePage({
   params,
@@ -109,6 +112,8 @@ export default async function PlayGamePage({
     player = <PetitBacPlayer data={game.data as PetitBacData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Devinettes" && isDevinettesPlayable(game.data as DevinettesData)) {
     player = <DevinettesPlayer data={game.data as DevinettesData} gameId={game.id} countsAsPlay />;
+  } else if (game.category === "Éducation" && isEducationPlayable(game.data as EducationData)) {
+    player = <EducationPlayer data={game.data as EducationData} gameId={game.id} countsAsPlay />;
   }
 
   return (

@@ -12,6 +12,7 @@ import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
+import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/education";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -23,6 +24,7 @@ import MusiquePlayer from "@/components/MusiquePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
+import EducationPlayer from "@/components/EducationPlayer";
 
 type AnyData =
   | MazeData
@@ -35,7 +37,8 @@ type AnyData =
   | MusiqueData
   | CalculData
   | PetitBacData
-  | DevinettesData;
+  | DevinettesData
+  | EducationData;
 
 export default async function ApercuPage({
   params,
@@ -167,6 +170,16 @@ export default async function ApercuPage({
       playable = isDevinettesPlayable(data);
       player = <DevinettesPlayer data={data} />;
       emptyMessage = "Ajoute au moins une devinette complète pour pouvoir tester.";
+      break;
+    }
+    case "Éducation": {
+      const data =
+        game.data && typeof game.data === "object" && "subject" in game.data
+          ? (game.data as EducationData)
+          : emptyEducation();
+      playable = isEducationPlayable(data);
+      player = <EducationPlayer data={data} />;
+      emptyMessage = "Ajoute au moins une question complète pour pouvoir tester.";
       break;
     }
     default: {

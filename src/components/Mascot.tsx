@@ -25,6 +25,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   "Calcul Mental": "🧮",
   "Petit Bac": "📝",
   Devinettes: "🔍",
+  Éducation: "🎓",
 };
 
 const FAQ: { question: string; answer: string }[] = [
