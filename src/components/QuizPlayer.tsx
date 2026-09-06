@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { QuizData } from "@/lib/quiz";
+import { DIFFICULTY_LABELS } from "@/lib/calcul";
 import { createClient } from "@/lib/supabase/client";
 
 export default function QuizPlayer({
@@ -59,6 +60,9 @@ export default function QuizPlayer({
       <div className="flex w-full items-center justify-between">
         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
           Question {index + 1} / {data.questions.length}
+        </span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-600 shadow-sm dark:bg-zinc-800 dark:text-amber-400">
+          {DIFFICULTY_LABELS[data.difficulty ?? "facile"]}
         </span>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm dark:bg-zinc-800 dark:text-violet-400">
           Score : {score}

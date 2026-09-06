@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { isQuizPlayable, newQuestion, type QuizData } from "@/lib/quiz";
+import { DIFFICULTIES, DIFFICULTY_LABELS } from "@/lib/calcul";
 import CoverPicker from "./CoverPicker";
 import MultiplayerToggle from "./MultiplayerToggle";
 import type { Tier } from "@/lib/tiers";
@@ -149,6 +150,28 @@ export default function QuizEditor({
       </div>
 
       <MultiplayerToggle checked={multiplayerMode} onChange={setMultiplayerMode} />
+
+      <div className="mt-8">
+        <p className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Difficulté
+        </p>
+        <div className="flex gap-2">
+          {DIFFICULTIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setQuiz((prev) => ({ ...prev, difficulty: d }))}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+                (quiz.difficulty ?? "facile") === d
+                  ? "bg-violet-600 text-white"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300"
+              }`}
+            >
+              {DIFFICULTY_LABELS[d]}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="mt-8 flex flex-col gap-6">
         {quiz.questions.map((q, qi) => (

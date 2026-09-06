@@ -1,3 +1,7 @@
+import type { Difficulty } from "./calcul";
+
+export type { Difficulty };
+
 export interface QuizQuestion {
   id: string;
   question: string;
@@ -7,10 +11,11 @@ export interface QuizQuestion {
 
 export interface QuizData {
   questions: QuizQuestion[];
+  difficulty?: Difficulty;
 }
 
 export function emptyQuiz(): QuizData {
-  return { questions: [] };
+  return { questions: [], difficulty: "facile" };
 }
 
 function isQuestionValid(q: QuizQuestion): boolean {
