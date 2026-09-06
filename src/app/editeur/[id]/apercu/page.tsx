@@ -9,6 +9,7 @@ import { emptyCourse, isCoursePlayable, type CourseData } from "@/lib/course";
 import { emptyPlateforme, isPlateformePlayable, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique";
+import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -17,6 +18,7 @@ import CoursePlayer from "@/components/CoursePlayer";
 import PlateformePlayer from "@/components/PlateformePlayer";
 import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
+import CalculPlayer from "@/components/CalculPlayer";
 
 type AnyData =
   | MazeData
@@ -26,7 +28,8 @@ type AnyData =
   | CourseData
   | PlateformeData
   | RunnerData
-  | MusiqueData;
+  | MusiqueData
+  | CalculData;
 
 export default async function ApercuPage({
   params,
@@ -128,6 +131,16 @@ export default async function ApercuPage({
       playable = isMusiquePlayable(data);
       player = <MusiquePlayer data={data} />;
       emptyMessage = "Place au moins une note pour pouvoir tester ton morceau.";
+      break;
+    }
+    case "Calcul Mental": {
+      const data =
+        game.data && typeof game.data === "object" && "operations" in game.data
+          ? (game.data as CalculData)
+          : emptyCalcul();
+      playable = isCalculPlayable(data);
+      player = <CalculPlayer data={data} />;
+      emptyMessage = "Choisis au moins une opération pour pouvoir tester.";
       break;
     }
     default: {

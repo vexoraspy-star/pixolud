@@ -9,6 +9,7 @@ import { isCoursePlayable, type CourseData } from "@/lib/course";
 import { isPlateformePlayable, type PlateformeData } from "@/lib/plateforme";
 import { isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { isMusiquePlayable, type MusiqueData } from "@/lib/musique";
+import { isCalculPlayable, type CalculData } from "@/lib/calcul";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -17,6 +18,7 @@ import CoursePlayer from "@/components/CoursePlayer";
 import PlateformePlayer from "@/components/PlateformePlayer";
 import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
+import CalculPlayer from "@/components/CalculPlayer";
 import PartyLobby from "@/components/PartyLobby";
 
 type AnyData =
@@ -27,7 +29,8 @@ type AnyData =
   | CourseData
   | PlateformeData
   | RunnerData
-  | MusiqueData;
+  | MusiqueData
+  | CalculData;
 
 export default async function PlayGamePage({
   params,
@@ -94,6 +97,8 @@ export default async function PlayGamePage({
     player = <RunnerPlayer data={game.data as RunnerData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Musique" && isMusiquePlayable(game.data as MusiqueData)) {
     player = <MusiquePlayer data={game.data as MusiqueData} gameId={game.id} countsAsPlay />;
+  } else if (game.category === "Calcul Mental" && isCalculPlayable(game.data as CalculData)) {
+    player = <CalculPlayer data={game.data as CalculData} gameId={game.id} countsAsPlay />;
   }
 
   return (

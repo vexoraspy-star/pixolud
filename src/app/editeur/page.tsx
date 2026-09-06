@@ -13,6 +13,7 @@ const NEW_GAME_BUTTONS = [
   { type: "Plateforme", emoji: "🎮" },
   { type: "Runner", emoji: "🦔" },
   { type: "Musique", emoji: "🎵" },
+  { type: "Calcul Mental", emoji: "🧮" },
 ] as const;
 
 export default async function EditeurPage() {

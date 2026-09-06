@@ -8,6 +8,7 @@ import { emptyCourse, type CourseData } from "@/lib/course";
 import { emptyPlateforme, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, type RunnerData } from "@/lib/runner";
 import { emptyMusique, type MusiqueData } from "@/lib/musique";
+import { emptyCalcul, type CalculData } from "@/lib/calcul";
 import MazeEditor from "@/components/MazeEditor";
 import QuizEditor from "@/components/QuizEditor";
 import PuzzleEditor from "@/components/PuzzleEditor";
@@ -16,6 +17,7 @@ import CourseEditor from "@/components/CourseEditor";
 import PlateformeEditor from "@/components/PlateformeEditor";
 import RunnerEditor from "@/components/RunnerEditor";
 import MusiqueEditor from "@/components/MusiqueEditor";
+import CalculEditor from "@/components/CalculEditor";
 import { type Tier } from "@/lib/tiers";
 
 type AnyData =
@@ -26,7 +28,8 @@ type AnyData =
   | CourseData
   | PlateformeData
   | RunnerData
-  | MusiqueData;
+  | MusiqueData
+  | CalculData;
 
 export default async function EditeurJeuPage({
   params,
@@ -138,6 +141,14 @@ export default async function EditeurJeuPage({
         ? (game.data as MusiqueData)
         : emptyMusique();
     return <MusiqueEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Calcul Mental") {
+    const data =
+      game.data && typeof game.data === "object" && "operations" in game.data
+        ? (game.data as CalculData)
+        : emptyCalcul();
+    return <CalculEditor {...common} initialData={data} />;
   }
 
   const data =
