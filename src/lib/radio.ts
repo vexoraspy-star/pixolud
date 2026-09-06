@@ -16,7 +16,8 @@ export interface RadioStep {
   beats: number;
 }
 
-export interface RadioTrack {
+export interface SynthTrack {
+  kind: "synth";
   id: string;
   title: string;
   genre: string;
@@ -26,8 +27,24 @@ export interface RadioTrack {
   steps: RadioStep[];
 }
 
-export const RADIO_TRACKS: RadioTrack[] = [
+export interface AudioTrack {
+  kind: "audio";
+  id: string;
+  title: string;
+  composer: string;
+  genre: string;
+  emoji: string;
+  src: string;
+  license: string;
+  attribution?: string;
+  sourceUrl: string;
+}
+
+export type RadioTrack = SynthTrack | AudioTrack;
+
+const SYNTH_TRACKS: SynthTrack[] = [
   {
+    kind: "synth",
     id: "pixel-dreams",
     title: "Pixel Dreams",
     genre: "Chiptune original",
@@ -42,6 +59,7 @@ export const RADIO_TRACKS: RadioTrack[] = [
     ],
   },
   {
+    kind: "synth",
     id: "arcade-nights",
     title: "Arcade Nights",
     genre: "Chiptune original",
@@ -56,6 +74,7 @@ export const RADIO_TRACKS: RadioTrack[] = [
     ],
   },
   {
+    kind: "synth",
     id: "retro-sunset",
     title: "Retro Sunset",
     genre: "Chiptune original",
@@ -68,3 +87,33 @@ export const RADIO_TRACKS: RadioTrack[] = [
     ],
   },
 ];
+
+// Verifie manuellement : chaque fichier est bien du domaine public / Creative
+// Commons sur sa page Wikimedia Commons (voir sourceUrl) avant tout ajout.
+const AUDIO_TRACKS: AudioTrack[] = [
+  {
+    kind: "audio",
+    id: "fur-elise",
+    title: "Für Elise",
+    composer: "Ludwig van Beethoven",
+    genre: "Classique · domaine public",
+    emoji: "🎹",
+    src: "https://upload.wikimedia.org/wikipedia/commons/7/7b/FurElise.ogg",
+    license: "Domaine public (CC0)",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:FurElise.ogg",
+  },
+  {
+    kind: "audio",
+    id: "clair-de-lune",
+    title: "Clair de Lune",
+    composer: "Claude Debussy",
+    genre: "Classique · Creative Commons",
+    emoji: "🌌",
+    src: "https://upload.wikimedia.org/wikipedia/commons/b/be/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Laurens Goedhart",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg",
+  },
+];
+
+export const RADIO_TRACKS: RadioTrack[] = [...SYNTH_TRACKS, ...AUDIO_TRACKS];
