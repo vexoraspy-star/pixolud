@@ -246,7 +246,7 @@ export default function TreasureHuntGame({
   }, []);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-4">
+    <div className="mx-auto flex w-full flex-col items-center gap-4 px-4">
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           💎 {emoji}{" "}
