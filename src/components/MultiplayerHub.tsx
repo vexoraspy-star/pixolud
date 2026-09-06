@@ -7,6 +7,7 @@ import type { Tier } from "@/lib/tiers";
 import TerritoryGame from "./TerritoryGame";
 import TreasureHuntGame from "./TreasureHuntGame";
 import BubbleGame from "./BubbleGame";
+import ChessGame from "./ChessGame";
 
 type Phase = "identity" | "hub" | "playing";
 
@@ -94,7 +95,7 @@ export default function MultiplayerHub({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {ARENA_MODES.map((m) => (
             <button
               key={m.id}
@@ -139,6 +140,7 @@ export default function MultiplayerHub({
       {mode === "territoire" && <TerritoryGame identity={identity} onQuit={back} />}
       {mode === "chasse" && <TreasureHuntGame identity={identity} onQuit={back} />}
       {mode === "bulles" && <BubbleGame identity={identity} onQuit={back} />}
+      {mode === "echecs" && <ChessGame identity={identity} onQuit={back} />}
     </div>
   );
 }

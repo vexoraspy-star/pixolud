@@ -9,7 +9,7 @@ export const ARENA_CHARACTERS = ["🐍", "🦖", "🐲", "🚀", "👾", "🤖",
 
 export type Point = [number, number];
 
-export type ArenaMode = "territoire" | "chasse" | "bulles";
+export type ArenaMode = "territoire" | "chasse" | "bulles" | "echecs";
 
 export interface ArenaModeInfo {
   id: ArenaMode;
@@ -43,6 +43,14 @@ export const ARENA_MODES: ArenaModeInfo[] = [
     description:
       "Absorbe les bulles plus petites que toi pour grossir, évite les plus grosses !",
     gradient: "from-fuchsia-500 to-purple-600",
+  },
+  {
+    id: "echecs",
+    label: "Échecs",
+    emoji: "♟️",
+    description:
+      "Une partie à deux en temps réel. Crée une partie et partage le code avec un ami.",
+    gradient: "from-zinc-600 to-zinc-800",
   },
 ];
 
