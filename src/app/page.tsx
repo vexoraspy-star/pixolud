@@ -1,5 +1,6 @@
 import Link from "next/link";
 import GameCard from "@/components/GameCard";
+import MusicRadio from "@/components/MusicRadio";
 import { getMemberCount, getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORIES, type Game } from "@/lib/types";
@@ -122,19 +123,22 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Catégories */}
+      {/* Catégories + Radio */}
       <section className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-        <div className="flex flex-wrap justify-center gap-3">
-          {CATEGORIES.map((cat) => (
-            <Link
-              key={cat}
-              href={`/catalogue?categorie=${encodeURIComponent(cat)}`}
-              className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:text-violet-400"
-            >
-              <span>{CATEGORY_EMOJI[cat]}</span>
-              {cat}
-            </Link>
-          ))}
+        <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-wrap justify-center gap-3 lg:justify-start">
+            {CATEGORIES.map((cat) => (
+              <Link
+                key={cat}
+                href={`/catalogue?categorie=${encodeURIComponent(cat)}`}
+                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:text-violet-400"
+              >
+                <span>{CATEGORY_EMOJI[cat]}</span>
+                {cat}
+              </Link>
+            ))}
+          </div>
+          <MusicRadio />
         </div>
       </section>
 
