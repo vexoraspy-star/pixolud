@@ -6,6 +6,7 @@ import { translate } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import MobileMenu from "./MobileMenu";
 import LanguageSwitcher from "./LanguageSwitcher";
+import TrophyPanel from "./TrophyPanel";
 
 export default async function Header() {
   const supabase = await createClient();
@@ -130,7 +131,8 @@ export default async function Header() {
           )}
           </nav>
 
-          <div className="shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
+            <TrophyPanel />
             <LanguageSwitcher current={locale} />
           </div>
         </div>
