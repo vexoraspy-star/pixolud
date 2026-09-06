@@ -12,6 +12,7 @@ import { emptyPlateforme, isPlateformePlayable, type PlateformeData } from "@/li
 import { emptyRunner, isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique";
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
+import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { TIERS, type Tier } from "@/lib/tiers";
 
 type AnyGameData =
@@ -23,7 +24,8 @@ type AnyGameData =
   | PlateformeData
   | RunnerData
   | MusiqueData
-  | CalculData;
+  | CalculData
+  | PetitBacData;
 
 const GAME_TYPES = {
   Labyrinthe: {
@@ -80,6 +82,12 @@ const GAME_TYPES = {
     emoji: "🧮",
     emptyData: emptyCalcul,
   },
+  "Petit Bac": {
+    defaultTitle: "Nouveau petit bac",
+    gradient: "from-amber-400 to-rose-500",
+    emoji: "📝",
+    emptyData: emptyPetitBac,
+  },
 } as const;
 
 type GameType = keyof typeof GAME_TYPES;
@@ -94,6 +102,7 @@ function isPublishable(category: string, data: unknown): boolean {
   if (category === "Runner") return isRunnerPlayable(data as RunnerData);
   if (category === "Musique") return isMusiquePlayable(data as MusiqueData);
   if (category === "Calcul Mental") return isCalculPlayable(data as CalculData);
+  if (category === "Petit Bac") return isPetitBacPlayable(data as PetitBacData);
   return false;
 }
 
@@ -109,6 +118,7 @@ const PUBLISH_ERROR_MESSAGES: Record<string, string> = {
     "Configure la longueur du parcours et laisse au moins une case libre entre deux obstacles avant de publier.",
   Musique: "Place au moins une note avant de publier.",
   "Calcul Mental": "Choisis au moins une opération avant de publier.",
+  "Petit Bac": "Ajoute au moins 2 catégories non vides avant de publier.",
 };
 
 function slugify(title: string): string {

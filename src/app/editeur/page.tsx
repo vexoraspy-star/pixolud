@@ -14,6 +14,7 @@ const NEW_GAME_BUTTONS = [
   { type: "Runner", emoji: "🦔" },
   { type: "Musique", emoji: "🎵" },
   { type: "Calcul Mental", emoji: "🧮" },
+  { type: "Petit Bac", emoji: "📝" },
 ] as const;
 
 export default async function EditeurPage() {

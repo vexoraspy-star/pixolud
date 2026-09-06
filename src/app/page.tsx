@@ -22,6 +22,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Runner: "🦔",
   Musique: "🎵",
   "Calcul Mental": "🧮",
+  "Petit Bac": "📝",
 };
 
 export default async function Home() {

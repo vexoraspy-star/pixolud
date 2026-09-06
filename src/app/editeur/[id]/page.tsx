@@ -9,6 +9,7 @@ import { emptyPlateforme, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, type RunnerData } from "@/lib/runner";
 import { emptyMusique, type MusiqueData } from "@/lib/musique";
 import { emptyCalcul, type CalculData } from "@/lib/calcul";
+import { emptyPetitBac, type PetitBacData } from "@/lib/petitBac";
 import MazeEditor from "@/components/MazeEditor";
 import QuizEditor from "@/components/QuizEditor";
 import PuzzleEditor from "@/components/PuzzleEditor";
@@ -18,6 +19,7 @@ import PlateformeEditor from "@/components/PlateformeEditor";
 import RunnerEditor from "@/components/RunnerEditor";
 import MusiqueEditor from "@/components/MusiqueEditor";
 import CalculEditor from "@/components/CalculEditor";
+import PetitBacEditor from "@/components/PetitBacEditor";
 import { type Tier } from "@/lib/tiers";
 
 type AnyData =
@@ -29,7 +31,8 @@ type AnyData =
   | PlateformeData
   | RunnerData
   | MusiqueData
-  | CalculData;
+  | CalculData
+  | PetitBacData;
 
 export default async function EditeurJeuPage({
   params,
@@ -149,6 +152,14 @@ export default async function EditeurJeuPage({
         ? (game.data as CalculData)
         : emptyCalcul();
     return <CalculEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Petit Bac") {
+    const data =
+      game.data && typeof game.data === "object" && "categories" in game.data
+        ? (game.data as PetitBacData)
+        : emptyPetitBac();
+    return <PetitBacEditor {...common} initialData={data} />;
   }
 
   const data =

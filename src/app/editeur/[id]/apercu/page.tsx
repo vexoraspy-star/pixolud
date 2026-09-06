@@ -10,6 +10,7 @@ import { emptyPlateforme, isPlateformePlayable, type PlateformeData } from "@/li
 import { emptyRunner, isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique";
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
+import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -19,6 +20,7 @@ import PlateformePlayer from "@/components/PlateformePlayer";
 import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
+import PetitBacPlayer from "@/components/PetitBacPlayer";
 
 type AnyData =
   | MazeData
@@ -29,7 +31,8 @@ type AnyData =
   | PlateformeData
   | RunnerData
   | MusiqueData
-  | CalculData;
+  | CalculData
+  | PetitBacData;
 
 export default async function ApercuPage({
   params,
@@ -141,6 +144,16 @@ export default async function ApercuPage({
       playable = isCalculPlayable(data);
       player = <CalculPlayer data={data} />;
       emptyMessage = "Choisis au moins une opération pour pouvoir tester.";
+      break;
+    }
+    case "Petit Bac": {
+      const data =
+        game.data && typeof game.data === "object" && "categories" in game.data
+          ? (game.data as PetitBacData)
+          : emptyPetitBac();
+      playable = isPetitBacPlayable(data);
+      player = <PetitBacPlayer data={data} />;
+      emptyMessage = "Ajoute au moins 2 catégories pour pouvoir tester.";
       break;
     }
     default: {

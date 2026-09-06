@@ -23,6 +23,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Runner: "🦔",
   Musique: "🎵",
   "Calcul Mental": "🧮",
+  "Petit Bac": "📝",
 };
 
 const FAQ: { question: string; answer: string }[] = [
