@@ -10,6 +10,7 @@ import { emptyRunner, type RunnerData } from "@/lib/runner";
 import { emptyMusique, type MusiqueData } from "@/lib/musique";
 import { emptyCalcul, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, type PetitBacData } from "@/lib/petitBac";
+import { emptyDevinettes, type DevinettesData } from "@/lib/devinettes";
 import MazeEditor from "@/components/MazeEditor";
 import QuizEditor from "@/components/QuizEditor";
 import PuzzleEditor from "@/components/PuzzleEditor";
@@ -20,6 +21,7 @@ import RunnerEditor from "@/components/RunnerEditor";
 import MusiqueEditor from "@/components/MusiqueEditor";
 import CalculEditor from "@/components/CalculEditor";
 import PetitBacEditor from "@/components/PetitBacEditor";
+import DevinettesEditor from "@/components/DevinettesEditor";
 import { type Tier } from "@/lib/tiers";
 
 type AnyData =
@@ -32,7 +34,8 @@ type AnyData =
   | RunnerData
   | MusiqueData
   | CalculData
-  | PetitBacData;
+  | PetitBacData
+  | DevinettesData;
 
 export default async function EditeurJeuPage({
   params,
@@ -160,6 +163,14 @@ export default async function EditeurJeuPage({
         ? (game.data as PetitBacData)
         : emptyPetitBac();
     return <PetitBacEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Devinettes") {
+    const data =
+      game.data && typeof game.data === "object" && "rounds" in game.data
+        ? (game.data as DevinettesData)
+        : emptyDevinettes();
+    return <DevinettesEditor {...common} initialData={data} />;
   }
 
   const data =

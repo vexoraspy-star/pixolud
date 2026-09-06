@@ -9,6 +9,7 @@ export const CATEGORIES = [
   "Musique",
   "Calcul Mental",
   "Petit Bac",
+  "Devinettes",
 ] as const;
 
 export type GameCategory = (typeof CATEGORIES)[number];

@@ -11,6 +11,7 @@ import { isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { isMusiquePlayable, type MusiqueData } from "@/lib/musique";
 import { isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
+import { isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
 import MazePlayer from "@/components/MazePlayer";
 import QuizPlayer from "@/components/QuizPlayer";
 import PuzzlePlayer from "@/components/PuzzlePlayer";
@@ -21,6 +22,7 @@ import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
+import DevinettesPlayer from "@/components/DevinettesPlayer";
 import PartyLobby from "@/components/PartyLobby";
 
 type AnyData =
@@ -33,7 +35,8 @@ type AnyData =
   | RunnerData
   | MusiqueData
   | CalculData
-  | PetitBacData;
+  | PetitBacData
+  | DevinettesData;
 
 export default async function PlayGamePage({
   params,
@@ -104,6 +107,8 @@ export default async function PlayGamePage({
     player = <CalculPlayer data={game.data as CalculData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Petit Bac" && isPetitBacPlayable(game.data as PetitBacData)) {
     player = <PetitBacPlayer data={game.data as PetitBacData} gameId={game.id} countsAsPlay />;
+  } else if (game.category === "Devinettes" && isDevinettesPlayable(game.data as DevinettesData)) {
+    player = <DevinettesPlayer data={game.data as DevinettesData} gameId={game.id} countsAsPlay />;
   }
 
   return (
