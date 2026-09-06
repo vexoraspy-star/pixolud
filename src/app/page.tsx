@@ -80,6 +80,12 @@ export default async function Home() {
             >
               {t("home.ctaExplore")}
             </Link>
+            <Link
+              href={`/catalogue?categorie=${encodeURIComponent("Éducation")}`}
+              className="rounded-full border border-white/60 px-6 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
+            >
+              {t("home.ctaEducation")}
+            </Link>
           </div>
 
           <form
