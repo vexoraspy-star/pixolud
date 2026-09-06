@@ -14,8 +14,15 @@ import {
 } from "@/lib/chess";
 import { createClient } from "@/lib/supabase/client";
 import { hasGoldenName, type ArenaIdentity } from "@/lib/arena";
+import { pickBotMove, type BotLevel } from "@/lib/chessAi";
 
 type Phase = "menu" | "waiting" | "playing" | "ended";
+
+const BOT_LABELS: Record<BotLevel, string> = {
+  apprenti: "🌱 Apprenti",
+  normal: "⚙️ Normal",
+  expert: "🔥 Expert",
+};
 
 function generateCode(): string {
   return Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -44,6 +51,7 @@ export default function ChessGame({
   const [selected, setSelected] = useState<Square | null>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [botLevel, setBotLevel] = useState<BotLevel | null>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const channelRef = useRef<any>(null);
@@ -113,6 +121,16 @@ export default function ChessGame({
     connect(code, "b");
   }
 
+  function startBotGame(level: BotLevel) {
+    setBotLevel(level);
+    setRoomCode("");
+    setMyColor("w");
+    setChessState(initialState());
+    setSelected(null);
+    setResultMessage(null);
+    setPhase("playing");
+  }
+
   function copyInviteLink() {
     const url = `${window.location.origin}/multijoueur?chess=${roomCode}`;
     navigator.clipboard
@@ -122,7 +140,7 @@ export default function ChessGame({
   }
 
   function resign() {
-    sendBroadcast("resign", { pseudo });
+    if (!botLevel) sendBroadcast("resign", { pseudo });
     setResultMessage("🏳️ Tu as abandonné la partie.");
     setPhase("ended");
   }
@@ -131,11 +149,32 @@ export default function ChessGame({
     cleanupChannel();
     setPhase("menu");
     setRoomCode("");
+    setBotLevel(null);
     setOpponentPseudo(null);
     setSelected(null);
     setResultMessage(null);
     setChessState(initialState());
   }
+
+  useEffect(() => {
+    if (!botLevel || phase !== "playing" || chessState.turn === myColor) return;
+    const timeout = setTimeout(() => {
+      const move = pickBotMove(chessState, botLevel);
+      if (!move) return;
+      const next = applyMove(chessState, move);
+      setChessState(next);
+
+      const status = getGameStatus(next);
+      if (status === "checkmate") {
+        setResultMessage(`♟️ Échec et mat ! Les ${next.turn === "w" ? "Noirs" : "Blancs"} gagnent.`);
+        setPhase("ended");
+      } else if (status === "stalemate") {
+        setResultMessage("🤝 Pat — match nul.");
+        setPhase("ended");
+      }
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [botLevel, phase, chessState, myColor]);
 
   const handleSquareClick = useCallback((x: number, y: number) => {
     if (phase !== "playing" || chessState.turn !== myColor) return;
@@ -212,6 +251,24 @@ export default function ChessGame({
           </button>
         </div>
 
+        <div className="w-full border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            Ou entraîne-toi contre un bot :
+          </p>
+          <div className="flex justify-center gap-2">
+            {(Object.keys(BOT_LABELS) as BotLevel[]).map((level) => (
+              <button
+                key={level}
+                type="button"
+                onClick={() => startBotGame(level)}
+                className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                {BOT_LABELS[level]}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button type="button" onClick={onQuit} className="text-sm font-medium text-zinc-400 hover:text-violet-600">
           ← Retour au hub
         </button>
@@ -223,14 +280,22 @@ export default function ChessGame({
   const ranks = myColor === "w" ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
   const legalTargets = selected ? legalMovesFrom(chessState, selected[0], selected[1]) : [];
   const inCheck = phase === "playing" && getGameStatus(chessState) === "check";
+  const botThinking = phase === "playing" && !!botLevel && chessState.turn !== myColor;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 px-4">
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           ♟️ Toi : <span className={golden ? "font-semibold text-amber-500" : "font-medium"}>{pseudo}</span>{" "}
-          ({myColor === "w" ? "Blancs" : "Noirs"}) · Code :{" "}
-          <span className="font-mono font-semibold">{roomCode}</span>
+          ({myColor === "w" ? "Blancs" : "Noirs"})
+          {botLevel ? (
+            <> · Bot {BOT_LABELS[botLevel]}</>
+          ) : (
+            <>
+              {" "}
+              · Code : <span className="font-mono font-semibold">{roomCode}</span>
+            </>
+          )}
         </p>
         <button type="button" onClick={backToMenu} className="text-sm font-medium text-zinc-400 hover:text-violet-600">
           Quitter
@@ -256,14 +321,16 @@ export default function ChessGame({
       {(phase === "playing" || phase === "ended") && (
         <>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Adversaire : {opponentPseudo ?? "..."} ·{" "}
+            Adversaire : {botLevel ? `Bot ${BOT_LABELS[botLevel]}` : (opponentPseudo ?? "...")} ·{" "}
             {phase === "ended"
               ? resultMessage
               : chessState.turn === myColor
                 ? inCheck
                   ? "Échec ! À toi de jouer."
                   : "À toi de jouer"
-                : "Au tour de l'adversaire..."}
+                : botThinking
+                  ? "Le bot réfléchit..."
+                  : "Au tour de l'adversaire..."}
           </p>
 
           <div className="grid grid-cols-8 overflow-hidden rounded-2xl border border-zinc-300 shadow-lg dark:border-zinc-700">
