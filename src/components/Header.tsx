@@ -54,8 +54,9 @@ export default async function Header() {
           />
         </form>
 
-        <nav className="ml-auto flex items-center gap-1 text-sm font-medium">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
           <MobileMenu pseudo={pseudo} locale={locale} />
+          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm font-medium">
           <Link
             href="/catalogue"
             className="hidden rounded-full px-3 py-1.5 text-zinc-600 hover:bg-zinc-100 sm:block dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -127,9 +128,12 @@ export default async function Header() {
               </Link>
             </>
           )}
+          </nav>
 
-          <LanguageSwitcher current={locale} />
-        </nav>
+          <div className="shrink-0">
+            <LanguageSwitcher current={locale} />
+          </div>
+        </div>
       </div>
     </header>
   );
