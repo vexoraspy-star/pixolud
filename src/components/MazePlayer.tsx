@@ -83,6 +83,7 @@ export default function MazePlayer({
             const isWall = wallSet.has(key);
             const isPlayer = pos[0] === x && pos[1] === y;
             const isEnd = data.end && cellKey(...data.end) === key;
+            const isDark = (x + y) % 2 === 1;
             return (
               <div
                 key={key}
@@ -91,7 +92,9 @@ export default function MazePlayer({
                     ? "bg-gradient-to-br from-zinc-600 to-zinc-800 shadow-sm dark:from-zinc-500 dark:to-zinc-700"
                     : isEnd
                       ? "bg-gradient-to-br from-rose-100 to-rose-200 shadow-inner dark:from-rose-900/50 dark:to-rose-950/50"
-                      : "bg-white shadow-sm dark:bg-zinc-950"
+                      : isDark
+                        ? "bg-zinc-100 shadow-sm dark:bg-zinc-900"
+                        : "bg-white shadow-sm dark:bg-zinc-950"
                 }`}
               >
                 {isPlayer ? (

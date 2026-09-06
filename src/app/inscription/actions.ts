@@ -60,5 +60,29 @@ export async function signup(formData: FormData) {
     redirect(`/inscription?error=${encodeURIComponent(message)}`);
   }
 
-  redirect("/inscription/verifie-ton-email");
+  redirect(`/inscription/verifie-ton-email?email=${encodeURIComponent(email)}`);
+}
+
+export async function resendConfirmationEmail(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) {
+    redirect("/inscription/verifie-ton-email");
+  }
+
+  const origin = (await headers()).get("origin");
+  const supabase = await createClient();
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${origin}/auth/confirm` },
+  });
+
+  const query = new URLSearchParams({ email });
+  if (error) {
+    query.set("resendError", error.message);
+  } else {
+    query.set("resent", "1");
+  }
+  redirect(`/inscription/verifie-ton-email?${query.toString()}`);
 }

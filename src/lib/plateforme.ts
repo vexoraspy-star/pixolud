@@ -22,9 +22,17 @@ export function emptyPlateforme(big = false): PlateformeData {
 }
 
 export function isPlateformePlayable(data: PlateformeData): boolean {
-  return (
-    data?.start != null && data?.end != null && Array.isArray(data.platforms) && data.platforms.length > 0
-  );
+  if (
+    data?.start == null ||
+    data?.end == null ||
+    !Array.isArray(data.platforms) ||
+    data.platforms.length === 0
+  ) {
+    return false;
+  }
+  const platformSet = new Set(data.platforms.map(([x, y]) => cellKey(x, y)));
+  const [sx, sy] = data.start;
+  return platformSet.has(cellKey(sx, sy + 1));
 }
 
 export function cellKey(x: number, y: number): string {

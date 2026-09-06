@@ -100,6 +100,8 @@ const fr: Dict = {
     "On vient de t'envoyer un lien de confirmation. Clique dessus pour activer ton compte et te connecter.",
   "auth.checkEmailReset":
     "Si un compte existe avec cette adresse, un lien de réinitialisation vient de t'être envoyé.",
+  "auth.resendEmail": "Renvoyer l'email",
+  "auth.resendEmailSent": "Email renvoyé ! Vérifie ta boîte mail.",
 
   "lang.choose": "Choisir la langue",
 };
@@ -185,6 +187,8 @@ const en: Dict = {
     "We just sent you a confirmation link. Click it to activate your account and log in.",
   "auth.checkEmailReset":
     "If an account exists with that address, a reset link has just been sent to you.",
+  "auth.resendEmail": "Resend email",
+  "auth.resendEmailSent": "Email resent! Check your inbox.",
 
   "lang.choose": "Choose language",
 };
@@ -270,6 +274,8 @@ const de: Dict = {
     "Wir haben dir gerade einen Bestätigungslink geschickt. Klicke darauf, um dein Konto zu aktivieren und dich anzumelden.",
   "auth.checkEmailReset":
     "Falls ein Konto mit dieser Adresse existiert, wurde dir gerade ein Link zum Zurücksetzen gesendet.",
+  "auth.resendEmail": "E-Mail erneut senden",
+  "auth.resendEmailSent": "E-Mail erneut gesendet! Überprüfe dein Postfach.",
 
   "lang.choose": "Sprache wählen",
 };
@@ -355,6 +361,8 @@ const es: Dict = {
     "Te acabamos de enviar un enlace de confirmación. Haz clic en él para activar tu cuenta e iniciar sesión.",
   "auth.checkEmailReset":
     "Si existe una cuenta con esa dirección, te acabamos de enviar un enlace de restablecimiento.",
+  "auth.resendEmail": "Reenviar el email",
+  "auth.resendEmailSent": "¡Email reenviado! Revisa tu correo.",
 
   "lang.choose": "Elegir idioma",
 };
@@ -440,6 +448,8 @@ const ru: Dict = {
     "Мы только что отправили тебе ссылку для подтверждения. Перейди по ней, чтобы активировать аккаунт и войти.",
   "auth.checkEmailReset":
     "Если аккаунт с таким адресом существует, мы только что отправили ссылку для сброса пароля.",
+  "auth.resendEmail": "Отправить письмо ещё раз",
+  "auth.resendEmailSent": "Письмо отправлено повторно! Проверь почту.",
 
   "lang.choose": "Выбрать язык",
 };
@@ -525,6 +535,8 @@ const ar: Dict = {
     "لقد أرسلنا لك للتو رابط تأكيد. انقر عليه لتفعيل حسابك وتسجيل الدخول.",
   "auth.checkEmailReset":
     "إذا كان هناك حساب مرتبط بهذا العنوان، فقد تم إرسال رابط إعادة التعيين إليك للتو.",
+  "auth.resendEmail": "إعادة إرسال البريد الإلكتروني",
+  "auth.resendEmailSent": "تم إعادة إرسال البريد الإلكتروني! تحقق من بريدك.",
 
   "lang.choose": "اختر اللغة",
 };

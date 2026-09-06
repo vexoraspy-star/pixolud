@@ -40,6 +40,9 @@ export default function PlateformePlayer({
           return start;
         }
         if (!platformSet.has(below)) {
+          if (data.end && cellKey(x, y + 1) === cellKey(...data.end)) {
+            setWon(true);
+          }
           return [x, y + 1];
         }
         return [x, y];
@@ -100,6 +103,7 @@ export default function PlateformePlayer({
             const isPlatform = platformSet.has(key);
             const isPlayer = pos[0] === x && pos[1] === y;
             const isEnd = data.end && cellKey(...data.end) === key;
+            const isDark = (x + y) % 2 === 1;
             return (
               <div
                 key={key}
@@ -108,7 +112,9 @@ export default function PlateformePlayer({
                     ? "bg-gradient-to-br from-amber-600 to-amber-800 shadow-sm"
                     : isEnd
                       ? "bg-gradient-to-br from-rose-100 to-rose-200 shadow-inner dark:from-rose-900/50 dark:to-rose-950/50"
-                      : "bg-white/60 dark:bg-zinc-950/60"
+                      : isDark
+                        ? "bg-sky-100/60 dark:bg-zinc-900/60"
+                        : "bg-white/60 dark:bg-zinc-950/60"
                 }`}
               >
                 {isPlayer ? (

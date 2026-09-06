@@ -1,20 +1,58 @@
+import type { Tier } from "@/lib/tiers";
+
 export const ARENA_GRID_W = 32;
 export const ARENA_GRID_H = 20;
 export const ARENA_CELL_PX = 18;
-export const ARENA_MOVE_MS = 150;
-export const ARENA_GROWTH_TICKS = 15;
 export const ARENA_STALE_MS = 4000;
-export const ARENA_CHANNEL = "arena-global";
 
 export const ARENA_CHARACTERS = ["🐍", "🦖", "🐲", "🚀", "👾", "🤖", "🐱", "🦊", "🐸", "🦄"];
 
 export type Point = [number, number];
 
-export interface ArenaBroadcastPayload {
-  id: string;
+export type ArenaMode = "territoire" | "chasse" | "bulles";
+
+export interface ArenaModeInfo {
+  id: ArenaMode;
+  label: string;
+  emoji: string;
+  description: string;
+  gradient: string;
+}
+
+export const ARENA_MODES: ArenaModeInfo[] = [
+  {
+    id: "territoire",
+    label: "Territoire",
+    emoji: "🗺️",
+    description:
+      "Trace une traînée et reviens sur ta zone pour la capturer. Évite les traînées adverses !",
+    gradient: "from-emerald-500 to-teal-600",
+  },
+  {
+    id: "chasse",
+    label: "Chasse aux objets",
+    emoji: "💎",
+    description:
+      "Ramasse un maximum de gemmes avant les autres joueurs sur la carte partagée.",
+    gradient: "from-amber-400 to-orange-500",
+  },
+  {
+    id: "bulles",
+    label: "Bulles géantes",
+    emoji: "🫧",
+    description:
+      "Absorbe les bulles plus petites que toi pour grossir, évite les plus grosses !",
+    gradient: "from-fuchsia-500 to-purple-600",
+  },
+];
+
+/** Un pseudo doré, ça ne change aucune règle du jeu : juste un cosmétique pour les abonnés. */
+export function hasGoldenName(tier: Tier): boolean {
+  return tier === "standard" || tier === "max";
+}
+
+export interface ArenaIdentity {
   pseudo: string;
   emoji: string;
-  segments: Point[];
-  score: number;
-  ts: number;
+  tier: Tier;
 }

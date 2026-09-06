@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import ArenaGame from "@/components/ArenaGame";
+import MultiplayerHub from "@/components/MultiplayerHub";
+import type { Tier } from "@/lib/tiers";
 
 export default async function MultijoueurPage() {
   const supabase = await createClient();
@@ -8,18 +9,20 @@ export default async function MultijoueurPage() {
   } = await supabase.auth.getUser();
 
   let pseudo = "";
+  let tier: Tier = "free";
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("pseudo")
+      .select("pseudo, tier")
       .eq("id", user.id)
       .single();
     pseudo = profile?.pseudo ?? "";
+    tier = (profile?.tier as Tier) ?? "free";
   }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-      <ArenaGame initialPseudo={pseudo} />
+      <MultiplayerHub initialPseudo={pseudo} tier={tier} />
     </div>
   );
 }

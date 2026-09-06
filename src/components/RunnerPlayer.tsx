@@ -36,13 +36,12 @@ export default function RunnerPlayer({
     const interval = setInterval(() => {
       setPos((p) => {
         const next = p + 1;
-        if (next >= data.length - 1) {
-          setStatus("won");
-          return next;
-        }
         if (obstacleSet.has(next) && !isJumpingRef.current) {
           setStatus("lost");
-          return p;
+          return next;
+        }
+        if (next >= data.length - 1) {
+          setStatus("won");
         }
         return next;
       });
