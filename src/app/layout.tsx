@@ -4,6 +4,8 @@ import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import Mascot from "@/components/Mascot";
+import KonamiCode from "@/components/KonamiCode";
 import { LANGUAGE_META } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 
@@ -39,6 +41,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-white text-zinc-900 dark:bg-black dark:text-white">
         <ServiceWorkerRegister />
+        <KonamiCode />
+        <Mascot />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />

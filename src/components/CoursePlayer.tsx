@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CourseData } from "@/lib/course";
 import { createClient } from "@/lib/supabase/client";
+import { recordEvent } from "@/lib/fun";
 
 type Phase = "idle" | "waiting" | "go" | "tooSoon" | "result" | "finished";
 
@@ -28,6 +29,10 @@ export default function CoursePlayer({
     const supabase = createClient();
     supabase.rpc("increment_plays", { game_id: gameId });
   }, [countsAsPlay, gameId]);
+
+  useEffect(() => {
+    if (phase === "tooSoon") recordEvent("course-too-soon");
+  }, [phase]);
 
   const startRound = useCallback(() => {
     setPhase("waiting");

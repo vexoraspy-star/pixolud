@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/app/connexion/actions";
 import { updateProfile } from "./actions";
+import ShameBadges from "@/components/ShameBadges";
 
 export default async function ParametresPage({
   searchParams,
@@ -69,6 +70,8 @@ export default async function ParametresPage({
           Enregistrer
         </button>
       </form>
+
+      <ShameBadges />
 
       <form action={logout} className="mt-10 border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <button

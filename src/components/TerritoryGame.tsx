@@ -12,6 +12,7 @@ import {
   type Point,
 } from "@/lib/arena";
 import { createClient } from "@/lib/supabase/client";
+import { recordEvent } from "@/lib/fun";
 
 const CHANNEL = "arena-territoire";
 const MOVE_MS = 140;
@@ -130,6 +131,10 @@ export default function TerritoryGame({
   const golden = hasGoldenName(tier);
   const [score, setScore] = useState(9);
   const [justDied, setJustDied] = useState(false);
+
+  useEffect(() => {
+    if (justDied) recordEvent("territoire-death");
+  }, [justDied]);
   const [leaderboard, setLeaderboard] = useState<
     { pseudo: string; emoji: string; golden: boolean; score: number; self: boolean }[]
   >([]);

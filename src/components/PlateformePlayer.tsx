@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cellKey, type PlateformeData } from "@/lib/plateforme";
 import { createClient } from "@/lib/supabase/client";
+import { recordEvent } from "@/lib/fun";
 
 const TICK_MS = 220;
 
@@ -28,6 +29,10 @@ export default function PlateformePlayer({
     const supabase = createClient();
     supabase.rpc("increment_plays", { game_id: gameId });
   }, [countsAsPlay, gameId]);
+
+  useEffect(() => {
+    if (falls > 0) recordEvent("plateforme-fall");
+  }, [falls]);
 
   // Gravité : à chaque tick, si aucune plateforme sous le joueur, il tombe.
   useEffect(() => {

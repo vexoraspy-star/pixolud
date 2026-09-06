@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ARENA_CHARACTERS, ARENA_MODES, hasGoldenName, type ArenaMode } from "@/lib/arena";
+import { useSecretUnlocked, SECRET_CHARACTER } from "@/lib/fun";
 import type { Tier } from "@/lib/tiers";
 import TerritoryGame from "./TerritoryGame";
 import TreasureHuntGame from "./TreasureHuntGame";
@@ -20,7 +21,10 @@ export default function MultiplayerHub({
   const [pseudo, setPseudo] = useState(initialPseudo);
   const [emoji, setEmoji] = useState(ARENA_CHARACTERS[0]);
   const [mode, setMode] = useState<ArenaMode | null>(null);
+  const secretUnlocked = useSecretUnlocked();
   const golden = hasGoldenName(tier);
+
+  const characters = secretUnlocked ? [...ARENA_CHARACTERS, SECRET_CHARACTER] : ARENA_CHARACTERS;
 
   if (phase === "identity") {
     return (
@@ -50,7 +54,7 @@ export default function MultiplayerHub({
         )}
 
         <div className="flex flex-wrap justify-center gap-2">
-          {ARENA_CHARACTERS.map((c) => (
+          {characters.map((c) => (
             <button
               key={c}
               type="button"

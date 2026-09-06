@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RunnerData } from "@/lib/runner";
 import { createClient } from "@/lib/supabase/client";
+import { recordEvent } from "@/lib/fun";
 
 const TICK_MS = 550;
 const JUMP_MS = 700;
@@ -30,6 +31,10 @@ export default function RunnerPlayer({
     const supabase = createClient();
     supabase.rpc("increment_plays", { game_id: gameId });
   }, [countsAsPlay, gameId]);
+
+  useEffect(() => {
+    if (status === "lost") recordEvent("runner-lost");
+  }, [status]);
 
   useEffect(() => {
     if (status !== "playing") return;
