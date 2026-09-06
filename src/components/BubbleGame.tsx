@@ -5,8 +5,8 @@ import { ARENA_STALE_MS, ARENA_CHARACTERS, hasGoldenName, type ArenaIdentity } f
 import { createClient } from "@/lib/supabase/client";
 
 const CHANNEL = "arena-bulles";
-const WORLD_W = 576;
-const WORLD_H = 360;
+const WORLD_W = 768;
+const WORLD_H = 480;
 const MIN_RADIUS = 14;
 const BASE_SPEED = 160;
 const PELLET_COUNT = 22;
@@ -292,7 +292,7 @@ export default function BubbleGame({
   }, []);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col items-center gap-4 px-4">
+    <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-4">
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           🫧 {emoji}{" "}

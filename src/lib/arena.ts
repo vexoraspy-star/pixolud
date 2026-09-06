@@ -2,7 +2,7 @@ import type { Tier } from "@/lib/tiers";
 
 export const ARENA_GRID_W = 32;
 export const ARENA_GRID_H = 20;
-export const ARENA_CELL_PX = 18;
+export const ARENA_CELL_PX = 24;
 export const ARENA_STALE_MS = 4000;
 
 export const ARENA_CHARACTERS = ["🐍", "🦖", "🐲", "🚀", "👾", "🤖", "🐱", "🦊", "🐸", "🦄"];
