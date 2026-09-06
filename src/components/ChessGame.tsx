@@ -352,7 +352,13 @@ export default function ChessGame({
                     } ${isSelected ? "ring-4 ring-inset ring-amber-400" : ""}`}
                   >
                     {piece && (
-                      <span className={piece.color === "w" ? "text-white drop-shadow" : "text-zinc-900"}>
+                      <span
+                        className={piece.color === "w" ? "text-white" : "text-zinc-900"}
+                        style={{
+                          WebkitTextStroke: piece.color === "w" ? "1.5px #1f2937" : "1.5px #f4f4f5",
+                          paintOrder: "stroke fill",
+                        }}
+                      >
                         {PIECE_SYMBOLS[piece.color][piece.type]}
                       </span>
                     )}
