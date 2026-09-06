@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import { LANGUAGE_META } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 
@@ -22,6 +23,10 @@ export const metadata: Metadata = {
     "La plateforme communautaire pour créer, publier et jouer à des mini-jeux 2D : plateforme, puzzle, arcade, labyrinthe, quiz et plus encore.",
 };
 
+export const viewport: Viewport = {
+  themeColor: "#7c3aed",
+};
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   const dir = LANGUAGE_META[locale].dir;
@@ -33,6 +38,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-white text-zinc-900 dark:bg-black dark:text-white">
+        <ServiceWorkerRegister />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
