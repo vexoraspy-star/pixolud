@@ -50,6 +50,7 @@ export const RADIO_CATEGORIES = [
   "Ragtime",
   "Valse",
   "Orchestral",
+  "Hardtek",
 ] as const;
 
 // Plus de pistes chiptune pour l'instant : la radio ne propose que de vrais
@@ -473,6 +474,42 @@ const AUDIO_TRACKS: AudioTrack[] = [
     license: "Domaine public",
     sourceUrl:
       "https://commons.wikimedia.org/wiki/File:Tchaikovsky_-_Swan_Lake_Op.20_-_Act_II_Pt.1.ogg",
+  },
+  {
+    kind: "audio",
+    id: "hardtek-1-drred",
+    title: "Hardtek I (Part 1)",
+    composer: "Dr Red",
+    category: "Hardtek",
+    emoji: "⚡",
+    src: "https://prod-1.storage.jamendo.com/download/track/385001/mp32/",
+    license: "CC BY-SA",
+    attribution: "Dr Red (Jamendo)",
+    sourceUrl: "https://www.jamendo.com/track/385001",
+  },
+  {
+    kind: "audio",
+    id: "hardtek-5-drred",
+    title: "Hardtek V (Part 1)",
+    composer: "Dr Red",
+    category: "Hardtek",
+    emoji: "🔥",
+    src: "https://prod-1.storage.jamendo.com/download/track/384940/mp32/",
+    license: "CC BY-SA",
+    attribution: "Dr Red (Jamendo)",
+    sourceUrl: "https://www.jamendo.com/track/384940",
+  },
+  {
+    kind: "audio",
+    id: "jumpstyle-not-dead",
+    title: "Jumpstyle is not Dead",
+    composer: "One Milk",
+    category: "Hardtek",
+    emoji: "🦵",
+    src: "https://prod-1.storage.jamendo.com/download/track/1765530/mp32/",
+    license: "CC BY-SA",
+    attribution: "One Milk (Jamendo)",
+    sourceUrl: "https://www.jamendo.com/track/1765530",
   },
 ];
 
