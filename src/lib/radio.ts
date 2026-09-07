@@ -20,7 +20,7 @@ export interface SynthTrack {
   kind: "synth";
   id: string;
   title: string;
-  genre: string;
+  category: string;
   emoji: string;
   bpm: number;
   waveform: OscillatorType;
@@ -32,7 +32,7 @@ export interface AudioTrack {
   id: string;
   title: string;
   composer: string;
-  genre: string;
+  category: string;
   emoji: string;
   src: string;
   license: string;
@@ -41,6 +41,16 @@ export interface AudioTrack {
 }
 
 export type RadioTrack = SynthTrack | AudioTrack;
+
+export const RADIO_CATEGORIES = [
+  "Piano",
+  "Baroque",
+  "Opéra",
+  "Marche",
+  "Ragtime",
+  "Valse",
+  "Orchestral",
+] as const;
 
 // Plus de pistes chiptune pour l'instant : la radio ne propose que de vrais
 // morceaux verifies (domaine public / Creative Commons). Le moteur de
@@ -55,7 +65,7 @@ const AUDIO_TRACKS: AudioTrack[] = [
     id: "fur-elise",
     title: "Für Elise",
     composer: "Ludwig van Beethoven",
-    genre: "Classique · domaine public",
+    category: "Piano",
     emoji: "🎹",
     src: "https://upload.wikimedia.org/wikipedia/commons/7/7b/FurElise.ogg",
     license: "Domaine public (CC0)",
@@ -66,7 +76,7 @@ const AUDIO_TRACKS: AudioTrack[] = [
     id: "clair-de-lune",
     title: "Clair de Lune",
     composer: "Claude Debussy",
-    genre: "Classique · Creative Commons",
+    category: "Piano",
     emoji: "🌌",
     src: "https://upload.wikimedia.org/wikipedia/commons/b/be/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg",
     license: "CC BY 3.0",
@@ -78,7 +88,7 @@ const AUDIO_TRACKS: AudioTrack[] = [
     id: "moonlight-sonata",
     title: "Sonate au clair de lune",
     composer: "Ludwig van Beethoven",
-    genre: "Classique · domaine public",
+    category: "Piano",
     emoji: "🌒",
     src: "https://upload.wikimedia.org/wikipedia/commons/d/d0/Moonlight_Sonata.ogg",
     license: "Domaine public (CC0)",
@@ -86,10 +96,23 @@ const AUDIO_TRACKS: AudioTrack[] = [
   },
   {
     kind: "audio",
+    id: "chopin-nocturne",
+    title: "Nocturne Op. 9 n°2",
+    composer: "Frédéric Chopin",
+    category: "Piano",
+    emoji: "✨",
+    src: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Frederic_Chopin_-_Nocturne_Eb_major_Opus_9%2C_number_2.ogg",
+    license: "CC BY-SA 2.0",
+    attribution: "Interprété par Martha Goldstein",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Frederic_Chopin_-_Nocturne_Eb_major_Opus_9,_number_2.ogg",
+  },
+  {
+    kind: "audio",
     id: "vivaldi-spring",
     title: "Le Printemps",
     composer: "Antonio Vivaldi",
-    genre: "Classique · Creative Commons",
+    category: "Baroque",
     emoji: "🌸",
     src: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Vivaldi_-_Four_Seasons_1_Spring_mvt_1_Allegro_-_John_Harrison_violin.oga",
     license: "CC BY-SA 4.0",
@@ -102,7 +125,7 @@ const AUDIO_TRACKS: AudioTrack[] = [
     id: "canon-pachelbel",
     title: "Canon en Ré",
     composer: "Johann Pachelbel",
-    genre: "Classique · Creative Commons",
+    category: "Baroque",
     emoji: "🕊️",
     src: "https://upload.wikimedia.org/wikipedia/commons/5/59/Kevin_MacLeod_-_Canon_in_D_Major.ogg",
     license: "CC BY 3.0",
@@ -111,29 +134,166 @@ const AUDIO_TRACKS: AudioTrack[] = [
   },
   {
     kind: "audio",
-    id: "chopin-nocturne",
-    title: "Nocturne Op. 9 n°2",
-    composer: "Frédéric Chopin",
-    genre: "Classique · Creative Commons",
-    emoji: "✨",
-    src: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Frederic_Chopin_-_Nocturne_Eb_major_Opus_9%2C_number_2.ogg",
-    license: "CC BY-SA 2.0",
-    attribution: "Interprété par Martha Goldstein",
+    id: "bach-toccata",
+    title: "Toccata et Fugue en Ré mineur",
+    composer: "Johann Sebastian Bach",
+    category: "Baroque",
+    emoji: "🎻",
+    src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Kevin_MacLeod_-_J_S_Bach_Toccata_and_Fugue_in_D_Minor.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Kevin MacLeod",
     sourceUrl:
-      "https://commons.wikimedia.org/wiki/File:Frederic_Chopin_-_Nocturne_Eb_major_Opus_9,_number_2.ogg",
+      "https://commons.wikimedia.org/wiki/File:Kevin_MacLeod_-_J_S_Bach_Toccata_and_Fugue_in_D_Minor.ogg",
+  },
+  {
+    kind: "audio",
+    id: "bizet-habanera",
+    title: "Habanera (Carmen)",
+    composer: "Georges Bizet",
+    category: "Opéra",
+    emoji: "💃",
+    src: "https://upload.wikimedia.org/wikipedia/commons/9/9a/Kevin_MacLeod_-_Georges_Bizet_Habanera.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Kevin MacLeod",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Kevin_MacLeod_-_Georges_Bizet_Habanera.ogg",
+  },
+  {
+    kind: "audio",
+    id: "wagner-valkyries",
+    title: "La Chevauchée des Walkyries",
+    composer: "Richard Wagner",
+    category: "Opéra",
+    emoji: "⚔️",
+    src: "https://upload.wikimedia.org/wikipedia/commons/d/d2/Richard_Wagner_-_The_Valkyrie_-_Ride_of_the_Valkyries.ogg",
+    license: "EFF Open Audio License",
+    attribution: "Philharmonie d'Ulm, dir. James Allen Gähres",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Richard_Wagner_-_The_Valkyrie_-_Ride_of_the_Valkyries.ogg",
   },
   {
     kind: "audio",
     id: "mozart-turkish-march",
     title: "Marche turque",
     composer: "Wolfgang Amadeus Mozart",
-    genre: "Classique · Creative Commons",
+    category: "Marche",
     emoji: "🥁",
     src: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Mozart_-_Piano_Sonata_No._11_in_A_major_-_III._Allegro_%28Turkish_March%29.ogg",
     license: "CC BY-SA 3.0",
     attribution: "Interprété par Bernd Krueger",
     sourceUrl:
       "https://commons.wikimedia.org/wiki/File:Mozart_-_Piano_Sonata_No._11_in_A_major_-_III._Allegro_(Turkish_March).ogg",
+  },
+  {
+    kind: "audio",
+    id: "sousa-stars-stripes",
+    title: "Stars and Stripes Forever",
+    composer: "John Philip Sousa",
+    category: "Marche",
+    emoji: "🎺",
+    src: "https://upload.wikimedia.org/wikipedia/commons/5/59/The_Stars_and_Stripes_Forever_-_U.S._Navy_Band.ogg",
+    license: "Domaine public",
+    attribution: "United States Navy Band",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:The_Stars_and_Stripes_Forever_-_U.S._Navy_Band.ogg",
+  },
+  {
+    kind: "audio",
+    id: "radetzky-march",
+    title: "Marche de Radetzky",
+    composer: "Johann Strauss (père)",
+    category: "Marche",
+    emoji: "🪖",
+    src: "https://upload.wikimedia.org/wikipedia/commons/b/b4/Radetzky_March.ogg",
+    license: "Domaine public",
+    attribution: "United States Marine Band, dir. John R. Bourgeois",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Radetzky_March.ogg",
+  },
+  {
+    kind: "audio",
+    id: "joplin-entertainer",
+    title: "The Entertainer",
+    composer: "Scott Joplin",
+    category: "Ragtime",
+    emoji: "🎷",
+    src: "https://upload.wikimedia.org/wikipedia/commons/1/1b/The_Entertainer_-_Scott_Joplin.ogg",
+    license: "Domaine public (CC0)",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:The_Entertainer_-_Scott_Joplin.ogg",
+  },
+  {
+    kind: "audio",
+    id: "blue-danube",
+    title: "Le Beau Danube bleu",
+    composer: "Johann Strauss II",
+    category: "Valse",
+    emoji: "💙",
+    src: "https://upload.wikimedia.org/wikipedia/commons/d/d4/%22An_der_sch%C3%B6nen%2C_blauen_Donau%22_performed_by_the_U.S._Marine_Band.mp3",
+    license: "Domaine public",
+    attribution: "United States Marine Band, dir. Albert F. Schoepper",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:%22An_der_sch%C3%B6nen,_blauen_Donau%22_performed_by_the_U.S._Marine_Band.mp3",
+  },
+  {
+    kind: "audio",
+    id: "grieg-mountain-king",
+    title: "Dans l'antre du roi de la montagne",
+    composer: "Edvard Grieg",
+    category: "Orchestral",
+    emoji: "🏔️",
+    src: "https://upload.wikimedia.org/wikipedia/commons/b/bb/Musopen_-_In_the_Hall_Of_The_Mountain_King.ogg",
+    license: "Domaine public",
+    attribution: "Musopen Symphony Orchestra",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Musopen_-_In_the_Hall_Of_The_Mountain_King.ogg",
+  },
+  {
+    kind: "audio",
+    id: "saint-saens-danse-macabre",
+    title: "Danse macabre",
+    composer: "Camille Saint-Saëns",
+    category: "Orchestral",
+    emoji: "💀",
+    src: "https://upload.wikimedia.org/wikipedia/commons/4/46/Kevin_MacLeod_-_Camille_Saint-Sans_Danse_Macabre.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Kevin MacLeod",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Kevin_MacLeod_-_Camille_Saint-Sans_Danse_Macabre.ogg",
+  },
+  {
+    kind: "audio",
+    id: "tchaikovsky-sugar-plum",
+    title: "Danse de la Fée Dragée",
+    composer: "Piotr Ilitch Tchaïkovski",
+    category: "Orchestral",
+    emoji: "🍬",
+    src: "https://upload.wikimedia.org/wikipedia/commons/d/de/Kevin_MacLeod_-_P_I_Tchaikovsky_Dance_of_the_Sugar_Plum_Fairy.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Kevin MacLeod",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Kevin_MacLeod_-_P_I_Tchaikovsky_Dance_of_the_Sugar_Plum_Fairy.ogg",
+  },
+  {
+    kind: "audio",
+    id: "schubert-ave-maria",
+    title: "Ave Maria",
+    composer: "Franz Schubert",
+    category: "Orchestral",
+    emoji: "🕯️",
+    src: "https://upload.wikimedia.org/wikipedia/commons/d/d7/Free_Tim_-_Schuberts_Ave_Maria.ogg",
+    license: "Domaine public (CC0)",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Free_Tim_-_Schuberts_Ave_Maria.ogg",
+  },
+  {
+    kind: "audio",
+    id: "mozart-eine-kleine",
+    title: "Eine kleine Nachtmusik",
+    composer: "Wolfgang Amadeus Mozart",
+    category: "Orchestral",
+    emoji: "🎼",
+    src: "https://upload.wikimedia.org/wikipedia/commons/2/24/Mozart_-_Eine_kleine_Nachtmusik_-_1._Allegro.ogg",
+    license: "CC BY-SA 2.0",
+    attribution: "Advent Chamber Orchestra",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Mozart_-_Eine_kleine_Nachtmusik_-_1._Allegro.ogg",
   },
 ];
 

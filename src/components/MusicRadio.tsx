@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { NOTE_FREQS, RADIO_TRACKS, type RadioTrack } from "@/lib/radio";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NOTE_FREQS, RADIO_CATEGORIES, RADIO_TRACKS, type RadioTrack } from "@/lib/radio";
 
 function playTone(ctx: AudioContext, freq: number, duration: number, volume: number, waveform: OscillatorType) {
   if (freq <= 0) return;
@@ -21,6 +21,7 @@ export default function MusicRadio() {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<string | null>(null);
 
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -100,13 +101,17 @@ export default function MusicRadio() {
   useEffect(() => stop, []);
 
   const current = RADIO_TRACKS.find((t) => t.id === currentId) ?? RADIO_TRACKS[0];
+  const visibleTracks = useMemo(
+    () => (category ? RADIO_TRACKS.filter((t) => t.category === category) : RADIO_TRACKS),
+    [category],
+  );
 
   return (
     <div className="fixed bottom-20 start-4 z-40 flex flex-col items-start gap-2 sm:bottom-4 sm:start-20">
       <audio ref={audioElRef} onEnded={stop} />
 
       {open && (
-        <div className="flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+        <div className="flex max-h-[75vh] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
           <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
             <span className="flex items-center gap-2 text-sm font-bold text-white">
               <span className="text-lg">📻</span> Radio Pixolud
@@ -121,8 +126,36 @@ export default function MusicRadio() {
             </button>
           </div>
 
-          <ul className="flex max-h-72 flex-col gap-0.5 overflow-y-auto p-2">
-            {RADIO_TRACKS.map((t) => {
+          <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-zinc-800 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setCategory(null)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                category === null
+                  ? "bg-violet-600 text-white"
+                  : "bg-zinc-900 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Tout
+            </button>
+            {RADIO_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                  category === cat
+                    ? "bg-violet-600 text-white"
+                    : "bg-zinc-900 text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+            {visibleTracks.map((t) => {
               const active = t.id === currentId;
               return (
                 <li key={t.id}>
@@ -137,7 +170,7 @@ export default function MusicRadio() {
                     <span className="flex-1 truncate">
                       <span className="block truncate font-medium">{t.title}</span>
                       <span className="block truncate text-[10px] text-zinc-500">
-                        {t.kind === "audio" ? `${t.composer} · ${t.genre}` : t.genre}
+                        {t.kind === "audio" ? `${t.composer} · ${t.category}` : t.category}
                       </span>
                     </span>
                     {active && playing && <span className="text-xs text-violet-400">▶</span>}
