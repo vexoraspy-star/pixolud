@@ -169,12 +169,18 @@ export default function PythonEditor({
             <p className="mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Code de départ (optionnel)
             </p>
+            <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
+              ⚠️ Laisse vide, ou mets un code incomplet à corriger. Si tu écris ici la
+              réponse complète, l&apos;exercice sera déjà résolu et le joueur n&apos;aura
+              rien à faire !
+            </p>
             <textarea
               value={ex.starterCode}
               onChange={(e) => updateExercise(ex.id, { starterCode: e.target.value })}
-              placeholder={'print("Bonjour")'}
+              placeholder="(laisse vide pour que le joueur parte d'une page blanche)"
               rows={3}
               spellCheck={false}
+              autoComplete="off"
               className="mt-1 w-full rounded-lg border border-zinc-300 bg-zinc-950 px-3 py-2 font-mono text-sm text-emerald-300 outline-none focus:border-violet-500 dark:border-zinc-700"
             />
             <p className="mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
