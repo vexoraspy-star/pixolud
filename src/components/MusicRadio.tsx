@@ -125,6 +125,9 @@ export default function MusicRadio() {
           <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
             <span className="flex items-center gap-2 text-sm font-bold text-white">
               <span className="text-lg">📻</span> Radio Pixolud
+              <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                {RADIO_TRACKS.length} morceaux
+              </span>
             </span>
             <button
               type="button"
