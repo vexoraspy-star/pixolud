@@ -20,6 +20,7 @@ export default function MusicRadio() {
   const [currentId, setCurrentId] = useState(RADIO_TRACKS[0].id);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(0.7);
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ export default function MusicRadio() {
   const stepIndexRef = useRef(0);
   const playingRef = useRef(false);
   const mutedRef = useRef(false);
+  const volumeRef = useRef(0.7);
   const currentIdRef = useRef(currentId);
 
   function ensureAudioCtx(): AudioContext {
@@ -50,7 +52,8 @@ export default function MusicRadio() {
     const beatMs = 60000 / track.bpm;
     const durationSec = (step.beats * beatMs) / 1000;
     const ctx = ensureAudioCtx();
-    playTone(ctx, NOTE_FREQS[step.note], durationSec * 0.85, mutedRef.current ? 0 : 0.07, track.waveform);
+    const gainLevel = mutedRef.current ? 0 : 0.07 * volumeRef.current;
+    playTone(ctx, NOTE_FREQS[step.note], durationSec * 0.85, gainLevel, track.waveform);
     stepIndexRef.current += 1;
     timeoutRef.current = setTimeout(scheduleNext, durationSec * 1000);
   }
@@ -68,6 +71,7 @@ export default function MusicRadio() {
     if (track.kind === "audio") {
       if (audioElRef.current) {
         audioElRef.current.src = track.src;
+        audioElRef.current.volume = volumeRef.current;
         audioElRef.current.play().catch(() => {});
       }
     } else {
@@ -87,6 +91,12 @@ export default function MusicRadio() {
     mutedRef.current = next;
     setMuted(next);
     if (audioElRef.current) audioElRef.current.muted = next;
+  }
+
+  function changeVolume(next: number) {
+    volumeRef.current = next;
+    setVolume(next);
+    if (audioElRef.current) audioElRef.current.volume = next;
   }
 
   function selectTrack(track: RadioTrack) {
@@ -180,29 +190,44 @@ export default function MusicRadio() {
             })}
           </ul>
 
-          <div className="flex items-center gap-3 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white shadow-md transition hover:scale-105 active:scale-95"
-            >
-              {playing ? "⏸" : "▶"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleMute}
-              title={muted ? "Réactiver le son" : "Couper le son"}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-zinc-800"
-            >
-              {muted ? "🔇" : "🔊"}
-            </button>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-white">{current.title}</p>
-              <p className="truncate text-[10px] text-zinc-400">
-                {current.kind === "audio"
-                  ? `${current.license}${current.attribution ? ` · ${current.attribution}` : ""}`
-                  : "Musique générée, libre de droit"}
-              </p>
+          <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white shadow-md transition hover:scale-105 active:scale-95"
+              >
+                {playing ? "⏸" : "▶"}
+              </button>
+              <button
+                type="button"
+                onClick={toggleMute}
+                title={muted ? "Réactiver le son" : "Couper le son"}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-zinc-800"
+              >
+                {muted ? "🔇" : "🔊"}
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-white">{current.title}</p>
+                <p className="truncate text-[10px] text-zinc-400">
+                  {current.kind === "audio"
+                    ? `${current.license}${current.attribution ? ` · ${current.attribution}` : ""}`
+                    : "Musique générée, libre de droit"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500">🔉</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(volume * 100)}
+                onChange={(e) => changeVolume(Number(e.target.value) / 100)}
+                aria-label="Volume"
+                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-800 accent-violet-500"
+              />
+              <span className="text-xs text-zinc-500">🔊</span>
             </div>
           </div>
         </div>
