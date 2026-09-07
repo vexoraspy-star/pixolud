@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import Mascot from "@/components/Mascot";
 import KonamiCode from "@/components/KonamiCode";
+import MusicRadio from "@/components/MusicRadio";
 import { LANGUAGE_META } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 
@@ -43,6 +44,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <ServiceWorkerRegister />
         <KonamiCode />
         <Mascot />
+        <MusicRadio />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />

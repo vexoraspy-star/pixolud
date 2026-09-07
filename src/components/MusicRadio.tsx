@@ -20,6 +20,7 @@ export default function MusicRadio() {
   const [currentId, setCurrentId] = useState(RADIO_TRACKS[0].id);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -101,65 +102,87 @@ export default function MusicRadio() {
   const current = RADIO_TRACKS.find((t) => t.id === currentId) ?? RADIO_TRACKS[0];
 
   return (
-    <div className="flex w-full max-w-xs flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-lg">
+    <div className="fixed bottom-20 start-4 z-40 flex flex-col items-start gap-2 sm:bottom-4 sm:start-20">
       <audio ref={audioElRef} onEnded={stop} />
 
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
-        <span className="text-lg">📻</span>
-        <span className="text-sm font-bold text-white">Radio Pixolud</span>
-      </div>
+      {open && (
+        <div className="flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+            <span className="flex items-center gap-2 text-sm font-bold text-white">
+              <span className="text-lg">📻</span> Radio Pixolud
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Fermer la radio"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-800 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
 
-      <ul className="flex max-h-72 flex-col gap-0.5 overflow-y-auto p-2">
-        {RADIO_TRACKS.map((t) => {
-          const active = t.id === currentId;
-          return (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => selectTrack(t)}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
-                  active ? "bg-violet-600/20 text-violet-300" : "text-zinc-300 hover:bg-zinc-900"
-                }`}
-              >
-                <span className="text-base">{t.emoji}</span>
-                <span className="flex-1 truncate">
-                  <span className="block truncate font-medium">{t.title}</span>
-                  <span className="block truncate text-[10px] text-zinc-500">
-                    {t.kind === "audio" ? `${t.composer} · ${t.genre}` : t.genre}
-                  </span>
-                </span>
-                {active && playing && <span className="text-xs text-violet-400">▶</span>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+          <ul className="flex max-h-72 flex-col gap-0.5 overflow-y-auto p-2">
+            {RADIO_TRACKS.map((t) => {
+              const active = t.id === currentId;
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectTrack(t)}
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                      active ? "bg-violet-600/20 text-violet-300" : "text-zinc-300 hover:bg-zinc-900"
+                    }`}
+                  >
+                    <span className="text-base">{t.emoji}</span>
+                    <span className="flex-1 truncate">
+                      <span className="block truncate font-medium">{t.title}</span>
+                      <span className="block truncate text-[10px] text-zinc-500">
+                        {t.kind === "audio" ? `${t.composer} · ${t.genre}` : t.genre}
+                      </span>
+                    </span>
+                    {active && playing && <span className="text-xs text-violet-400">▶</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-      <div className="flex items-center gap-3 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
-        <button
-          type="button"
-          onClick={togglePlay}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white shadow-md transition hover:scale-105 active:scale-95"
-        >
-          {playing ? "⏸" : "▶"}
-        </button>
-        <button
-          type="button"
-          onClick={toggleMute}
-          title={muted ? "Réactiver le son" : "Couper le son"}
-          className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-zinc-800"
-        >
-          {muted ? "🔇" : "🔊"}
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-white">{current.title}</p>
-          <p className="truncate text-[10px] text-zinc-400">
-            {current.kind === "audio"
-              ? `${current.license}${current.attribution ? ` · ${current.attribution}` : ""}`
-              : "Musique générée, libre de droit"}
-          </p>
+          <div className="flex items-center gap-3 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white shadow-md transition hover:scale-105 active:scale-95"
+            >
+              {playing ? "⏸" : "▶"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleMute}
+              title={muted ? "Réactiver le son" : "Couper le son"}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-zinc-800"
+            >
+              {muted ? "🔇" : "🔊"}
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-white">{current.title}</p>
+              <p className="truncate text-[10px] text-zinc-400">
+                {current.kind === "audio"
+                  ? `${current.license}${current.attribution ? ` · ${current.attribution}` : ""}`
+                  : "Musique générée, libre de droit"}
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950 px-3 py-2 text-white shadow-lg transition hover:scale-105 active:scale-95"
+      >
+        <span className="text-lg">{playing ? current.emoji : "📻"}</span>
+        {playing && <span className="max-w-[8rem] truncate text-xs font-medium">{current.title}</span>}
+      </button>
     </div>
   );
 }

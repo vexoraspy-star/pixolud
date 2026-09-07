@@ -42,51 +42,10 @@ export interface AudioTrack {
 
 export type RadioTrack = SynthTrack | AudioTrack;
 
-const SYNTH_TRACKS: SynthTrack[] = [
-  {
-    kind: "synth",
-    id: "pixel-dreams",
-    title: "Pixel Dreams",
-    genre: "Chiptune original",
-    emoji: "🌙",
-    bpm: 100,
-    waveform: "square",
-    steps: [
-      { note: "C5", beats: 1 }, { note: "E5", beats: 1 }, { note: "G5", beats: 1 }, { note: "E5", beats: 1 },
-      { note: "F5", beats: 1 }, { note: "A5", beats: 1 }, { note: "G5", beats: 2 },
-      { note: "E5", beats: 1 }, { note: "D5", beats: 1 }, { note: "C5", beats: 2 },
-      { note: "-", beats: 1 }, { note: "G4", beats: 1 }, { note: "C5", beats: 2 },
-    ],
-  },
-  {
-    kind: "synth",
-    id: "arcade-nights",
-    title: "Arcade Nights",
-    genre: "Chiptune original",
-    emoji: "🕹️",
-    bpm: 140,
-    waveform: "square",
-    steps: [
-      { note: "C5", beats: 0.5 }, { note: "C5", beats: 0.5 }, { note: "D5", beats: 0.5 }, { note: "E5", beats: 0.5 },
-      { note: "C5", beats: 0.5 }, { note: "C5", beats: 0.5 }, { note: "D5", beats: 0.5 }, { note: "E5", beats: 0.5 },
-      { note: "F5", beats: 0.5 }, { note: "E5", beats: 0.5 }, { note: "D5", beats: 0.5 }, { note: "C5", beats: 0.5 },
-      { note: "A4", beats: 1 }, { note: "-", beats: 1 },
-    ],
-  },
-  {
-    kind: "synth",
-    id: "retro-sunset",
-    title: "Retro Sunset",
-    genre: "Chiptune original",
-    emoji: "🌅",
-    bpm: 80,
-    waveform: "triangle",
-    steps: [
-      { note: "E4", beats: 2 }, { note: "G4", beats: 2 }, { note: "A4", beats: 2 }, { note: "C5", beats: 2 },
-      { note: "B4", beats: 2 }, { note: "G4", beats: 2 }, { note: "E4", beats: 4 },
-    ],
-  },
-];
+// Plus de pistes chiptune pour l'instant : la radio ne propose que de vrais
+// morceaux verifies (domaine public / Creative Commons). Le moteur de
+// synthese reste disponible si on veut en rajouter plus tard.
+const SYNTH_TRACKS: SynthTrack[] = [];
 
 // Verifie manuellement : chaque fichier est bien du domaine public / Creative
 // Commons sur sa page Wikimedia Commons (voir sourceUrl) avant tout ajout.
@@ -113,6 +72,68 @@ const AUDIO_TRACKS: AudioTrack[] = [
     license: "CC BY 3.0",
     attribution: "Interprété par Laurens Goedhart",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg",
+  },
+  {
+    kind: "audio",
+    id: "moonlight-sonata",
+    title: "Sonate au clair de lune",
+    composer: "Ludwig van Beethoven",
+    genre: "Classique · domaine public",
+    emoji: "🌒",
+    src: "https://upload.wikimedia.org/wikipedia/commons/d/d0/Moonlight_Sonata.ogg",
+    license: "Domaine public (CC0)",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Moonlight_Sonata.ogg",
+  },
+  {
+    kind: "audio",
+    id: "vivaldi-spring",
+    title: "Le Printemps",
+    composer: "Antonio Vivaldi",
+    genre: "Classique · Creative Commons",
+    emoji: "🌸",
+    src: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Vivaldi_-_Four_Seasons_1_Spring_mvt_1_Allegro_-_John_Harrison_violin.oga",
+    license: "CC BY-SA 4.0",
+    attribution: "John Harrison (violon), Wichita State University Chamber Players",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:01_-_Vivaldi_Spring_mvt_1_Allegro_-_John_Harrison_violin.ogg",
+  },
+  {
+    kind: "audio",
+    id: "canon-pachelbel",
+    title: "Canon en Ré",
+    composer: "Johann Pachelbel",
+    genre: "Classique · Creative Commons",
+    emoji: "🕊️",
+    src: "https://upload.wikimedia.org/wikipedia/commons/5/59/Kevin_MacLeod_-_Canon_in_D_Major.ogg",
+    license: "CC BY 3.0",
+    attribution: "Interprété par Kevin MacLeod",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Kevin_MacLeod_-_Canon_in_D_Major.ogg",
+  },
+  {
+    kind: "audio",
+    id: "chopin-nocturne",
+    title: "Nocturne Op. 9 n°2",
+    composer: "Frédéric Chopin",
+    genre: "Classique · Creative Commons",
+    emoji: "✨",
+    src: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Frederic_Chopin_-_Nocturne_Eb_major_Opus_9%2C_number_2.ogg",
+    license: "CC BY-SA 2.0",
+    attribution: "Interprété par Martha Goldstein",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Frederic_Chopin_-_Nocturne_Eb_major_Opus_9,_number_2.ogg",
+  },
+  {
+    kind: "audio",
+    id: "mozart-turkish-march",
+    title: "Marche turque",
+    composer: "Wolfgang Amadeus Mozart",
+    genre: "Classique · Creative Commons",
+    emoji: "🥁",
+    src: "https://upload.wikimedia.org/wikipedia/commons/b/bf/Mozart_-_Piano_Sonata_No._11_in_A_major_-_III._Allegro_%28Turkish_March%29.ogg",
+    license: "CC BY-SA 3.0",
+    attribution: "Interprété par Bernd Krueger",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/File:Mozart_-_Piano_Sonata_No._11_in_A_major_-_III._Allegro_(Turkish_March).ogg",
   },
 ];
 
