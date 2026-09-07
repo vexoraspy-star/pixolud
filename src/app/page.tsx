@@ -25,6 +25,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   "Petit Bac": "📝",
   Devinettes: "🔍",
   Éducation: "🎓",
+  Python: "🐍",
 };
 
 export default async function Home() {

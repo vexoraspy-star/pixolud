@@ -8,6 +8,7 @@ import TerritoryGame from "./TerritoryGame";
 import TreasureHuntGame from "./TreasureHuntGame";
 import BubbleGame from "./BubbleGame";
 import ChessGame from "./ChessGame";
+import PythonChatGame from "./PythonChatGame";
 
 type Phase = "identity" | "hub" | "playing";
 
@@ -141,6 +142,7 @@ export default function MultiplayerHub({
       {mode === "chasse" && <TreasureHuntGame identity={identity} onQuit={back} />}
       {mode === "bulles" && <BubbleGame identity={identity} onQuit={back} />}
       {mode === "echecs" && <ChessGame identity={identity} onQuit={back} />}
+      {mode === "python-chat" && <PythonChatGame identity={identity} onQuit={back} />}
     </div>
   );
 }

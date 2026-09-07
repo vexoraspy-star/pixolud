@@ -11,6 +11,7 @@ export const CATEGORIES = [
   "Petit Bac",
   "Devinettes",
   "Éducation",
+  "Python",
 ] as const;
 
 export type GameCategory = (typeof CATEGORIES)[number];

@@ -9,7 +9,7 @@ export const ARENA_CHARACTERS = ["🐍", "🦖", "🐲", "🚀", "👾", "🤖",
 
 export type Point = [number, number];
 
-export type ArenaMode = "territoire" | "chasse" | "bulles" | "echecs";
+export type ArenaMode = "territoire" | "chasse" | "bulles" | "echecs" | "python-chat";
 
 export interface ArenaModeInfo {
   id: ArenaMode;
@@ -51,6 +51,14 @@ export const ARENA_MODES: ArenaModeInfo[] = [
     description:
       "Une partie à deux en temps réel. Crée une partie et partage le code avec un ami.",
     gradient: "from-zinc-600 to-zinc-800",
+  },
+  {
+    id: "python-chat",
+    label: "Chat en Python",
+    emoji: "🐍",
+    description:
+      "Pour parler, écris du code Python avec print(...) ! Le résultat de ton code devient ton message.",
+    gradient: "from-emerald-600 to-teal-700",
   },
 ];
 
