@@ -9,7 +9,7 @@ type Layout = "azerty" | "qwerty";
 
 const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
-const LOOK_SENSITIVITY = 0.0032;
+const BASE_LOOK_SENSITIVITY = 0.0038;
 
 function loadLayout(): Layout {
   try {
@@ -26,6 +26,15 @@ function loadBrightness(): number {
     return v >= 0.5 && v <= 1.8 ? v : 1;
   } catch {
     return 1;
+  }
+}
+
+function loadSensitivity(): number {
+  try {
+    const v = Number(localStorage.getItem("pixolud-3d-sensitivity"));
+    return v >= 0.4 && v <= 3 ? v : 1.5;
+  } catch {
+    return 1.5;
   }
 }
 
@@ -114,8 +123,12 @@ export default function MazePlayer3D({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [layout, setLayoutState] = useState<Layout>("azerty");
   const [brightness, setBrightnessState] = useState(1);
+  const [sensitivity, setSensitivityState] = useState(1.5);
+  const [pointerLocked, setPointerLocked] = useState(false);
+  const [lookActive, setLookActive] = useState(false);
   const layoutRef = useRef<Layout>("azerty");
   const brightnessRef = useRef(1);
+  const sensitivityRef = useRef(1.5);
   const lightsRef = useRef<{ apply: (b: number) => void } | null>(null);
   const heldRef = useRef({ forward: false, back: false });
 
@@ -123,10 +136,13 @@ export default function MazePlayer3D({
     const timeout = setTimeout(() => {
       const l = loadLayout();
       const b = loadBrightness();
+      const s = loadSensitivity();
       layoutRef.current = l;
       brightnessRef.current = b;
+      sensitivityRef.current = s;
       setLayoutState(l);
       setBrightnessState(b);
+      setSensitivityState(s);
       lightsRef.current?.apply(b);
     }, 0);
     return () => clearTimeout(timeout);
@@ -148,6 +164,16 @@ export default function MazePlayer3D({
     lightsRef.current?.apply(next);
     try {
       localStorage.setItem("pixolud-3d-brightness", String(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  function changeSensitivity(next: number) {
+    sensitivityRef.current = next;
+    setSensitivityState(next);
+    try {
+      localStorage.setItem("pixolud-3d-sensitivity", String(next));
     } catch {
       // ignore
     }
@@ -334,14 +360,51 @@ export default function MazePlayer3D({
       return false;
     }
 
-    // --- Regarder autour : glisser (souris ou doigt) sur la vue ---
+    // --- Regarder autour ---
+    // Souris : vrai pointer lock (le curseur reste fixe/cache, comme dans un
+    // FPS) pour ne plus jamais sortir de l'ecran pendant qu'on tourne la tete.
+    // Tactile : pas de pointer lock la-dessus, on garde le glisser-doigt direct.
+    function applyLook(dx: number, dy: number) {
+      const s = BASE_LOOK_SENSITIVITY * sensitivityRef.current;
+      player.yaw -= dx * s;
+      player.pitch = THREE.MathUtils.clamp(player.pitch - dy * s, -0.7, 0.7);
+    }
+
+    function onCanvasClick() {
+      if (document.pointerLockElement === renderer.domElement) return;
+      try {
+        renderer.domElement.requestPointerLock?.()?.catch(() => {});
+      } catch {
+        // ignore : le pointer lock n'est pas toujours disponible (iframe,
+        // navigateur...). Le glisser manuel ci-dessous prend le relais.
+      }
+    }
+    function onPointerLockChange() {
+      const locked = document.pointerLockElement === renderer.domElement;
+      setPointerLocked(locked);
+      if (locked) setLookActive(true);
+    }
+    function onMouseMove(e: MouseEvent) {
+      if (document.pointerLockElement !== renderer.domElement) return;
+      applyLook(e.movementX, e.movementY);
+    }
+    renderer.domElement.addEventListener("click", onCanvasClick);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
+    document.addEventListener("mousemove", onMouseMove);
+
+    // Glisser manuel : filet de secours pour tous les pointeurs (tactile,
+    // ou souris si le pointer lock echoue/n'est pas dispo dans le
+    // navigateur/contexte). Ignore quand le pointer lock est deja actif
+    // pour ne pas cumuler les deux sources de rotation.
     let dragging = false;
-    let lastPointerX = 0;
-    let lastPointerY = 0;
+    let lastDragX = 0;
+    let lastDragY = 0;
     function onPointerDown(e: PointerEvent) {
+      if (document.pointerLockElement === renderer.domElement) return;
       dragging = true;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
+      lastDragX = e.clientX;
+      lastDragY = e.clientY;
+      setLookActive(true);
       try {
         renderer.domElement.setPointerCapture(e.pointerId);
       } catch {
@@ -349,17 +412,12 @@ export default function MazePlayer3D({
       }
     }
     function onPointerMove(e: PointerEvent) {
-      if (!dragging) return;
-      const dx = e.clientX - lastPointerX;
-      const dy = e.clientY - lastPointerY;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
-      player.yaw -= dx * LOOK_SENSITIVITY;
-      player.pitch = THREE.MathUtils.clamp(
-        player.pitch - dy * LOOK_SENSITIVITY,
-        -0.7,
-        0.7,
-      );
+      if (!dragging || document.pointerLockElement === renderer.domElement) return;
+      const dx = e.clientX - lastDragX;
+      const dy = e.clientY - lastDragY;
+      lastDragX = e.clientX;
+      lastDragY = e.clientY;
+      applyLook(dx, dy);
     }
     function onPointerUp(e: PointerEvent) {
       dragging = false;
@@ -369,16 +427,32 @@ export default function MazePlayer3D({
         // ignore
       }
     }
+    function onContextMenu(e: MouseEvent) {
+      e.preventDefault();
+    }
     renderer.domElement.style.touchAction = "none";
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointermove", onPointerMove);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointercancel", onPointerUp);
+    renderer.domElement.addEventListener("contextmenu", onContextMenu);
 
     // --- Clavier : ZQSD ou WASD selon le reglage, + fleches ---
     const keys = new Set<string>();
     function onKeyDown(e: KeyboardEvent) {
       keys.add(e.key.toLowerCase());
+      // Maj : verrouille/deverrouille la vue sans avoir a cliquer.
+      if (e.key === "Shift") {
+        if (document.pointerLockElement === renderer.domElement) {
+          document.exitPointerLock?.();
+        } else {
+          try {
+            renderer.domElement.requestPointerLock?.()?.catch(() => {});
+          } catch {
+            // ignore
+          }
+        }
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
@@ -468,6 +542,13 @@ export default function MazePlayer3D({
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointercancel", onPointerUp);
+      renderer.domElement.removeEventListener("contextmenu", onContextMenu);
+      renderer.domElement.removeEventListener("click", onCanvasClick);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
+      document.removeEventListener("mousemove", onMouseMove);
+      if (document.pointerLockElement === renderer.domElement) {
+        document.exitPointerLock?.();
+      }
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
@@ -478,11 +559,19 @@ export default function MazePlayer3D({
   const forwardLabel = layout === "azerty" ? "Z" : "W";
   const leftLabel = layout === "azerty" ? "Q" : "A";
 
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      containerRef.current?.requestFullscreen?.();
+    }
+  }
+
   return (
     <div className="flex w-full flex-col items-center gap-2">
       <div
         ref={containerRef}
-        className="relative h-[62vh] w-full min-h-[360px] overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-lg select-none"
+        className="relative h-[78vh] w-full min-h-[420px] overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-lg select-none"
       >
         <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
           <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
@@ -495,14 +584,33 @@ export default function MazePlayer3D({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setSettingsOpen((o) => !o)}
-          className="absolute right-3 top-3 flex size-9 items-center justify-center rounded-full bg-black/60 text-lg text-white backdrop-blur hover:bg-black/80"
-          aria-label="Réglages"
-        >
-          ⚙️
-        </button>
+        {!pointerLocked && !lookActive && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full bg-black/70 px-4 py-2 text-center text-xs font-medium text-white backdrop-blur">
+              🖱️ Clique sur la vue pour regarder autour
+              <br className="sm:hidden" /> (ou glisse avec le doigt)
+            </span>
+          </div>
+        )}
+
+        <div className="absolute right-3 top-3 flex gap-2">
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="flex size-9 items-center justify-center rounded-full bg-black/60 text-lg text-white backdrop-blur hover:bg-black/80"
+            aria-label="Plein écran"
+          >
+            ⛶
+          </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((o) => !o)}
+            className="flex size-9 items-center justify-center rounded-full bg-black/60 text-lg text-white backdrop-blur hover:bg-black/80"
+            aria-label="Réglages"
+          >
+            ⚙️
+          </button>
+        </div>
 
         {settingsOpen && (
           <div className="absolute right-3 top-14 w-56 rounded-xl border border-zinc-700 bg-zinc-900/95 p-3 text-white shadow-xl backdrop-blur">
@@ -527,6 +635,16 @@ export default function MazePlayer3D({
                 WASD (EN)
               </button>
             </div>
+            <p className="mb-1 text-xs font-semibold text-zinc-300">Sensibilité souris</p>
+            <input
+              type="range"
+              min={0.4}
+              max={3}
+              step={0.1}
+              value={sensitivity}
+              onChange={(e) => changeSensitivity(Number(e.target.value))}
+              className="mb-3 w-full accent-violet-500"
+            />
             <p className="mb-1 text-xs font-semibold text-zinc-300">Luminosité</p>
             <input
               type="range"
@@ -563,8 +681,8 @@ export default function MazePlayer3D({
       </div>
 
       <p className="text-xs text-zinc-400">
-        {forwardLabel}/{leftLabel}/S/D ou flèches pour marcher · glisse sur la vue (souris ou
-        doigt) pour tourner la tête · trouve le cristal rose.
+        {forwardLabel}/{leftLabel}/S/D ou flèches pour marcher · clique (ou glisse au doigt) pour
+        tourner la tête · Maj pour verrouiller/libérer la vue · trouve le cristal rose.
       </p>
     </div>
   );
