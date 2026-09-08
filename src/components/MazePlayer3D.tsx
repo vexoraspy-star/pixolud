@@ -10,6 +10,8 @@ type Layout = "azerty" | "qwerty";
 const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
 const BASE_LOOK_SENSITIVITY = 0.0038;
+const MINIMAP_SIZE = 160;
+const MINIMAP_REVEAL_RADIUS = 2;
 
 function loadLayout(): Layout {
   try {
@@ -131,6 +133,7 @@ export default function MazePlayer3D({
   const sensitivityRef = useRef(1.5);
   const lightsRef = useRef<{ apply: (b: number) => void } | null>(null);
   const heldRef = useRef({ forward: false, back: false });
+  const minimapRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -360,6 +363,75 @@ export default function MazePlayer3D({
       return false;
     }
 
+    // --- Mini-carte : brouillard de guerre, remis a zero a chaque partie ---
+    const discovered = new Set<string>();
+    const minimapCanvas = minimapRef.current;
+    const minimapCtx = minimapCanvas?.getContext("2d") ?? null;
+    const minimapDpr = Math.min(window.devicePixelRatio, 2);
+    if (minimapCanvas) {
+      minimapCanvas.width = MINIMAP_SIZE * minimapDpr;
+      minimapCanvas.height = MINIMAP_SIZE * minimapDpr;
+      minimapCtx?.scale(minimapDpr, minimapDpr);
+    }
+    const minimapCellPx = MINIMAP_SIZE / Math.max(data.width, data.height);
+
+    function revealAround(cx: number, cz: number) {
+      for (let dx = -MINIMAP_REVEAL_RADIUS; dx <= MINIMAP_REVEAL_RADIUS; dx++) {
+        for (let dz = -MINIMAP_REVEAL_RADIUS; dz <= MINIMAP_REVEAL_RADIUS; dz++) {
+          discovered.add(cellKey(cx + dx, cz + dz));
+        }
+      }
+    }
+
+    function drawMinimap() {
+      if (!minimapCtx) return;
+      minimapCtx.clearRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
+      minimapCtx.fillStyle = "rgba(0,0,0,0.55)";
+      minimapCtx.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
+
+      for (let y = 0; y < data.height; y++) {
+        for (let x = 0; x < data.width; x++) {
+          if (!discovered.has(cellKey(x, y))) continue;
+          minimapCtx.fillStyle = isSolid(x, y) ? "#3f3f46" : "#d4d4d8";
+          minimapCtx.fillRect(
+            x * minimapCellPx,
+            y * minimapCellPx,
+            minimapCellPx - 0.5,
+            minimapCellPx - 0.5,
+          );
+        }
+      }
+
+      if (data.end && discovered.has(cellKey(data.end[0], data.end[1]))) {
+        minimapCtx.fillStyle = "#f43f5e";
+        minimapCtx.beginPath();
+        minimapCtx.arc(
+          (data.end[0] + 0.5) * minimapCellPx,
+          (data.end[1] + 0.5) * minimapCellPx,
+          Math.max(minimapCellPx * 0.4, 2),
+          0,
+          Math.PI * 2,
+        );
+        minimapCtx.fill();
+      }
+
+      const px = player.x * minimapCellPx;
+      const pz = player.z * minimapCellPx;
+      const dirLen = minimapCellPx * 1.3;
+      const fx = -Math.sin(player.yaw);
+      const fz = -Math.cos(player.yaw);
+      minimapCtx.strokeStyle = "#c4b5fd";
+      minimapCtx.lineWidth = 2;
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(px, pz);
+      minimapCtx.lineTo(px + fx * dirLen, pz + fz * dirLen);
+      minimapCtx.stroke();
+      minimapCtx.fillStyle = "#8b5cf6";
+      minimapCtx.beginPath();
+      minimapCtx.arc(px, pz, Math.max(minimapCellPx * 0.45, 3), 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+
     // --- Regarder autour ---
     // Souris : vrai pointer lock (le curseur reste fixe/cache, comme dans un
     // FPS) pour ne plus jamais sortir de l'ecran pendant qu'on tourne la tete.
@@ -517,6 +589,9 @@ export default function MazePlayer3D({
       playerLight.position.copy(camera.position);
       if (endMesh) endMesh.rotation.y += delta * 1.4;
 
+      revealAround(Math.floor(player.x), Math.floor(player.z));
+      drawMinimap();
+
       renderer.render(scene, camera);
     }
     // setInterval plutot que requestAnimationFrame : rendu a cadence fixe,
@@ -568,10 +643,10 @@ export default function MazePlayer3D({
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-2">
+    <div className="h-full w-full">
       <div
         ref={containerRef}
-        className="relative h-[78vh] w-full min-h-[420px] overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-lg select-none"
+        className="relative h-full w-full overflow-hidden bg-black select-none"
       >
         <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
           <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
@@ -658,6 +733,12 @@ export default function MazePlayer3D({
           </div>
         )}
 
+        <canvas
+          ref={minimapRef}
+          style={{ width: MINIMAP_SIZE, height: MINIMAP_SIZE }}
+          className="pointer-events-none absolute bottom-3 right-3 rounded-lg border border-white/20 shadow-lg"
+        />
+
         <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-3">
           <button
             type="button"
@@ -678,12 +759,12 @@ export default function MazePlayer3D({
             ⬇️
           </button>
         </div>
-      </div>
 
-      <p className="text-xs text-zinc-400">
-        {forwardLabel}/{leftLabel}/S/D ou flèches pour marcher · clique (ou glisse au doigt) pour
-        tourner la tête · Maj pour verrouiller/libérer la vue · trouve le cristal rose.
-      </p>
+        <p className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-400">
+          {forwardLabel}/{leftLabel}/S/D ou flèches pour marcher · clique/glisse pour tourner la
+          tête · Maj pour verrouiller/libérer la vue.
+        </p>
+      </div>
     </div>
   );
 }
