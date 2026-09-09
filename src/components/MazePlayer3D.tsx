@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import * as THREE from "three";
 import { cellKey, type MazeData } from "@/lib/maze";
 import { createClient } from "@/lib/supabase/client";
@@ -10,8 +11,13 @@ type Layout = "azerty" | "qwerty";
 const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
 const BASE_LOOK_SENSITIVITY = 0.0038;
-const MINIMAP_SIZE = 160;
+const MINIMAP_SIZE = 220;
 const MINIMAP_REVEAL_RADIUS = 2;
+// Les couloirs vivent en unites "logiques" (1 case = 1 unite) pour toute la
+// physique/collision, mais sont affiches plus larges a l'ecran en
+// multipliant leurs positions par CELL_SIZE au rendu : les couloirs
+// paraissent plus spacieux sans toucher au deplacement/collisions.
+const CELL_SIZE = 1.7;
 
 function loadLayout(): Layout {
   try {
@@ -70,7 +76,7 @@ function makeStoneWallTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1, 2.4);
+  texture.repeat.set(CELL_SIZE, 2.4);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
@@ -114,10 +120,14 @@ export default function MazePlayer3D({
   data,
   gameId,
   countsAsPlay = false,
+  backHref,
+  title,
 }: {
   data: MazeData;
   gameId?: string;
   countsAsPlay?: boolean;
+  backHref?: string;
+  title?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [won, setWon] = useState(false);
@@ -237,7 +247,7 @@ export default function MazePlayer3D({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0c0d10);
-    scene.fog = new THREE.Fog(0x0c0d10, 5, 16);
+    scene.fog = new THREE.Fog(0x0c0d10, 5 * CELL_SIZE, 16 * CELL_SIZE);
 
     const camera = new THREE.PerspectiveCamera(
       74,
@@ -245,7 +255,7 @@ export default function MazePlayer3D({
       0.1,
       100,
     );
-    camera.position.set(player.x, 1.5, player.z);
+    camera.position.set(player.x * CELL_SIZE, 1.5, player.z * CELL_SIZE);
     camera.rotation.order = "YXZ";
     camera.rotation.y = player.yaw;
 
@@ -259,7 +269,7 @@ export default function MazePlayer3D({
     const dirLight = new THREE.DirectionalLight(0xfff4e0, 0.5);
     dirLight.position.set(6, 10, 4);
     scene.add(dirLight);
-    const playerLight = new THREE.PointLight(0xffbe80, 1.3, 7.5, 2);
+    const playerLight = new THREE.PointLight(0xffbe80, 1.3, 7.5 * CELL_SIZE, 2);
     scene.add(playerLight);
 
     lightsRef.current = {
@@ -272,22 +282,22 @@ export default function MazePlayer3D({
     lightsRef.current.apply(brightnessRef.current);
 
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(data.width, data.height),
+      new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
       new THREE.MeshStandardMaterial({
-        map: makeStoneFloorTexture(data.width, data.height),
+        map: makeStoneFloorTexture(data.width * CELL_SIZE, data.height * CELL_SIZE),
         roughness: 0.95,
       }),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(data.width / 2, 0, data.height / 2);
+    floor.position.set((data.width * CELL_SIZE) / 2, 0, (data.height * CELL_SIZE) / 2);
     scene.add(floor);
 
     const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(data.width, data.height),
+      new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
       new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 1 }),
     );
     ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set(data.width / 2, 2.6, data.height / 2);
+    ceiling.position.set((data.width * CELL_SIZE) / 2, 2.6, (data.height * CELL_SIZE) / 2);
     scene.add(ceiling);
 
     // Murs du niveau + un anneau de murs juste hors de la grille : sans ce
@@ -304,7 +314,7 @@ export default function MazePlayer3D({
     }
 
     const wallMesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 2.6, 1),
+      new THREE.BoxGeometry(CELL_SIZE, 2.6, CELL_SIZE),
       new THREE.MeshStandardMaterial({
         map: makeStoneWallTexture(),
         roughness: 0.9,
@@ -313,7 +323,7 @@ export default function MazePlayer3D({
     );
     const m = new THREE.Matrix4();
     wallCells.forEach(([wx, wy], i) => {
-      m.makeTranslation(wx + 0.5, 1.3, wy + 0.5);
+      m.makeTranslation((wx + 0.5) * CELL_SIZE, 1.3, (wy + 0.5) * CELL_SIZE);
       wallMesh.setMatrixAt(i, m);
     });
     scene.add(wallMesh);
@@ -329,10 +339,10 @@ export default function MazePlayer3D({
           emissiveIntensity: 0.8,
         }),
       );
-      endMesh.position.set(ex + 0.5, 1.2, ey + 0.5);
+      endMesh.position.set((ex + 0.5) * CELL_SIZE, 1.2, (ey + 0.5) * CELL_SIZE);
       scene.add(endMesh);
 
-      const endGlow = new THREE.PointLight(0xf43f5e, 1.6, 8, 2);
+      const endGlow = new THREE.PointLight(0xf43f5e, 1.6, 8 * CELL_SIZE, 2);
       endGlow.position.copy(endMesh.position);
       scene.add(endGlow);
     }
@@ -582,7 +592,7 @@ export default function MazePlayer3D({
         }
       }
 
-      camera.position.set(player.x, 1.5, player.z);
+      camera.position.set(player.x * CELL_SIZE, 1.5, player.z * CELL_SIZE);
       camera.rotation.y = player.yaw;
       camera.rotation.x = player.pitch;
 
@@ -648,15 +658,25 @@ export default function MazePlayer3D({
         ref={containerRef}
         className="relative h-full w-full overflow-hidden bg-black select-none"
       >
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
-          <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
-            ⏱️ {seconds}s
-          </span>
-          {won && (
-            <span className="animate-bounce rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 px-3 py-1 text-xs font-bold text-white shadow-md shadow-emerald-500/30">
-              🎉 Gagné !
-            </span>
+        <div className="absolute left-3 top-3 flex flex-col items-start gap-1.5">
+          {backHref && (
+            <Link
+              href={backHref}
+              className="pointer-events-auto rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-zinc-300 backdrop-blur hover:bg-black/80 hover:text-white"
+            >
+              ← Retour{title ? ` · ${title}` : ""}
+            </Link>
           )}
+          <div className="pointer-events-none flex items-center gap-2">
+            <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+              ⏱️ {seconds}s
+            </span>
+            {won && (
+              <span className="animate-bounce rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 px-3 py-1 text-xs font-bold text-white shadow-md shadow-emerald-500/30">
+                🎉 Gagné !
+              </span>
+            )}
+          </div>
         </div>
 
         {!pointerLocked && !lookActive && (
