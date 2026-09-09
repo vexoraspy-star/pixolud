@@ -370,11 +370,12 @@ export default function HorrorScene({
     flashlight.target = flashTarget;
     scene.add(flashlight);
 
+    // MeshLambertMaterial plutot que Standard : beaucoup moins couteux a
+    // eclairer (pas de calcul PBR), invisible a l'oeil vu la penombre ici.
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshLambertMaterial({
         map: makeManorFloorTexture(data.width, data.height),
-        roughness: 1,
       }),
     );
     floor.rotation.x = -Math.PI / 2;
@@ -383,7 +384,7 @@ export default function HorrorScene({
 
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
-      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 }),
+      new THREE.MeshLambertMaterial({ color: 0x030302 }),
     );
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.set((data.width * CELL_SIZE) / 2, 2.6, (data.height * CELL_SIZE) / 2);
@@ -400,7 +401,7 @@ export default function HorrorScene({
     }
     const wallMesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(CELL_SIZE, 2.6, CELL_SIZE),
-      new THREE.MeshStandardMaterial({ map: makeManorWallTexture(), roughness: 1 }),
+      new THREE.MeshLambertMaterial({ map: makeManorWallTexture() }),
       wallCells.length,
     );
     const m = new THREE.Matrix4();
@@ -411,8 +412,13 @@ export default function HorrorScene({
     scene.add(wallMesh);
 
     // Quelques appliques murales chancelantes pour une orientation minimale.
+    // Nombre fixe (pas proportionnel a la taille du labyrinthe) : chaque
+    // lumiere dynamique est couteuse a calculer sur toute la scene, en
+    // avoir trop (une par case) faisait chuter les FPS.
     const sconces: { light: THREE.PointLight; base: number; phase: number }[] = [];
-    const sconceCells = openCells.filter((_, i) => i % 11 === 0);
+    const MAX_SCONCES = 5;
+    const sconceStep = Math.max(1, Math.floor(openCells.length / MAX_SCONCES));
+    const sconceCells = openCells.filter((_, i) => i % sconceStep === 0).slice(0, MAX_SCONCES);
     for (const [sx, sy] of sconceCells) {
       const light = new THREE.PointLight(0xff9a4d, 0, 3 * CELL_SIZE, 2);
       light.position.set((sx + 0.5) * CELL_SIZE, 1.7, (sy + 0.5) * CELL_SIZE);
@@ -420,21 +426,15 @@ export default function HorrorScene({
       sconces.push({ light, base: 0.35 + Math.random() * 0.2, phase: Math.random() * 10 });
     }
 
-    // Notes a collecter.
+    // Notes a collecter : materiau non-eclaire (toujours visible tel quel,
+    // pas besoin d'une vraie lumiere en plus qui coute cher a calculer).
     const notes = noteCells.map(([nx, ny]) => {
       const group = new THREE.Group();
       const paper = new THREE.Mesh(
         new THREE.PlaneGeometry(0.22, 0.3),
-        new THREE.MeshStandardMaterial({
-          color: 0xe8dcc0,
-          emissive: 0xe8dcc0,
-          emissiveIntensity: 0.35,
-          side: THREE.DoubleSide,
-        }),
+        new THREE.MeshBasicMaterial({ color: 0xe8dcc0, side: THREE.DoubleSide }),
       );
       group.add(paper);
-      const glow = new THREE.PointLight(0xffe9b0, 0.6, 2.2, 2);
-      group.add(glow);
       group.position.set((nx + 0.5) * CELL_SIZE, 1.1, (ny + 0.5) * CELL_SIZE);
       scene.add(group);
       return { x: nx + 0.5, z: ny + 0.5, group, collected: false };
@@ -444,15 +444,11 @@ export default function HorrorScene({
     const monsterGroup = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.32, 1.15, 4, 8),
-      new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 1 }),
+      new THREE.MeshLambertMaterial({ color: 0x030303 }),
     );
     body.position.y = 0.95;
     monsterGroup.add(body);
-    const eyeMat = new THREE.MeshStandardMaterial({
-      color: 0xff2222,
-      emissive: 0xff2222,
-      emissiveIntensity: 3.5,
-    });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
     const eyeGeo = new THREE.SphereGeometry(0.045, 8, 8);
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
     leftEye.position.set(-0.11, 1.5, 0.28);
