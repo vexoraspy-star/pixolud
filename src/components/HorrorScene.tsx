@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { generateMaze } from "@/lib/games3d";
+import { buildManor, roomAt, MANOR_ITEMS, type ManorItemDef } from "@/lib/manor";
 import { cellKey } from "@/lib/maze";
 
 type Layout = "azerty" | "qwerty";
@@ -11,7 +11,7 @@ const CELL_SIZE = 1.7;
 const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
 const BASE_LOOK_SENSITIVITY = 0.0038;
-const NOTE_COUNT = 5;
+const ITEM_COUNT = MANOR_ITEMS.length;
 const MONSTER_SPEED_BASE = 1.55;
 const MONSTER_SPEED_HUNTING = 2.05;
 const MONSTER_HUNT_RADIUS = 12; // en cases, distance sous laquelle la lampe allumee accelere le monstre
@@ -20,6 +20,12 @@ const MONSTER_GRACE_SECONDS = 14;
 const REPATH_INTERVAL = 0.7;
 const FLASHLIGHT_DRAIN_PER_SEC = 100 / 90;
 const FLASHLIGHT_REGEN_PER_SEC = 100 / 45;
+const NEAR_MISS_RADIUS = 1.8; // en cases (distance de Manhattan) : "elle a failli te voir"
+const NEAR_MISS_COOLDOWN = 11;
+const STINGER_MIN_DELAY = 16;
+const STINGER_MAX_DELAY = 42;
+const ROOM_LABEL_SECONDS = 3;
+const TOAST_SECONDS = 4.2;
 
 function loadLayout(): Layout {
   try {
@@ -194,6 +200,62 @@ function playJumpscare(ctx: AudioContext, master: GainNode) {
   osc.start(now);
   osc.stop(now + 0.9);
 }
+// Bruit lointain (craquement, porte, pas) : frayeur ambiante, pas de danger reel.
+function playStinger(ctx: AudioContext, master: GainNode) {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(90, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + 0.5);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.4, now + 0.04);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start(now);
+  osc.stop(now + 0.65);
+
+  const bufferSize = Math.floor(ctx.sampleRate * 0.35);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize) * 0.5;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.22, now);
+  noise.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start(now);
+}
+// Le monstre passe tout pres sans t'attraper : frayeur forte mais pas de fin de partie.
+function playNearMiss(ctx: AudioContext, master: GainNode) {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(640, now);
+  osc.frequency.exponentialRampToValueAtTime(110, now + 0.35);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start(now);
+  osc.stop(now + 0.5);
+
+  const bufferSize = Math.floor(ctx.sampleRate * 0.4);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize) * 0.7;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.5, now);
+  noise.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start(now);
+}
 
 function bfsPath(
   from: [number, number],
@@ -249,10 +311,13 @@ export default function HorrorScene({
   onEscape: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [notesFound, setNotesFound] = useState(0);
+  const [itemsFound, setItemsFound] = useState(0);
   const [battery, setBattery] = useState(100);
   const [flashlightOn, setFlashlightOn] = useState(true);
   const [seconds, setSeconds] = useState(0);
+  const [roomLabel, setRoomLabel] = useState<string | null>(null);
+  const [toast, setToast] = useState<ManorItemDef | null>(null);
+  const [scareFlash, setScareFlash] = useState(0);
   const layoutRef = useRef<Layout>("azerty");
   const sensitivityRef = useRef(1.5);
   const heldRef = useRef({ forward: false, back: false });
@@ -277,7 +342,9 @@ export default function HorrorScene({
     const container = containerRef.current;
     if (!container) return;
 
-    const data = generateMaze(8, 8, seed);
+    // Le manoir a un plan fixe (de vraies pieces nommees) : seuls les objets
+    // et la position du monstre changent d'une partie a l'autre.
+    const data = buildManor();
     const wallSet = new Set(data.walls.map(([x, y]) => cellKey(x, y)));
     function isSolid(cx: number, cy: number): boolean {
       if (cx < 0 || cy < 0 || cx >= data.width || cy >= data.height) return true;
@@ -310,17 +377,18 @@ export default function HorrorScene({
 
     const player = { x: start[0] + 0.5, z: start[1] + 0.5, yaw: initialYaw, pitch: 0 };
 
-    // --- Notes a collecter : cases ouvertes tirees au sort (loin du depart) ---
+    // --- Objets a collecter : cases ouvertes tirees au sort (loin du depart) ---
     const candidateCells = openCells.filter(
       ([x, y]) => Math.abs(x - start[0]) + Math.abs(y - start[1]) > 4,
     );
-    const noteCells: [number, number][] = [];
+    const itemCells: [number, number][] = [];
     const pool = [...candidateCells];
-    for (let i = 0; i < NOTE_COUNT && pool.length > 0; i++) {
+    for (let i = 0; i < ITEM_COUNT && pool.length > 0; i++) {
       const idx = Math.floor(Math.random() * pool.length);
-      noteCells.push(pool[idx]);
+      itemCells.push(pool[idx]);
       pool.splice(idx, 1);
     }
+    const shuffledItemDefs = [...MANOR_ITEMS].sort(() => Math.random() - 0.5);
 
     // --- Monstre : point de depart eloigne du joueur ---
     let monsterStart: [number, number] = end;
@@ -426,18 +494,19 @@ export default function HorrorScene({
       sconces.push({ light, base: 0.35 + Math.random() * 0.2, phase: Math.random() * 10 });
     }
 
-    // Notes a collecter : materiau non-eclaire (toujours visible tel quel,
+    // Objets a collecter : materiau non-eclaire (toujours visible tel quel,
     // pas besoin d'une vraie lumiere en plus qui coute cher a calculer).
-    const notes = noteCells.map(([nx, ny]) => {
+    const items = itemCells.map(([nx, ny], i) => {
+      const def = shuffledItemDefs[i % shuffledItemDefs.length];
       const group = new THREE.Group();
       const paper = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.22, 0.3),
-        new THREE.MeshBasicMaterial({ color: 0xe8dcc0, side: THREE.DoubleSide }),
+        new THREE.PlaneGeometry(0.24, 0.24),
+        new THREE.MeshBasicMaterial({ color: 0xe8c98a, side: THREE.DoubleSide }),
       );
       group.add(paper);
-      group.position.set((nx + 0.5) * CELL_SIZE, 1.1, (ny + 0.5) * CELL_SIZE);
+      group.position.set((nx + 0.5) * CELL_SIZE, 1.05, (ny + 0.5) * CELL_SIZE);
       scene.add(group);
-      return { x: nx + 0.5, z: ny + 0.5, group, collected: false };
+      return { x: nx + 0.5, z: ny + 0.5, group, collected: false, def };
     });
 
     // Monstre : silhouette sombre avec des yeux qui brillent dans le noir.
@@ -465,6 +534,13 @@ export default function HorrorScene({
     const ambience = makeAmbience(audioCtx);
     let elapsed = 0;
     let nextHeartbeatAt = 2;
+    let nextStingerAt = 14 + Math.random() * 10;
+    let nextNearMissAllowedAt = 0;
+    let flashLevel = 0;
+    let lastSyncedFlash = 0;
+    let currentRoomName: string | null = null;
+    let roomLabelHideAt = -1;
+    let toastHideAt = -1;
 
     function resolveCollision(nx: number, nz: number): [number, number] {
       let x = player.x;
@@ -644,18 +720,44 @@ export default function HorrorScene({
         s.light.intensity = s.base + Math.sin(elapsed * 6 + s.phase) * 0.08 + (Math.random() - 0.5) * 0.05;
       }
 
-      // Notes : ramassage.
-      for (const note of notes) {
-        if (note.collected) continue;
-        note.group.rotation.y += delta * 1.2;
-        const dx = player.x - note.x;
-        const dz = player.z - note.z;
+      // Piece actuelle : petite annonce a chaque changement de piece.
+      const room = roomAt(data.rooms, Math.floor(player.x), Math.floor(player.z));
+      const roomName = room?.name ?? null;
+      if (roomName && roomName !== currentRoomName) {
+        currentRoomName = roomName;
+        setRoomLabel(roomName);
+        roomLabelHideAt = elapsed + ROOM_LABEL_SECONDS;
+      }
+      if (roomLabelHideAt >= 0 && elapsed > roomLabelHideAt) {
+        roomLabelHideAt = -1;
+        setRoomLabel(null);
+      }
+      if (toastHideAt >= 0 && elapsed > toastHideAt) {
+        toastHideAt = -1;
+        setToast(null);
+      }
+
+      // Objets : ramassage.
+      for (const item of items) {
+        if (item.collected) continue;
+        item.group.rotation.y += delta * 1.2;
+        const dx = player.x - item.x;
+        const dz = player.z - item.z;
         if (dx * dx + dz * dz < 0.4 * 0.4) {
-          note.collected = true;
-          scene.remove(note.group);
+          item.collected = true;
+          scene.remove(item.group);
           playPickup(audioCtx, ambience.master);
-          setNotesFound((n) => n + 1);
+          setItemsFound((n) => n + 1);
+          setToast(item.def);
+          toastHideAt = elapsed + TOAST_SECONDS;
         }
+      }
+
+      // Frayeurs ambiantes : un bruit lointain de temps en temps, sans danger reel.
+      if (elapsed >= nextStingerAt) {
+        playStinger(audioCtx, ambience.master);
+        flashLevel = Math.max(flashLevel, 0.22);
+        nextStingerAt = elapsed + STINGER_MIN_DELAY + Math.random() * (STINGER_MAX_DELAY - STINGER_MIN_DELAY);
       }
 
       // Monstre : IA de poursuite (BFS recalcule periodiquement).
@@ -695,8 +797,17 @@ export default function HorrorScene({
         if (capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS) {
           ended = true;
           endedRef.current = true;
+          flashLevel = 1;
           playJumpscare(audioCtx, ambience.master);
           onCaught();
+        } else if (
+          distToPlayerCells < NEAR_MISS_RADIUS &&
+          elapsed >= nextNearMissAllowedAt
+        ) {
+          // Elle est passee tout pres sans te voir : grosse frayeur, mais on continue.
+          nextNearMissAllowedAt = elapsed + NEAR_MISS_COOLDOWN;
+          flashLevel = Math.max(flashLevel, 0.7);
+          playNearMiss(audioCtx, ambience.master);
         }
 
         // Coeur qui s'accelere avec la proximite du monstre.
@@ -708,8 +819,15 @@ export default function HorrorScene({
         }
       }
 
-      // Victoire : toutes les notes + sortie atteinte.
-      if (!ended && notes.every((n) => n.collected)) {
+      // Flash visuel de frayeur : monte instantanement puis s'estompe.
+      flashLevel = Math.max(0, flashLevel - delta * 1.1);
+      if (Math.abs(flashLevel - lastSyncedFlash) > 0.02 || (flashLevel === 0 && lastSyncedFlash !== 0)) {
+        lastSyncedFlash = flashLevel;
+        setScareFlash(flashLevel);
+      }
+
+      // Victoire : tous les objets + sortie atteinte.
+      if (!ended && items.every((it) => it.collected)) {
         const dex = player.x - (end[0] + 0.5);
         const dez = player.z - (end[1] + 0.5);
         if (dex * dex + dez * dez < 0.5 * 0.5) {
@@ -759,12 +877,17 @@ export default function HorrorScene({
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black select-none">
+      <div
+        className="pointer-events-none absolute inset-0 bg-red-700 transition-opacity"
+        style={{ opacity: scareFlash * 0.32 }}
+      />
+
       <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
         <span className="w-fit rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
           ⏱️ {seconds}s
         </span>
         <span className="w-fit rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-amber-200 backdrop-blur">
-          📜 {notesFound} / {NOTE_COUNT}
+          🗝️ {itemsFound} / {ITEM_COUNT}
         </span>
       </div>
 
@@ -777,6 +900,23 @@ export default function HorrorScene({
           />
         </div>
       </div>
+
+      {roomLabel && (
+        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
+          <span className="w-fit rounded-full bg-black/70 px-4 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 backdrop-blur">
+            📍 {roomLabel}
+          </span>
+        </div>
+      )}
+
+      {toast && (
+        <div className="pointer-events-none absolute bottom-24 left-1/2 w-72 -translate-x-1/2 rounded-xl border border-amber-900/60 bg-black/85 px-4 py-3 text-center backdrop-blur">
+          <p className="text-sm font-bold text-amber-200">
+            {toast.emoji} {toast.name}
+          </p>
+          <p className="mt-1 text-xs leading-snug text-zinc-400">{toast.flavor}</p>
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <div className="h-1 w-1 rounded-full bg-white/50" />
@@ -804,7 +944,7 @@ export default function HorrorScene({
       </div>
 
       <p className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-500">
-        Marche · clique/glisse pour regarder · F pour la lampe torche · trouve les pages, évite la
+        Marche · clique/glisse pour regarder · F pour la lampe torche · trouve les objets, évite la
         présence.
       </p>
     </div>
