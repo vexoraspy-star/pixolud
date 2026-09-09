@@ -44,71 +44,179 @@ function loadSensitivity(): number {
   }
 }
 
+// Mur "manoir bourgeois" : lambris (boiseries) en bas, papier peint fonce
+// en haut, separes par une moulure (chair rail) - comme une vraie demeure
+// ancienne plutot qu'un simple couloir texture. repeat.y=1 : le motif ne se
+// repete PAS en hauteur, pour que le lambris reste bien pres du sol.
 function makeManorWallTexture(): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#1a1712";
-  ctx.fillRect(0, 0, 256, 256);
-  // lattes de bois verticales, sales/moisies
-  const planks = 8;
-  const plankW = 256 / planks;
-  for (let i = 0; i < planks; i++) {
-    const shade = 28 + Math.floor(Math.random() * 20);
-    ctx.fillStyle = `rgb(${shade + 10},${shade},${shade - 6})`;
-    ctx.fillRect(i * plankW + 1, 0, plankW - 2, 256);
-    for (let s = 0; s < 6; s++) {
-      const sy = Math.random() * 256;
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
-      ctx.fillRect(i * plankW + 2, sy, plankW - 4, 1 + Math.random() * 2);
+  const railY = 108;
+
+  // Papier peint sombre, motif losange discret.
+  ctx.fillStyle = "#221a1d";
+  ctx.fillRect(0, 0, 256, railY);
+  ctx.fillStyle = "rgba(110,45,52,0.3)";
+  for (let y = 6, row = 0; y < railY; y += 18, row++) {
+    for (let x = row % 2 === 0 ? 6 : 15; x < 256; x += 18) {
+      ctx.beginPath();
+      ctx.moveTo(x, y - 4);
+      ctx.lineTo(x + 4, y);
+      ctx.lineTo(x, y + 4);
+      ctx.lineTo(x - 4, y);
+      ctx.closePath();
+      ctx.fill();
     }
   }
-  // taches d'humidite
-  for (let i = 0; i < 14; i++) {
+
+  // Lambris (panneaux de bois) sur le bas du mur.
+  ctx.fillStyle = "#1c140d";
+  ctx.fillRect(0, railY, 256, 256 - railY);
+  const panels = 4;
+  const panelW = 256 / panels;
+  for (let i = 0; i < panels; i++) {
+    const shade = 24 + Math.floor(Math.random() * 10);
+    ctx.fillStyle = `rgb(${shade + 15},${shade + 7},${shade})`;
+    ctx.fillRect(i * panelW + 6, railY + 8, panelW - 12, 256 - railY - 16);
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(i * panelW + 6, railY + 8, panelW - 12, 256 - railY - 16);
+  }
+
+  // Moulure (chair rail) avec un filet dore use.
+  ctx.fillStyle = "#3a2a16";
+  ctx.fillRect(0, railY - 5, 256, 6);
+  ctx.fillStyle = "rgba(255,210,140,0.18)";
+  ctx.fillRect(0, railY - 5, 256, 1);
+
+  // Taches d'humidite sur le lambris.
+  for (let i = 0; i < 8; i++) {
     const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const r = 6 + Math.random() * 18;
+    const y = railY + Math.random() * (256 - railY);
+    const r = 5 + Math.random() * 14;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, "rgba(10,20,10,0.4)");
-    grad.addColorStop(1, "rgba(10,20,10,0)");
+    grad.addColorStop(0, "rgba(5,10,5,0.35)");
+    grad.addColorStop(1, "rgba(5,10,5,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(CELL_SIZE * 0.7, 2.4);
+  texture.repeat.set(1, 1);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
+// Parquet en lattes chaudes, avec veines et joints decales - plus riche que
+// le sol generique precedent.
 function makeManorFloorTexture(width: number, height: number): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#0f0d0a";
+  ctx.fillStyle = "#160f08";
   ctx.fillRect(0, 0, 256, 256);
-  const rows = 8;
+  const rows = 10;
   const rowH = 256 / rows;
   for (let r = 0; r < rows; r++) {
-    const shade = 20 + Math.floor(Math.random() * 14);
-    ctx.fillStyle = `rgb(${shade + 8},${shade},${shade - 4})`;
+    const shade = 22 + Math.floor(Math.random() * 12);
+    ctx.fillStyle = `rgb(${shade + 16},${shade + 8},${shade})`;
     ctx.fillRect(0, r * rowH + 1, 256, rowH - 2);
-  }
-  for (let i = 0; i < 20; i++) {
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    ctx.fillStyle = "rgba(0,0,0,0.25)";
-    ctx.fillRect(x, y, 2 + Math.random() * 3, 1);
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    for (let g = 0; g < 3; g++) {
+      const gy = r * rowH + 2 + Math.random() * (rowH - 4);
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(256, gy + (Math.random() * 4 - 2));
+      ctx.stroke();
+    }
+    const seamOffset = r % 2 === 0 ? 0 : 42;
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    for (let x = seamOffset; x < 256; x += 84) {
+      ctx.fillRect(x, r * rowH + 1, 1, rowH - 2);
+    }
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(width / 1.4, height / 1.4);
+  texture.repeat.set(width / 2.2, height / 2.2);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Petit tableau encadre, genere proceduralement (aucune image externe) :
+// cadre dore + toile abstraite sombre, 3 variantes pour un peu de diversite.
+function makePaintingTexture(variant: number): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 170;
+  canvas.height = 210;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#7a5a22";
+  ctx.fillRect(0, 0, 170, 210);
+  ctx.fillStyle = "#c9a24a";
+  ctx.fillRect(6, 6, 158, 198);
+  ctx.fillStyle = "#7a5a22";
+  ctx.fillRect(14, 14, 142, 182);
+  const palettes: [string, string, string][] = [
+    ["#3a2f22", "#6b4f2e", "#1a1410"],
+    ["#2a2e22", "#54613a", "#12140d"],
+    ["#341f1f", "#6b3a2e", "#160c0a"],
+  ];
+  const [c1, c2, c3] = palettes[variant % palettes.length];
+  const grad = ctx.createLinearGradient(0, 14, 0, 196);
+  grad.addColorStop(0, c1);
+  grad.addColorStop(0.55, c2);
+  grad.addColorStop(1, c3);
+  ctx.fillStyle = grad;
+  ctx.fillRect(18, 18, 134, 174);
+  ctx.fillStyle = "rgba(10,8,6,0.5)";
+  for (let i = 0; i < 3; i++) {
+    const bx = 40 + Math.random() * 90;
+    const by = 90 + Math.random() * 80;
+    const r = 14 + Math.random() * 20;
+    ctx.beginPath();
+    ctx.ellipse(bx, by, r * 0.4, r, Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Tapis rouge a bordure doree pour le grand hall.
+function makeRugTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#5c1010";
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = "#c99a3f";
+  ctx.lineWidth = 10;
+  ctx.strokeRect(14, 14, 228, 228);
+  ctx.strokeStyle = "#3a0a0a";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(26, 26, 204, 204);
+  ctx.fillStyle = "rgba(201,154,63,0.5)";
+  for (let y = 40; y < 216; y += 34) {
+    for (let x = 40; x < 216; x += 34) {
+      ctx.beginPath();
+      ctx.moveTo(x + 17, y);
+      ctx.lineTo(x + 34, y + 17);
+      ctx.lineTo(x + 17, y + 34);
+      ctx.lineTo(x, y + 17);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
@@ -452,7 +560,7 @@ export default function HorrorScene({
 
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
-      new THREE.MeshLambertMaterial({ color: 0x030302 }),
+      new THREE.MeshLambertMaterial({ color: 0x0c0805 }),
     );
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.set((data.width * CELL_SIZE) / 2, 2.6, (data.height * CELL_SIZE) / 2);
@@ -482,17 +590,81 @@ export default function HorrorScene({
     // Quelques appliques murales chancelantes pour une orientation minimale.
     // Nombre fixe (pas proportionnel a la taille du labyrinthe) : chaque
     // lumiere dynamique est couteuse a calculer sur toute la scene, en
-    // avoir trop (une par case) faisait chuter les FPS.
+    // avoir trop (une par case) faisait chuter les FPS. On accroche une
+    // petite lanterne visible a chaque lumiere pour qu'elle ne flotte pas
+    // dans le vide (juste des meshes, aucune lumiere dynamique en plus).
     const sconces: { light: THREE.PointLight; base: number; phase: number }[] = [];
     const MAX_SCONCES = 5;
     const sconceStep = Math.max(1, Math.floor(openCells.length / MAX_SCONCES));
     const sconceCells = openCells.filter((_, i) => i % sconceStep === 0).slice(0, MAX_SCONCES);
+    const lanternPoleGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.5, 6);
+    const lanternPoleMat = new THREE.MeshBasicMaterial({ color: 0x1a1410 });
+    const lanternGlowGeo = new THREE.SphereGeometry(0.07, 8, 8);
+    const lanternGlowMat = new THREE.MeshBasicMaterial({ color: 0xffb463 });
     for (const [sx, sy] of sconceCells) {
+      const px = (sx + 0.5) * CELL_SIZE;
+      const py = 1.7;
+      const pz = (sy + 0.5) * CELL_SIZE;
       const light = new THREE.PointLight(0xff9a4d, 0, 3 * CELL_SIZE, 2);
-      light.position.set((sx + 0.5) * CELL_SIZE, 1.7, (sy + 0.5) * CELL_SIZE);
+      light.position.set(px, py, pz);
       scene.add(light);
       sconces.push({ light, base: 0.35 + Math.random() * 0.2, phase: Math.random() * 10 });
+
+      const pole = new THREE.Mesh(lanternPoleGeo, lanternPoleMat);
+      pole.position.set(px, py + 0.28, pz);
+      scene.add(pole);
+      const glow = new THREE.Mesh(lanternGlowGeo, lanternGlowMat);
+      glow.position.set(px, py, pz);
+      scene.add(glow);
     }
+
+    // Tableaux accroches sur un mur de chaque piece (positions choisies a la
+    // main dans le plan fixe du manoir, loin des embrasures de porte).
+    const PAINTING_SPOTS: { x: number; wallRow: number }[] = [
+      { x: 4, wallRow: 0 },
+      { x: 12, wallRow: 0 },
+      { x: 20, wallRow: 0 },
+      { x: 6, wallRow: 7 },
+      { x: 14, wallRow: 7 },
+      { x: 22, wallRow: 7 },
+      { x: 6, wallRow: 14 },
+      { x: 14, wallRow: 14 },
+      { x: 22, wallRow: 14 },
+    ];
+    const paintingTextures = [makePaintingTexture(0), makePaintingTexture(1), makePaintingTexture(2)];
+    const paintingGeo = new THREE.PlaneGeometry(0.85, 1.05);
+    PAINTING_SPOTS.forEach((spot, i) => {
+      const mat = new THREE.MeshLambertMaterial({ map: paintingTextures[i % paintingTextures.length] });
+      const painting = new THREE.Mesh(paintingGeo, mat);
+      painting.position.set((spot.x + 0.5) * CELL_SIZE, 1.55, (spot.wallRow + 1) * CELL_SIZE + 0.03);
+      scene.add(painting);
+    });
+
+    // Tapis rouge et escalier decoratif dans le grand hall (piece centrale).
+    const rug = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.8 * CELL_SIZE, 4.6 * CELL_SIZE),
+      new THREE.MeshLambertMaterial({ map: makeRugTexture() }),
+    );
+    rug.rotation.x = -Math.PI / 2;
+    rug.position.set(12 * CELL_SIZE, 0.012, 10.5 * CELL_SIZE);
+    scene.add(rug);
+
+    const stairGeo = new THREE.BoxGeometry(1.1 * CELL_SIZE, 0.16, 0.5 * CELL_SIZE);
+    const stairMat = new THREE.MeshLambertMaterial({ color: 0x2a1c10 });
+    const STAIR_STEPS = 7;
+    for (let i = 0; i < STAIR_STEPS; i++) {
+      const step = new THREE.Mesh(stairGeo, stairMat);
+      step.position.set(14.3 * CELL_SIZE, 0.08 + i * 0.16, (9.3 + i * 0.5) * CELL_SIZE);
+      scene.add(step);
+    }
+    const postGeo = new THREE.BoxGeometry(0.1, 1.1, 0.1);
+    const postMat = new THREE.MeshLambertMaterial({ color: 0x1c1208 });
+    const postLeft = new THREE.Mesh(postGeo, postMat);
+    postLeft.position.set(13.7 * CELL_SIZE, 0.55, 9.3 * CELL_SIZE);
+    scene.add(postLeft);
+    const postRight = new THREE.Mesh(postGeo, postMat);
+    postRight.position.set(14.9 * CELL_SIZE, 0.55, 9.3 * CELL_SIZE);
+    scene.add(postRight);
 
     // Objets a collecter : materiau non-eclaire (toujours visible tel quel,
     // pas besoin d'une vraie lumiere en plus qui coute cher a calculer).
