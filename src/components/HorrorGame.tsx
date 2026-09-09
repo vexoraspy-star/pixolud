@@ -3,8 +3,9 @@
 import { useState, type CSSProperties } from "react";
 import Link from "next/link";
 import HorrorScene from "./HorrorScene";
+import HorrorLobby from "./HorrorLobby";
 
-type Phase = "intro" | "cutscene" | "playing" | "caught" | "escaped";
+type Phase = "lobby" | "cutscene" | "playing" | "caught" | "escaped";
 
 const CUTSCENE_CAPTIONS: string[] = [
   "Ta voiture vient de lâcher en pleine nuit, sur une route de campagne perdue. Pas de réseau. Pas âme qui vive.",
@@ -147,7 +148,8 @@ function SlideNoteFound() {
           }}
         />
         <p className="font-serif text-sm italic leading-snug">
-          « 5 objets. Rassemble-les. Atteins la cave. Ne t&apos;arrête jamais. »
+          « 5 objets. Rassemble-les. Atteins la cave. Mais sache-le : dès que tu touches au
+          premier, Elle se réveille. »
         </p>
       </div>
     </div>
@@ -157,7 +159,7 @@ function SlideNoteFound() {
 const SLIDE_VISUALS = [SlideCarBreakdown, SlideManorDistance, SlideDoorOpens, SlidePresence, SlideNoteFound];
 
 export default function HorrorGame({ title }: { title: string }) {
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<Phase>("lobby");
   const [slide, setSlide] = useState(0);
   const [seed, setSeed] = useState(0);
 
@@ -177,32 +179,8 @@ export default function HorrorGame({ title }: { title: string }) {
     setPhase("playing");
   }
 
-  if (phase === "intro") {
-    return (
-      <div className="relative flex h-full w-full flex-col items-center justify-center gap-6 bg-black px-4">
-        <Link
-          href="/mode-3d"
-          className="absolute left-3 top-3 text-sm text-zinc-400 hover:text-violet-400"
-        >
-          ← Retour au Mode 3D
-        </Link>
-        <span className="text-4xl">🕯️</span>
-        <h1 className="text-2xl font-bold text-white">{title}</h1>
-        <p className="max-w-md text-center text-sm leading-relaxed text-zinc-400">
-          Un jeu d&apos;horreur solo. Explore un vrai manoir pièce par pièce, retrouve{" "}
-          <span className="text-amber-300">5 objets</span> pour comprendre ce qu&apos;il s&apos;est
-          passé ici, et atteins la cave — mais économise ta lampe torche : plus elle reste allumée
-          près d&apos;elle, plus vite elle te retrouve.
-        </p>
-        <button
-          type="button"
-          onClick={beginCutscene}
-          className="rounded-full bg-red-800 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-950/50 hover:bg-red-700"
-        >
-          Entrer dans le manoir
-        </button>
-      </div>
-    );
+  if (phase === "lobby") {
+    return <HorrorLobby title={title} onPlay={beginCutscene} />;
   }
 
   if (phase === "cutscene") {
@@ -245,11 +223,18 @@ export default function HorrorGame({ title }: { title: string }) {
           >
             Réessayer
           </button>
-          <Link
-            href="/mode-3d"
+          <button
+            type="button"
+            onClick={() => setPhase("lobby")}
             className="rounded-full border border-zinc-600 px-5 py-2.5 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
           >
-            Retour au Mode 3D
+            Retour au lobby
+          </button>
+          <Link
+            href="/mode-3d"
+            className="rounded-full border border-zinc-700 px-5 py-2.5 text-sm font-semibold text-zinc-400 hover:bg-zinc-800"
+          >
+            Mode 3D
           </Link>
         </div>
       </div>
@@ -269,11 +254,18 @@ export default function HorrorGame({ title }: { title: string }) {
           >
             Rejouer
           </button>
-          <Link
-            href="/mode-3d"
+          <button
+            type="button"
+            onClick={() => setPhase("lobby")}
             className="rounded-full border border-zinc-600 px-5 py-2.5 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
           >
-            Retour au Mode 3D
+            Retour au lobby
+          </button>
+          <Link
+            href="/mode-3d"
+            className="rounded-full border border-zinc-700 px-5 py-2.5 text-sm font-semibold text-zinc-400 hover:bg-zinc-800"
+          >
+            Mode 3D
           </Link>
         </div>
       </div>

@@ -4,8 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { buildManor, roomAt, MANOR_ITEMS, type ManorItemDef } from "@/lib/manor";
 import { cellKey } from "@/lib/maze";
-
-type Layout = "azerty" | "qwerty";
+import {
+  loadBrightness3D,
+  loadLayout3D,
+  loadSensitivity3D,
+  type Layout3D as Layout,
+} from "@/lib/settings3d";
 
 const CELL_SIZE = 1.7;
 const PLAYER_RADIUS = 0.26;
@@ -16,7 +20,6 @@ const MONSTER_SPEED_BASE = 1.55;
 const MONSTER_SPEED_HUNTING = 2.05;
 const MONSTER_HUNT_RADIUS = 12; // en cases, distance sous laquelle la lampe allumee accelere le monstre
 const CAPTURE_RADIUS = 0.55;
-const MONSTER_GRACE_SECONDS = 14;
 const REPATH_INTERVAL = 0.7;
 const FLASHLIGHT_DRAIN_PER_SEC = 100 / 90;
 const FLASHLIGHT_REGEN_PER_SEC = 100 / 45;
@@ -26,23 +29,11 @@ const STINGER_MIN_DELAY = 16;
 const STINGER_MAX_DELAY = 42;
 const ROOM_LABEL_SECONDS = 3;
 const TOAST_SECONDS = 4.2;
-
-function loadLayout(): Layout {
-  try {
-    const v = localStorage.getItem("pixolud-3d-layout");
-    return v === "qwerty" ? "qwerty" : "azerty";
-  } catch {
-    return "azerty";
-  }
-}
-function loadSensitivity(): number {
-  try {
-    const v = Number(localStorage.getItem("pixolud-3d-sensitivity"));
-    return v >= 0.4 && v <= 3 ? v : 1.5;
-  } catch {
-    return 1.5;
-  }
-}
+// Le monstre dort tant que le joueur n'a pas touche a un objet. Le minuteur
+// n'est plus qu'un filet de securite si le joueur ne ramasse jamais rien.
+const MONSTER_GRACE_SECONDS_IDLE = 75;
+const PAINTING_FALL_SECONDS = 0.55;
+const CEILING_HEIGHT = 2.6;
 
 // Mur "manoir bourgeois" : lambris (boiseries) en bas, papier peint fonce
 // en haut, separes par une moulure (chair rail) - comme une vraie demeure
@@ -190,6 +181,35 @@ function makePaintingTexture(variant: number): THREE.CanvasTexture {
   return texture;
 }
 
+// Plafond a poutres apparentes : sans ca le "toit" est un aplat noir sans
+// relief, ce qui casse completement l'illusion d'une vraie piece.
+function makeCeilingTexture(width: number, height: number): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#171009";
+  ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(Math.random() * 128, Math.random() * 128, 3 + Math.random() * 8, 1);
+  }
+  // poutre
+  ctx.fillStyle = "#241809";
+  ctx.fillRect(0, 46, 128, 34);
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(0, 46, 128, 3);
+  ctx.fillRect(0, 77, 128, 3);
+  ctx.fillStyle = "rgba(120,90,50,0.12)";
+  ctx.fillRect(0, 52, 128, 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(width / 6, height / 3);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 // Tapis rouge a bordure doree pour le grand hall.
 function makeRugTexture(): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -233,13 +253,37 @@ function makeAmbience(ctx: AudioContext) {
   const osc2 = ctx.createOscillator();
   osc2.type = "sine";
   osc2.frequency.value = 57.5;
+  // Troisieme voix tres grave et desaccordee : donne ce battement sourd
+  // desagreable typique des musiques d'angoisse.
+  const osc3 = ctx.createOscillator();
+  osc3.type = "triangle";
+  osc3.frequency.value = 36.7;
   const droneGain = ctx.createGain();
   droneGain.gain.value = 0.16;
   osc1.connect(droneGain);
   osc2.connect(droneGain);
+  osc3.connect(droneGain);
   droneGain.connect(master);
   osc1.start();
   osc2.start();
+  osc3.start();
+
+  // Souffle continu (le vent dans les murs) : bruit blanc passe-bas, boucle.
+  const windBuffer = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+  const wd = windBuffer.getChannelData(0);
+  let lastSample = 0;
+  for (let i = 0; i < wd.length; i++) {
+    lastSample = (lastSample + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+    wd[i] = lastSample * 3.2;
+  }
+  const wind = ctx.createBufferSource();
+  wind.buffer = windBuffer;
+  wind.loop = true;
+  const windGain = ctx.createGain();
+  windGain.gain.value = 0.1;
+  wind.connect(windGain);
+  windGain.connect(master);
+  wind.start();
 
   return {
     master,
@@ -247,6 +291,8 @@ function makeAmbience(ctx: AudioContext) {
       try {
         osc1.stop();
         osc2.stop();
+        osc3.stop();
+        wind.stop();
       } catch {
         // ignore
       }
@@ -365,6 +411,66 @@ function playNearMiss(ctx: AudioContext, master: GainNode) {
   noise.start(now);
 }
 
+// Le monstre se reveille : long grondement montant, tres grave.
+function playWake(ctx: AudioContext, master: GainNode) {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(28, now);
+  osc.frequency.exponentialRampToValueAtTime(95, now + 1.6);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.55, now + 0.5);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 2);
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start(now);
+  osc.stop(now + 2.1);
+
+  const bufferSize = Math.floor(ctx.sampleRate * 1.6);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI) * 0.5;
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.3, now);
+  noise.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start(now);
+}
+// Un tableau se decroche et s'ecrase au sol juste devant toi.
+function playCrash(ctx: AudioContext, master: GainNode) {
+  const now = ctx.currentTime;
+  const bufferSize = Math.floor(ctx.sampleRate * 0.5);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2.2);
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.85, now);
+  noise.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start(now);
+
+  const thud = ctx.createOscillator();
+  thud.type = "sine";
+  thud.frequency.setValueAtTime(140, now);
+  thud.frequency.exponentialRampToValueAtTime(38, now + 0.3);
+  const thudGain = ctx.createGain();
+  thudGain.gain.setValueAtTime(0.7, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+  thud.connect(thudGain);
+  thudGain.connect(master);
+  thud.start(now);
+  thud.stop(now + 0.45);
+}
+
 function bfsPath(
   from: [number, number],
   to: [number, number],
@@ -433,8 +539,8 @@ export default function HorrorScene({
 
   useEffect(() => {
     const t = setTimeout(() => {
-      layoutRef.current = loadLayout();
-      sensitivityRef.current = loadSensitivity();
+      layoutRef.current = loadLayout3D();
+      sensitivityRef.current = loadSensitivity3D();
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -518,8 +624,10 @@ export default function HorrorScene({
     };
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
-    scene.fog = new THREE.Fog(0x000000, 2.5 * CELL_SIZE, 9 * CELL_SIZE);
+    scene.background = new THREE.Color(0x0a0806);
+    // Brouillard plus genereux qu'avant : on voyait litteralement le noir
+    // complet a deux metres.
+    scene.fog = new THREE.Fog(0x0a0806, 4.5 * CELL_SIZE, 16 * CELL_SIZE);
 
     const camera = new THREE.PerspectiveCamera(
       74,
@@ -536,15 +644,33 @@ export default function HorrorScene({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // Ambiance tres sombre : quasiment aucune lumiere sans la lampe.
-    scene.add(new THREE.HemisphereLight(0x1a1a22, 0x030302, 0.18));
+    // Penombre, mais on doit VOIR le decor : l'ancien reglage rendait le jeu
+    // quasiment noir. On garde 3 lumieres dynamiques cote joueur maximum
+    // (hemisphere + torche + halo) pour ne pas refaire chuter les FPS.
+    // Reglage de luminosite du joueur (partage avec les autres jeux 3D).
+    const brightness = loadBrightness3D();
+    scene.add(new THREE.HemisphereLight(0x565064, 0x1a150f, 1.05 * brightness));
 
-    const flashlight = new THREE.SpotLight(0xfff4d8, 3.2, 11 * CELL_SIZE, Math.PI / 7, 0.5, 1.6);
+    const flashlight = new THREE.SpotLight(
+      0xfff4d8,
+      6.5 * brightness,
+      16 * CELL_SIZE,
+      Math.PI / 5,
+      0.45,
+      1.1,
+    );
     flashlight.position.set(0, 0, 0);
     const flashTarget = new THREE.Object3D();
     scene.add(flashTarget);
     flashlight.target = flashTarget;
     scene.add(flashlight);
+
+    // Halo rapproche autour du joueur : evite le noir total dans le dos et
+    // eclaire la main qui tient la lampe.
+    const glowOnIntensity = 0.85 * brightness;
+    const glowOffIntensity = 0.32 * brightness;
+    const playerGlow = new THREE.PointLight(0xffd9a8, glowOnIntensity, 4.5 * CELL_SIZE, 2);
+    scene.add(playerGlow);
 
     // MeshLambertMaterial plutot que Standard : beaucoup moins couteux a
     // eclairer (pas de calcul PBR), invisible a l'oeil vu la penombre ici.
@@ -560,10 +686,10 @@ export default function HorrorScene({
 
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(data.width * CELL_SIZE, data.height * CELL_SIZE),
-      new THREE.MeshLambertMaterial({ color: 0x0c0805 }),
+      new THREE.MeshLambertMaterial({ map: makeCeilingTexture(data.width, data.height) }),
     );
     ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set((data.width * CELL_SIZE) / 2, 2.6, (data.height * CELL_SIZE) / 2);
+    ceiling.position.set((data.width * CELL_SIZE) / 2, CEILING_HEIGHT, (data.height * CELL_SIZE) / 2);
     scene.add(ceiling);
 
     const wallCells: [number, number][] = [...data.walls];
@@ -595,76 +721,108 @@ export default function HorrorScene({
     // dans le vide (juste des meshes, aucune lumiere dynamique en plus).
     const sconces: { light: THREE.PointLight; base: number; phase: number }[] = [];
     const MAX_SCONCES = 5;
-    const sconceStep = Math.max(1, Math.floor(openCells.length / MAX_SCONCES));
-    const sconceCells = openCells.filter((_, i) => i % sconceStep === 0).slice(0, MAX_SCONCES);
-    const lanternPoleGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.5, 6);
-    const lanternPoleMat = new THREE.MeshBasicMaterial({ color: 0x1a1410 });
-    const lanternGlowGeo = new THREE.SphereGeometry(0.07, 8, 8);
-    const lanternGlowMat = new THREE.MeshBasicMaterial({ color: 0xffb463 });
-    for (const [sx, sy] of sconceCells) {
-      const px = (sx + 0.5) * CELL_SIZE;
-      const py = 1.7;
-      const pz = (sy + 0.5) * CELL_SIZE;
-      const light = new THREE.PointLight(0xff9a4d, 0, 3 * CELL_SIZE, 2);
+    // On ne garde que des cases collees a un mur : les appliques sont fixees
+    // au mur au lieu de flotter au milieu de la piece.
+    const wallAdjacent: { cell: [number, number]; dir: [number, number] }[] = [];
+    for (const [cx, cy] of openCells) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        if (isSolid(cx + dx, cy + dy)) {
+          wallAdjacent.push({ cell: [cx, cy], dir: [dx, dy] });
+          break;
+        }
+      }
+    }
+    const sconceStep = Math.max(1, Math.floor(wallAdjacent.length / MAX_SCONCES));
+    const sconceSpots = wallAdjacent.filter((_, i) => i % sconceStep === 0).slice(0, MAX_SCONCES);
+    const bracketGeo = new THREE.BoxGeometry(0.08, 0.08, 0.3);
+    const bracketMat = new THREE.MeshLambertMaterial({ color: 0x120d08 });
+    const candleGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.22, 6);
+    const candleMat = new THREE.MeshLambertMaterial({ color: 0xd9cba8 });
+    const flameGeo = new THREE.SphereGeometry(0.055, 8, 8);
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xffc06a });
+    for (const { cell, dir } of sconceSpots) {
+      const px = (cell[0] + 0.5 + dir[0] * 0.38) * CELL_SIZE;
+      const py = 1.85;
+      const pz = (cell[1] + 0.5 + dir[1] * 0.38) * CELL_SIZE;
+      const light = new THREE.PointLight(0xff9a4d, 0, 4 * CELL_SIZE, 2);
       light.position.set(px, py, pz);
       scene.add(light);
-      sconces.push({ light, base: 0.35 + Math.random() * 0.2, phase: Math.random() * 10 });
+      sconces.push({
+        light,
+        base: (0.75 + Math.random() * 0.25) * brightness,
+        phase: Math.random() * 10,
+      });
 
-      const pole = new THREE.Mesh(lanternPoleGeo, lanternPoleMat);
-      pole.position.set(px, py + 0.28, pz);
-      scene.add(pole);
-      const glow = new THREE.Mesh(lanternGlowGeo, lanternGlowMat);
-      glow.position.set(px, py, pz);
-      scene.add(glow);
+      const bracket = new THREE.Mesh(bracketGeo, bracketMat);
+      bracket.position.set(px, py - 0.16, pz);
+      if (dir[0] !== 0) bracket.rotation.y = Math.PI / 2;
+      scene.add(bracket);
+      const candle = new THREE.Mesh(candleGeo, candleMat);
+      candle.position.set(px, py - 0.02, pz);
+      scene.add(candle);
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.position.set(px, py + 0.15, pz);
+      scene.add(flame);
     }
 
     // Tableaux accroches sur un mur de chaque piece (positions choisies a la
     // main dans le plan fixe du manoir, loin des embrasures de porte).
-    const PAINTING_SPOTS: { x: number; wallRow: number }[] = [
-      { x: 4, wallRow: 0 },
-      { x: 12, wallRow: 0 },
-      { x: 20, wallRow: 0 },
-      { x: 6, wallRow: 7 },
-      { x: 14, wallRow: 7 },
-      { x: 22, wallRow: 7 },
-      { x: 6, wallRow: 14 },
-      { x: 14, wallRow: 14 },
-      { x: 22, wallRow: 14 },
+    const PAINTING_SPOTS: { x: number; wallRow: number; room: string }[] = [
+      { x: 4, wallRow: 0, room: "Bureau" },
+      { x: 12, wallRow: 0, room: "Bibliothèque" },
+      { x: 20, wallRow: 0, room: "Chambre principale" },
+      { x: 6, wallRow: 7, room: "Salon" },
+      { x: 14, wallRow: 7, room: "Grand hall" },
+      { x: 22, wallRow: 7, room: "Cuisine" },
+      { x: 6, wallRow: 14, room: "Salle à manger" },
+      { x: 14, wallRow: 14, room: "Entrée" },
+      { x: 22, wallRow: 14, room: "Cave" },
     ];
     const paintingTextures = [makePaintingTexture(0), makePaintingTexture(1), makePaintingTexture(2)];
     const paintingGeo = new THREE.PlaneGeometry(0.85, 1.05);
+    const paintingsByRoom = new Map<string, THREE.Mesh>();
     PAINTING_SPOTS.forEach((spot, i) => {
       const mat = new THREE.MeshLambertMaterial({ map: paintingTextures[i % paintingTextures.length] });
       const painting = new THREE.Mesh(paintingGeo, mat);
       painting.position.set((spot.x + 0.5) * CELL_SIZE, 1.55, (spot.wallRow + 1) * CELL_SIZE + 0.03);
       scene.add(painting);
+      paintingsByRoom.set(spot.room, painting);
     });
 
-    // Tapis rouge et escalier decoratif dans le grand hall (piece centrale).
-    const rug = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.8 * CELL_SIZE, 4.6 * CELL_SIZE),
-      new THREE.MeshLambertMaterial({ map: makeRugTexture() }),
-    );
-    rug.rotation.x = -Math.PI / 2;
-    rug.position.set(12 * CELL_SIZE, 0.012, 10.5 * CELL_SIZE);
-    scene.add(rug);
-
+    // Tapis rouge + escalier : dans le grand hall ET dans l'entree, pour que
+    // la premiere chose qu'on voie en arrivant soit un vrai grand salon.
+    const rugTexture = makeRugTexture();
+    const rugGeo = new THREE.PlaneGeometry(4.8 * CELL_SIZE, 4.6 * CELL_SIZE);
+    const rugMat = new THREE.MeshLambertMaterial({ map: rugTexture });
     const stairGeo = new THREE.BoxGeometry(1.1 * CELL_SIZE, 0.16, 0.5 * CELL_SIZE);
     const stairMat = new THREE.MeshLambertMaterial({ color: 0x2a1c10 });
-    const STAIR_STEPS = 7;
-    for (let i = 0; i < STAIR_STEPS; i++) {
-      const step = new THREE.Mesh(stairGeo, stairMat);
-      step.position.set(14.3 * CELL_SIZE, 0.08 + i * 0.16, (9.3 + i * 0.5) * CELL_SIZE);
-      scene.add(step);
-    }
     const postGeo = new THREE.BoxGeometry(0.1, 1.1, 0.1);
     const postMat = new THREE.MeshLambertMaterial({ color: 0x1c1208 });
-    const postLeft = new THREE.Mesh(postGeo, postMat);
-    postLeft.position.set(13.7 * CELL_SIZE, 0.55, 9.3 * CELL_SIZE);
-    scene.add(postLeft);
-    const postRight = new THREE.Mesh(postGeo, postMat);
-    postRight.position.set(14.9 * CELL_SIZE, 0.55, 9.3 * CELL_SIZE);
-    scene.add(postRight);
+    const railGeo = new THREE.BoxGeometry(0.09, 0.09, 3.6 * 0.5 * CELL_SIZE);
+    function addGrandRoomDecor(roomY0: number) {
+      const rug = new THREE.Mesh(rugGeo, rugMat);
+      rug.rotation.x = -Math.PI / 2;
+      rug.position.set(12 * CELL_SIZE, 0.012, (roomY0 + 2.5) * CELL_SIZE);
+      scene.add(rug);
+
+      const STAIR_STEPS = 7;
+      for (let i = 0; i < STAIR_STEPS; i++) {
+        const step = new THREE.Mesh(stairGeo, stairMat);
+        step.position.set(14.3 * CELL_SIZE, 0.08 + i * 0.16, (roomY0 + 1.3 + i * 0.5) * CELL_SIZE);
+        scene.add(step);
+      }
+      for (const offsetX of [13.7, 14.9]) {
+        const post = new THREE.Mesh(postGeo, postMat);
+        post.position.set(offsetX * CELL_SIZE, 0.55, (roomY0 + 1.3) * CELL_SIZE);
+        scene.add(post);
+        const rail = new THREE.Mesh(railGeo, postMat);
+        rail.position.set(offsetX * CELL_SIZE, 1.05, (roomY0 + 2.8) * CELL_SIZE);
+        rail.rotation.x = -0.19;
+        scene.add(rail);
+      }
+    }
+    addGrandRoomDecor(8); // Grand hall
+    addGrandRoomDecor(15); // Entrée (le joueur commence ici)
 
     // Objets a collecter : materiau non-eclaire (toujours visible tel quel,
     // pas besoin d'une vraie lumiere en plus qui coute cher a calculer).
@@ -681,23 +839,80 @@ export default function HorrorScene({
       return { x: nx + 0.5, z: ny + 0.5, group, collected: false, def };
     });
 
-    // Monstre : silhouette sombre avec des yeux qui brillent dans le noir.
+    // Monstre : silhouette encapuchonnee, longue robe qui traine, bras
+    // decharnes et yeux rouges. Que des primitives simples : c'est le
+    // silhouettage qui fait peur, pas le nombre de polygones.
     const monsterGroup = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.32, 1.15, 4, 8),
-      new THREE.MeshLambertMaterial({ color: 0x030303 }),
-    );
-    body.position.y = 0.95;
-    monsterGroup.add(body);
+    const monsterMat = new THREE.MeshLambertMaterial({ color: 0x08070a });
+    const robe = new THREE.Mesh(new THREE.ConeGeometry(0.46, 1.45, 9), monsterMat);
+    robe.position.y = 0.72;
+    monsterGroup.add(robe);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.42, 4, 8), monsterMat);
+    torso.position.y = 1.5;
+    monsterGroup.add(torso);
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.23, 10, 10), monsterMat);
+    hood.position.y = 1.86;
+    hood.scale.set(1, 1.15, 1.05);
+    monsterGroup.add(hood);
+    const armGeo = new THREE.CapsuleGeometry(0.055, 0.62, 4, 6);
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(armGeo, monsterMat);
+      arm.position.set(side * 0.29, 1.34, 0.05);
+      arm.rotation.z = side * 0.22;
+      monsterGroup.add(arm);
+    }
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
-    const eyeGeo = new THREE.SphereGeometry(0.045, 8, 8);
+    const eyeGeo = new THREE.SphereGeometry(0.04, 8, 8);
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.11, 1.5, 0.28);
+    leftEye.position.set(-0.085, 1.87, 0.2);
     const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(0.11, 1.5, 0.28);
+    rightEye.position.set(0.085, 1.87, 0.2);
     monsterGroup.add(leftEye, rightEye);
     monsterGroup.position.set(monster.x * CELL_SIZE, 0, monster.z * CELL_SIZE);
+    monsterGroup.visible = false;
     scene.add(monsterGroup);
+
+    // --- Main du joueur tenant la lampe torche (accrochee a la camera) ---
+    // La camera doit etre dans la scene pour que ses enfants soient rendus.
+    scene.add(camera);
+    const handGroup = new THREE.Group();
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xb08968 });
+    const metalMat = new THREE.MeshLambertMaterial({ color: 0x2e3236 });
+    const torchBody = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.34, 10), metalMat);
+    torchBody.rotation.x = Math.PI / 2;
+    torchBody.position.set(0, 0, -0.1);
+    handGroup.add(torchBody);
+    const torchHead = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.05, 0.11, 10), metalMat);
+    torchHead.rotation.x = Math.PI / 2;
+    torchHead.position.set(0, 0, -0.32);
+    handGroup.add(torchHead);
+    const torchLens = new THREE.Mesh(
+      new THREE.CircleGeometry(0.068, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c8 }),
+    );
+    torchLens.position.set(0, 0, -0.375);
+    handGroup.add(torchLens);
+    const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.11, 4, 8), skinMat);
+    palm.rotation.z = Math.PI / 2;
+    palm.position.set(0.005, -0.035, 0.02);
+    handGroup.add(palm);
+    const fingerGeo = new THREE.CapsuleGeometry(0.019, 0.075, 4, 6);
+    for (let i = 0; i < 4; i++) {
+      const finger = new THREE.Mesh(fingerGeo, skinMat);
+      finger.rotation.x = Math.PI / 2;
+      finger.rotation.z = 0.15;
+      finger.position.set(-0.035 + i * 0.028, 0.012, -0.01);
+      handGroup.add(finger);
+    }
+    const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.021, 0.06, 4, 6), skinMat);
+    thumb.rotation.z = Math.PI / 2.6;
+    thumb.position.set(0.055, -0.03, -0.05);
+    handGroup.add(thumb);
+    const HAND_BASE = new THREE.Vector3(0.3, -0.27, -0.62);
+    handGroup.position.copy(HAND_BASE);
+    handGroup.rotation.set(0.06, -0.12, 0.05);
+    handGroup.scale.setScalar(0.82);
+    camera.add(handGroup);
 
     // --- Audio ---
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -713,6 +928,21 @@ export default function HorrorScene({
     let currentRoomName: string | null = null;
     let roomLabelHideAt = -1;
     let toastHideAt = -1;
+    let collectedCount = 0;
+    let walkPhase = 0;
+    const visitedRooms = new Set<string>();
+    let fallingPainting: THREE.Mesh | null = null;
+    let fallStartAt = 0;
+    let fallFromY = 0;
+    let fallFromZ = 0;
+
+    function awakenMonster() {
+      if (monster.active) return;
+      monster.active = true;
+      monsterGroup.visible = true;
+      flashLevel = Math.max(flashLevel, 0.55);
+      playWake(audioCtx, ambience.master);
+    }
 
     function resolveCollision(nx: number, nz: number): [number, number] {
       let x = player.x;
@@ -863,15 +1093,28 @@ export default function HorrorScene({
         }
       }
 
+      const moving = fwd !== 0 || strafe !== 0;
       camera.position.set(player.x * CELL_SIZE, 1.5, player.z * CELL_SIZE);
       camera.rotation.y = player.yaw;
       camera.rotation.x = player.pitch;
+
+      // Balancement de la main quand on marche.
+      walkPhase += moving ? delta * 8.5 : 0;
+      handGroup.position.set(
+        HAND_BASE.x + (moving ? Math.sin(walkPhase) * 0.014 : 0),
+        HAND_BASE.y + (moving ? Math.abs(Math.cos(walkPhase)) * 0.016 : 0),
+        HAND_BASE.z,
+      );
 
       // Lampe torche : suit la camera, pile qui se vide/se recharge.
       flashlight.position.copy(camera.position);
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       flashTarget.position.copy(camera.position).add(dir);
-      flashlight.visible = flashlightState.on && flashlightState.battery > 0;
+      playerGlow.position.copy(camera.position);
+      const torchOn = flashlightState.on && flashlightState.battery > 0;
+      flashlight.visible = torchOn;
+      torchLens.visible = torchOn;
+      playerGlow.intensity = torchOn ? glowOnIntensity : glowOffIntensity;
       if (flashlightState.on) {
         flashlightState.battery = Math.max(0, flashlightState.battery - FLASHLIGHT_DRAIN_PER_SEC * delta);
         if (flashlightState.battery <= 0) {
@@ -899,6 +1142,31 @@ export default function HorrorScene({
         currentRoomName = roomName;
         setRoomLabel(roomName);
         roomLabelHideAt = elapsed + ROOM_LABEL_SECONDS;
+
+        // Premiere fois qu'on entre dans la cave : un tableau se decroche
+        // juste devant nous et s'ecrase au sol.
+        if (!visitedRooms.has(roomName)) {
+          visitedRooms.add(roomName);
+          const scarePainting = roomName === "Cave" ? paintingsByRoom.get(roomName) : undefined;
+          if (scarePainting && !fallingPainting) {
+            fallingPainting = scarePainting;
+            fallStartAt = elapsed;
+            fallFromY = scarePainting.position.y;
+            fallFromZ = scarePainting.position.z;
+            flashLevel = Math.max(flashLevel, 0.8);
+            playCrash(audioCtx, ambience.master);
+          }
+        }
+      }
+
+      // Chute du tableau (screamer scripte).
+      if (fallingPainting) {
+        const p = Math.min(1, (elapsed - fallStartAt) / PAINTING_FALL_SECONDS);
+        const eased = p * p;
+        fallingPainting.position.y = THREE.MathUtils.lerp(fallFromY, 0.06, eased);
+        fallingPainting.position.z = THREE.MathUtils.lerp(fallFromZ, fallFromZ + 0.42, eased);
+        fallingPainting.rotation.x = THREE.MathUtils.lerp(0, -Math.PI / 2, eased);
+        if (p >= 1) fallingPainting = null;
       }
       if (roomLabelHideAt >= 0 && elapsed > roomLabelHideAt) {
         roomLabelHideAt = -1;
@@ -917,11 +1185,14 @@ export default function HorrorScene({
         const dz = player.z - item.z;
         if (dx * dx + dz * dz < 0.4 * 0.4) {
           item.collected = true;
+          collectedCount++;
           scene.remove(item.group);
           playPickup(audioCtx, ambience.master);
           setItemsFound((n) => n + 1);
           setToast(item.def);
           toastHideAt = elapsed + TOAST_SECONDS;
+          // Toucher au premier objet reveille ce qui dort dans le manoir.
+          if (collectedCount === 1) awakenMonster();
         }
       }
 
@@ -932,8 +1203,10 @@ export default function HorrorScene({
         nextStingerAt = elapsed + STINGER_MIN_DELAY + Math.random() * (STINGER_MAX_DELAY - STINGER_MIN_DELAY);
       }
 
-      // Monstre : IA de poursuite (BFS recalcule periodiquement).
-      if (!monster.active && elapsed > MONSTER_GRACE_SECONDS) monster.active = true;
+      // Monstre : IA de poursuite (BFS recalcule periodiquement). Il dort
+      // jusqu'a ce qu'on touche a un objet ; le minuteur n'est qu'un filet
+      // de securite si le joueur n'y touche jamais.
+      if (!monster.active && elapsed > MONSTER_GRACE_SECONDS_IDLE) awakenMonster();
       if (monster.active) {
         monster.repathTimer -= delta;
         if (monster.repathTimer <= 0) {
@@ -961,8 +1234,13 @@ export default function HorrorScene({
             monster.z += (dz / dist) * speed * delta;
           }
         }
-        monsterGroup.position.set(monster.x * CELL_SIZE, 0, monster.z * CELL_SIZE);
+        monsterGroup.position.set(
+          monster.x * CELL_SIZE,
+          Math.sin(elapsed * 3.1) * 0.035,
+          monster.z * CELL_SIZE,
+        );
         monsterGroup.lookAt(player.x * CELL_SIZE, 0, player.z * CELL_SIZE);
+        monsterGroup.rotation.z = Math.sin(elapsed * 1.7) * 0.045;
 
         const capDx = monster.x - player.x;
         const capDz = monster.z - player.z;
@@ -1116,8 +1394,8 @@ export default function HorrorScene({
       </div>
 
       <p className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-500">
-        Marche · clique/glisse pour regarder · F pour la lampe torche · trouve les objets, évite la
-        présence.
+        Marche · clique/glisse pour regarder · F pour la lampe torche · le premier objet ramassé
+        réveille la présence.
       </p>
     </div>
   );
