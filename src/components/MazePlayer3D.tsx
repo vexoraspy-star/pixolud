@@ -12,7 +12,6 @@ const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
 const BASE_LOOK_SENSITIVITY = 0.0038;
 const MINIMAP_SIZE = 220;
-const MINIMAP_REVEAL_RADIUS = 2;
 // Les couloirs vivent en unites "logiques" (1 case = 1 unite) pour toute la
 // physique/collision, mais sont affiches plus larges a l'ecran en
 // multipliant leurs positions par CELL_SIZE au rendu : les couloirs
@@ -122,14 +121,22 @@ export default function MazePlayer3D({
   countsAsPlay = false,
   backHref,
   title,
+  minimapRevealRadius = 2,
+  onWin,
 }: {
   data: MazeData;
   gameId?: string;
   countsAsPlay?: boolean;
   backHref?: string;
   title?: string;
+  minimapRevealRadius?: number;
+  onWin?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onWinRef = useRef(onWin);
+  useEffect(() => {
+    onWinRef.current = onWin;
+  }, [onWin]);
   const [won, setWon] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -386,8 +393,8 @@ export default function MazePlayer3D({
     const minimapCellPx = MINIMAP_SIZE / Math.max(data.width, data.height);
 
     function revealAround(cx: number, cz: number) {
-      for (let dx = -MINIMAP_REVEAL_RADIUS; dx <= MINIMAP_REVEAL_RADIUS; dx++) {
-        for (let dz = -MINIMAP_REVEAL_RADIUS; dz <= MINIMAP_REVEAL_RADIUS; dz++) {
+      for (let dx = -minimapRevealRadius; dx <= minimapRevealRadius; dx++) {
+        for (let dz = -minimapRevealRadius; dz <= minimapRevealRadius; dz++) {
           discovered.add(cellKey(cx + dx, cz + dz));
         }
       }
@@ -588,6 +595,7 @@ export default function MazePlayer3D({
           if (ddx * ddx + ddz * ddz < 0.4 * 0.4) {
             player.won = true;
             setWon(true);
+            onWinRef.current?.();
           }
         }
       }
@@ -639,7 +647,7 @@ export default function MazePlayer3D({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [data]);
+  }, [data, minimapRevealRadius]);
 
   const forwardLabel = layout === "azerty" ? "Z" : "W";
   const leftLabel = layout === "azerty" ? "Q" : "A";

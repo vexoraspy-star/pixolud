@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { getGame3D, getMaze3DData } from "@/lib/games3d";
-import MazePlayer3D from "@/components/MazePlayer3D";
+import { getGame3D } from "@/lib/games3d";
+import LabyrintheGame from "@/components/LabyrintheGame";
+import HorrorGame from "@/components/HorrorGame";
 
 export default async function Play3DPage({
   params,
@@ -9,12 +10,14 @@ export default async function Play3DPage({
 }) {
   const { slug } = await params;
   const game = getGame3D(slug);
-  const data = getMaze3DData(slug);
-  if (!game || !data) notFound();
+  if (!game) notFound();
+
+  const title = `${game.emoji} ${game.title}`;
 
   return (
     <div className="h-[calc(100vh-4rem)] bg-black">
-      <MazePlayer3D data={data} backHref="/mode-3d" title={`${game.emoji} ${game.title}`} />
+      {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
+      {slug === "manoir-maudit" && <HorrorGame title={title} />}
     </div>
   );
 }

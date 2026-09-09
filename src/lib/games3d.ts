@@ -15,14 +15,60 @@ export const GAMES_3D: Game3D[] = [
     slug: "labyrinthe-legendaire",
     title: "Labyrinthe légendaire",
     description:
-      "Un vrai labyrinthe en pierre à parcourir en vue à la première personne. Trouve la sortie !",
+      "Un vrai labyrinthe en pierre à parcourir en vue à la première personne. Choisis ta difficulté et trouve la sortie !",
     emoji: "🧱",
     gradient: "from-amber-700 to-stone-950",
   },
+  {
+    slug: "manoir-maudit",
+    title: "Le Manoir Maudit",
+    description:
+      "Un manoir plongé dans le noir, une présence qui te traque... Trouve les pages avant qu'elle ne te trouve.",
+    emoji: "🕯️",
+    gradient: "from-red-950 to-black",
+  },
 ];
 
-// Petit generateur pseudo-aleatoire (seed fixe) pour que le labyrinthe soit
-// toujours le meme d'une partie a l'autre, tout en ayant vraiment plusieurs
+export type MazeDifficulty = "facile" | "difficile" | "hardcore";
+
+export interface MazeDifficultyConfig {
+  id: MazeDifficulty;
+  label: string;
+  description: string;
+  roomsW: number;
+  roomsH: number;
+  minimapRevealRadius: number;
+}
+
+export const MAZE_DIFFICULTIES: MazeDifficultyConfig[] = [
+  {
+    id: "facile",
+    label: "Facile",
+    description: "Un petit labyrinthe pour s'échauffer.",
+    roomsW: 5,
+    roomsH: 5,
+    minimapRevealRadius: 3,
+  },
+  {
+    id: "difficile",
+    label: "Difficile",
+    description: "Un vrai labyrinthe, long et plein d'embranchements.",
+    roomsW: 9,
+    roomsH: 9,
+    minimapRevealRadius: 2,
+  },
+  {
+    id: "hardcore",
+    label: "Hardcore",
+    description: "Immense, et la mini-carte ne révèle presque rien autour de toi.",
+    roomsW: 13,
+    roomsH: 13,
+    minimapRevealRadius: 1,
+  },
+];
+
+// Petit generateur pseudo-aleatoire (seed variable) pour que chaque partie
+// propose un vrai nouveau labyrinthe, tout en ayant vraiment plusieurs
 // passages/embranchements (algorithme "recursive backtracker" classique).
 function seededRandom(seed: number): () => number {
   let s = seed >>> 0;
@@ -32,7 +78,7 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function generateMaze(roomsW: number, roomsH: number, seed: number): MazeData {
+export function generateMaze(roomsW: number, roomsH: number, seed: number): MazeData {
   const rand = seededRandom(seed);
   const visited: boolean[][] = Array.from({ length: roomsH }, () =>
     new Array(roomsW).fill(false),
@@ -118,14 +164,6 @@ function generateMaze(roomsW: number, roomsH: number, seed: number): MazeData {
   };
 }
 
-const MAZE_DATA_BY_SLUG: Record<string, MazeData> = {
-  "labyrinthe-legendaire": generateMaze(9, 9, 20260908),
-};
-
 export function getGame3D(slug: string): Game3D | undefined {
   return GAMES_3D.find((g) => g.slug === slug);
-}
-
-export function getMaze3DData(slug: string): MazeData | undefined {
-  return MAZE_DATA_BY_SLUG[slug];
 }
