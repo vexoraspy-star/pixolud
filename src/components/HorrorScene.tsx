@@ -9,6 +9,8 @@ import {
   MANOR_ITEMS,
   CLUE_SPOTS,
   CAVE_DOOR,
+  ALTAR,
+  HATCH,
   UPPER_Y,
   STAIR_X0,
   STAIR_X1,
@@ -48,6 +50,12 @@ import {
   playDeathScream,
   playFootstep,
   playStairCreak,
+  playWhisper,
+  playBreath,
+  playCandleOut,
+  playDoorSlam,
+  playRitual,
+  playHatch,
 } from "@/lib/manorAudio";
 
 const CELL_SIZE = 1.7;
@@ -74,8 +82,19 @@ const PAINTING_FALL_SECONDS = 0.55;
 const CEILING_HEIGHT = 2.6;
 const DOOR_REACH = 2.4;
 const CLUE_REACH = 1.7;
+const ALTAR_REACH = 2.3;
+const HATCH_REACH = 0.9;
 /** Duree du screamer avant l'ecran de mort. */
 const DEATH_SEQUENCE_SECONDS = 1.45;
+/** Chaque objet ramasse rend la chose plus rapide et le manoir plus sombre. */
+const SPEED_PER_ITEM = 0.13;
+/** Le rituel sur l'autel, avant la course finale. */
+const RITUAL_SECONDS = 4.2;
+/** Pendant la fuite finale, elle court plus vite que toi : ne t'arrete pas. */
+const MONSTER_SPEED_FINALE = 2.95;
+/** Elle reste figee pendant le rituel, puis marque un temps avant de bondir. */
+const CHASE_RELEASE_SECONDS = 0.9;
+const LOS_INTERVAL = 0.22;
 
 interface Clue {
   rank: number;
@@ -222,6 +241,17 @@ function buildPropBoxes(p: ManorProp): BoxEntry[] {
       }
       break;
     }
+    case "altar": {
+      const stone = 0x3d3a35;
+      box(0, 0.16, 0, w * 0.95, 0.32, d * 0.95, 0x2a2724);
+      box(0, 0.52, 0, w * 0.8, 0.42, d * 0.8, stone);
+      box(0, 0.78, 0, w, 0.12, d, 0x4a4640);
+      // deux chandeliers de pierre aux extremites
+      for (const sx of [-1, 1]) {
+        box(sx * (w / 2 - 0.22), 0.98, 0, 0.13, 0.3, 0.13, stone);
+      }
+      break;
+    }
   }
   return out;
 }
@@ -250,6 +280,9 @@ export default function HorrorScene({
   const [entry, setEntry] = useState("");
   const [entryError, setEntryError] = useState(false);
   const [doorOpen, setDoorOpen] = useState(false);
+  /** 0 = tranquille, 1 = elle est sur toi. Pilote la vignette et le grain. */
+  const [dread, setDread] = useState(0);
+  const [finale, setFinale] = useState<"none" | "ritual" | "chase">("none");
 
   const layoutRef = useRef<Layout>("azerty");
   const sensitivityRef = useRef(1.5);
@@ -537,7 +570,13 @@ export default function HorrorScene({
     scene.add(furnitureMesh);
 
     // --- Bougies murales (peu nombreuses : chaque lumiere coute cher) ---
-    const sconces: { light: THREE.PointLight; base: number; phase: number }[] = [];
+    const sconces: {
+      light: THREE.PointLight;
+      flame: THREE.Mesh;
+      base: number;
+      phase: number;
+      dead: boolean;
+    }[] = [];
     const MAX_SCONCES = 5;
     const wallAdjacent: { cell: [number, number]; dir: [number, number] }[] = [];
     for (const [cx, cy] of openCells) {
@@ -563,11 +602,6 @@ export default function HorrorScene({
       const light = new THREE.PointLight(0xff9a4d, 0, 4 * CELL_SIZE, 2);
       light.position.set(px, py, pz);
       scene.add(light);
-      sconces.push({
-        light,
-        base: (0.75 + Math.random() * 0.25) * brightness,
-        phase: Math.random() * 10,
-      });
       const bracket = new THREE.Mesh(bracketGeo, bracketMat);
       bracket.position.set(px, py - 0.16, pz);
       if (dir[0] !== 0) bracket.rotation.y = Math.PI / 2;
@@ -578,6 +612,13 @@ export default function HorrorScene({
       const flame = new THREE.Mesh(flameGeo, flameMat);
       flame.position.set(px, py + 0.15, pz);
       scene.add(flame);
+      sconces.push({
+        light,
+        flame,
+        base: (0.75 + Math.random() * 0.25) * brightness,
+        phase: Math.random() * 10,
+        dead: false,
+      });
     }
 
     // --- Tableaux ---
@@ -657,6 +698,42 @@ export default function HorrorScene({
       rug.position.set(12 * CELL_SIZE, 0.012, (roomY0 + 2.5) * CELL_SIZE);
       scene.add(rug);
     }
+
+    // --- Trappe de sortie : invisible jusqu'au rituel ---
+    const hatchGroup = new THREE.Group();
+    const hatchFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(CELL_SIZE * 0.9, 0.1, CELL_SIZE * 0.9),
+      new THREE.MeshLambertMaterial({ color: 0x2a2118 }),
+    );
+    hatchGroup.add(hatchFrame);
+    // Rectangle non eclaire : dans le noir de la cave, c'est le seul repere.
+    const hatchGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(CELL_SIZE * 0.66, CELL_SIZE * 0.66),
+      new THREE.MeshBasicMaterial({ color: 0x7fd4ff, transparent: true, opacity: 0.75 }),
+    );
+    hatchGlow.rotation.x = -Math.PI / 2;
+    hatchGlow.position.y = 0.07;
+    hatchGroup.add(hatchGlow);
+    hatchGroup.position.set((HATCH.x + 0.5) * CELL_SIZE, 0.03, (HATCH.y + 0.5) * CELL_SIZE);
+    hatchGroup.visible = false;
+    scene.add(hatchGroup);
+
+    // --- Les 5 objets offerts sur l'autel pendant le rituel ---
+    const altarCenter = {
+      x: (ALTAR.x0 + ALTAR.x1 + 1) / 2,
+      z: (ALTAR.y0 + ALTAR.y1 + 1) / 2,
+    };
+    const offeringGroup = new THREE.Group();
+    const offeringMat = new THREE.MeshBasicMaterial({ color: 0xffd79a, side: THREE.DoubleSide });
+    for (let i = 0; i < ITEM_COUNT; i++) {
+      const a = (i / ITEM_COUNT) * Math.PI * 2;
+      const offering = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), offeringMat);
+      offering.position.set(Math.cos(a) * 0.5, 0, Math.sin(a) * 0.5);
+      offeringGroup.add(offering);
+    }
+    offeringGroup.position.set(altarCenter.x * CELL_SIZE, 1.1, altarCenter.z * CELL_SIZE);
+    offeringGroup.visible = false;
+    scene.add(offeringGroup);
 
     // --- Objets a ramasser ---
     const items = itemCells.map(([nx, ny], i) => {
@@ -790,6 +867,53 @@ export default function HorrorScene({
     let fallFromZ = 0;
     let dyingSince = -1;
 
+    // --- Terreur : elle t'entend, tu l'entends, et la lampe le sait ---
+    let losToMonster = false;
+    let losTimer = 0;
+    let distToMonster = 99;
+    let nextWhisperAt = 0;
+    let nextBreathAt = 0;
+    let nextMonsterStepAt = 0;
+    let nextSlamAt = 22 + Math.random() * 18;
+    let nextGlimpseAt = 18 + Math.random() * 14;
+    let glimpseUntil = -1;
+    let dreadLevel = 0;
+    let lastSyncedDread = 0;
+    let candlesOut = 0;
+    let ritualStartedAt = -1;
+    let chaseStartedAt = -1;
+    let phase: "none" | "ritual" | "chase" = "none";
+    let torchFlicker = 1;
+
+    /** Rien entre nous deux ? C'est la qu'elle chuchote et qu'elle te voit. */
+    function hasLineOfSight(ax: number, az: number, bx: number, bz: number): boolean {
+      const steps = Math.ceil(Math.hypot(bx - ax, bz - az) * 2.5);
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        if (isSolid(Math.floor(ax + (bx - ax) * t), Math.floor(az + (bz - az) * t))) return false;
+      }
+      return true;
+    }
+
+    /** -1 a gauche, +1 a droite, relatif au regard du joueur. */
+    function panFor(x: number, z: number): number {
+      const dx = x - player.x;
+      const dz = z - player.z;
+      const len = Math.hypot(dx, dz) || 1;
+      return THREE.MathUtils.clamp(
+        (dx / len) * Math.cos(player.yaw) - (dz / len) * Math.sin(player.yaw),
+        -1,
+        1,
+      );
+    }
+    function spatialFor(x: number, z: number, reach: number, loudness = 1) {
+      const d = Math.hypot(x - player.x, z - player.z);
+      return { pan: panFor(x, z), gain: Math.max(0, 1 - d / reach) * loudness };
+    }
+    function monsterSpatial(reach: number, loudness = 1) {
+      return spatialFor(monster.x, monster.z, reach, loudness);
+    }
+
     function showHint(text: string, seconds = 3.5) {
       setHint(text);
       hintHideAt = elapsed + seconds;
@@ -912,6 +1036,40 @@ export default function HorrorScene({
     function distanceToDoor() {
       return Math.hypot(player.x - doorCenter.x, player.z - doorCenter.z);
     }
+    function distanceToAltar() {
+      return Math.hypot(player.x - altarCenter.x, player.z - altarCenter.z);
+    }
+    function canOfferAtAltar() {
+      return (
+        phase === "none" &&
+        collectedCount >= ITEM_COUNT &&
+        !doorLocked &&
+        distanceToAltar() < ALTAR_REACH
+      );
+    }
+    /** Le rituel : on rend les objets, et le manoir se retourne contre toi. */
+    function startRitual() {
+      if (phase !== "none") return;
+      phase = "ritual";
+      ritualStartedAt = elapsed;
+      setFinale("ritual");
+      offeringGroup.visible = true;
+      playRitual(audio.ctx, audio.master);
+      showHint("Les objets s'élèvent. Quelque chose se réveille en dessous.", 4.5);
+      // Toutes les bougies s'eteignent d'un coup.
+      for (const s of sconces) {
+        s.dead = true;
+        s.light.visible = false;
+        s.flame.visible = false;
+      }
+      // Elle revient par la porte de la cave, et elle ne marche plus.
+      monster.x = doorCenter.x;
+      monster.z = doorCenter.z;
+      monster.path = null;
+      monster.pathIndex = 0;
+      monster.repathTimer = 0;
+      awakenMonster();
+    }
 
     const keys = new Set<string>();
     function onKeyDown(e: KeyboardEvent) {
@@ -931,14 +1089,18 @@ export default function HorrorScene({
         }
       }
       if (e.key.toLowerCase() === "f") toggleFlashlight();
-      if (e.key.toLowerCase() === "e" && doorLocked && distanceToDoor() < DOOR_REACH) {
-        try {
-          document.exitPointerLock?.();
-        } catch {
-          // ignore
+      if (e.key.toLowerCase() === "e") {
+        if (doorLocked && distanceToDoor() < DOOR_REACH) {
+          try {
+            document.exitPointerLock?.();
+          } catch {
+            // ignore
+          }
+          keys.clear();
+          setKeypadOpen(true);
+        } else if (canOfferAtAltar()) {
+          startRitual();
         }
-        keys.clear();
-        setKeypadOpen(true);
       }
     }
     function onKeyUp(e: KeyboardEvent) {
@@ -1023,6 +1185,18 @@ export default function HorrorScene({
       camera.rotation.x = player.pitch;
       camera.rotation.z = 0;
 
+      // Distance et ligne de vue vers la chose : tout le reste en depend.
+      // La ligne de vue est recalculee 5 fois par seconde, pas a chaque image.
+      distToMonster = Math.hypot(monster.x - player.x, monster.z - player.z);
+      losTimer -= delta;
+      if (losTimer <= 0) {
+        losTimer = LOS_INTERVAL;
+        losToMonster =
+          monster.active && distToMonster < 14
+            ? hasLineOfSight(player.x, player.z, monster.x, monster.z)
+            : false;
+      }
+
       // Pas + grincements de marches.
       if (moving && elapsed >= nextFootstepAt) {
         playFootstep(audio.ctx, audio.master);
@@ -1045,10 +1219,19 @@ export default function HorrorScene({
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       flashTarget.position.copy(camera.position).add(dir);
       playerGlow.position.copy(camera.position);
+      // La lampe grésille quand elle est proche, et lâche carrément quand
+      // elle est presque sur toi : tu SAIS qu'elle arrive avant de la voir.
+      if (monster.active && distToMonster < 7) {
+        const panic = 1 - distToMonster / 7;
+        torchFlicker = Math.random() < 0.1 + panic * 0.4 ? 0.08 + Math.random() * 0.3 : 1;
+      } else {
+        torchFlicker = 1;
+      }
       const torchOn = flashlightState.on && flashlightState.battery > 0;
       flashlight.visible = torchOn;
-      torchLens.visible = torchOn;
-      playerGlow.intensity = torchOn ? glowOnIntensity : glowOffIntensity;
+      flashlight.intensity = 6.5 * brightness * torchFlicker;
+      torchLens.visible = torchOn && torchFlicker > 0.5;
+      playerGlow.intensity = (torchOn ? glowOnIntensity : glowOffIntensity) * (0.4 + torchFlicker * 0.6);
       if (flashlightState.on) {
         flashlightState.battery = Math.max(0, flashlightState.battery - FLASHLIGHT_DRAIN_PER_SEC * delta);
         if (flashlightState.battery <= 0) {
@@ -1065,6 +1248,7 @@ export default function HorrorScene({
       }
 
       for (const s of sconces) {
+        if (s.dead) continue;
         s.light.intensity = s.base + Math.sin(elapsed * 6 + s.phase) * 0.08 + (Math.random() - 0.5) * 0.05;
       }
 
@@ -1147,6 +1331,24 @@ export default function HorrorScene({
           setToast(item.def);
           toastHideAt = elapsed + TOAST_SECONDS;
           if (collectedCount === 1) awakenMonster();
+          if (collectedCount === ITEM_COUNT) {
+            // Avec les 5 objets elle court plus vite que toi lampe allumee :
+            // sans cet avertissement, la mecanique reste invisible.
+            window.setTimeout(
+              () => showHint("Elle est plus rapide que toi. Éteins ta lampe (F) pour la semer.", 6),
+              1400,
+            );
+          }
+          // Le manoir souffle une bougie a chaque objet vole : plus tu
+          // avances, moins tu vois.
+          const doomed = sconces[candlesOut];
+          if (doomed) {
+            doomed.dead = true;
+            doomed.light.visible = false;
+            doomed.flame.visible = false;
+            candlesOut++;
+            window.setTimeout(() => playCandleOut(audio.ctx, audio.master), 420);
+          }
         }
       }
 
@@ -1154,6 +1356,11 @@ export default function HorrorScene({
       let promptText: string | null = null;
       if (doorLocked && distanceToDoor() < DOOR_REACH) {
         promptText = "E — Examiner la serrure";
+      } else if (canOfferAtAltar()) {
+        promptText = "E — Déposer les 5 objets";
+      } else if (phase === "none" && !doorLocked && distanceToAltar() < ALTAR_REACH) {
+        const missing = ITEM_COUNT - collectedCount;
+        promptText = `Il manque ${missing} objet${missing > 1 ? "s" : ""} sur l'autel`;
       }
       if (promptText !== lastPromptText) {
         lastPromptText = promptText;
@@ -1161,13 +1368,57 @@ export default function HorrorScene({
       }
 
       if (elapsed >= nextStingerAt) {
-        playStinger(audio.ctx, audio.master);
+        // Le bruit vient d'une direction precise, jamais du centre.
+        const a = Math.random() * Math.PI * 2;
+        playStinger(audio.ctx, audio.master, { pan: Math.sin(a) * 0.9, gain: 0.85 });
         flashLevel = Math.max(flashLevel, 0.22);
         nextStingerAt = elapsed + STINGER_MIN_DELAY + Math.random() * (STINGER_MAX_DELAY - STINGER_MIN_DELAY);
       }
 
+      // Une porte claque quelque part. Il n'y a personne. Enfin, si.
+      if (elapsed >= nextSlamAt) {
+        nextSlamAt = elapsed + 26 + Math.random() * 24;
+        playDoorSlam(audio.ctx, audio.master, {
+          pan: (Math.random() * 2 - 1) * 0.85,
+          gain: 0.5 + Math.random() * 0.3,
+        });
+        flashLevel = Math.max(flashLevel, 0.3);
+      }
+
+      // Avant qu'elle ne se reveille : de breves apparitions au loin, juste
+      // assez longues pour que tu doutes de les avoir vues.
+      if (!monster.active && elapsed >= nextGlimpseAt && glimpseUntil < 0) {
+        nextGlimpseAt = elapsed + 26 + Math.random() * 20;
+        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const [cx, cy] = openCells[Math.floor(Math.random() * openCells.length)];
+          const gx = cx + 0.5;
+          const gz = cy + 0.5;
+          const dx = gx - player.x;
+          const dz = gz - player.z;
+          const d = Math.hypot(dx, dz);
+          if (d < 5 || d > 11) continue;
+          if ((dx / d) * forward.x + (dz / d) * forward.z < 0.55) continue;
+          if (!hasLineOfSight(player.x, player.z, gx, gz)) continue;
+          monsterGroup.position.set(gx * CELL_SIZE, floorHeightAt(gz), gz * CELL_SIZE);
+          monsterGroup.rotation.set(0, Math.atan2(player.x - gx, player.z - gz), 0);
+          monsterGroup.visible = true;
+          glimpseUntil = elapsed + 0.75;
+          playWhisper(audio.ctx, audio.master, spatialFor(gx, gz, 14, 0.9));
+          break;
+        }
+      }
+      if (glimpseUntil > 0 && elapsed > glimpseUntil) {
+        glimpseUntil = -1;
+        if (!monster.active) monsterGroup.visible = false;
+      }
+
       if (!monster.active && elapsed > MONSTER_GRACE_SECONDS_IDLE) awakenMonster();
       if (monster.active) {
+        // Pendant le rituel elle attend sur le seuil, immobile, et te fixe.
+        // Elle ne bondit qu'une fois la trappe ouverte, apres un temps mort.
+        const held =
+          phase === "ritual" || (phase === "chase" && elapsed - chaseStartedAt < CHASE_RELEASE_SECONDS);
         monster.repathTimer -= delta;
         if (monster.repathTimer <= 0) {
           monster.repathTimer = REPATH_INTERVAL;
@@ -1178,8 +1429,29 @@ export default function HorrorScene({
         }
         const distToPlayerCells = Math.abs(monster.x - player.x) + Math.abs(monster.z - player.z);
         const hunting = flashlightState.on && distToPlayerCells < MONSTER_HUNT_RADIUS;
-        const speed = hunting ? MONSTER_SPEED_HUNTING : MONSTER_SPEED_BASE;
-        if (monster.path && monster.pathIndex < monster.path.length) {
+        // Chaque objet vole la rend plus rapide ; pendant la fuite finale,
+        // elle est plus rapide que toi.
+        const speed =
+          phase === "chase"
+            ? MONSTER_SPEED_FINALE
+            : (hunting ? MONSTER_SPEED_HUNTING : MONSTER_SPEED_BASE) +
+              collectedCount * SPEED_PER_ITEM;
+
+        // Ses pas, sa respiration, ses chuchotements : tous places dans
+        // l'espace. C'est ce qui rend la traque insupportable.
+        if (elapsed >= nextMonsterStepAt && distToMonster < 13) {
+          nextMonsterStepAt = elapsed + 0.52 / Math.max(0.6, speed / MONSTER_SPEED_BASE);
+          playFootstep(audio.ctx, audio.master, monsterSpatial(13, 1.6));
+        }
+        if (losToMonster && distToMonster < 11 && elapsed >= nextWhisperAt) {
+          nextWhisperAt = elapsed + 2.6 + Math.random() * 3;
+          playWhisper(audio.ctx, audio.master, monsterSpatial(12, 1.1));
+        }
+        if (distToMonster < 4.5 && elapsed >= nextBreathAt) {
+          nextBreathAt = elapsed + 2.2 + Math.random() * 1.6;
+          playBreath(audio.ctx, audio.master, monsterSpatial(5, 1.3));
+        }
+        if (!held && monster.path && monster.pathIndex < monster.path.length) {
           const [tx, ty] = monster.path[monster.pathIndex];
           const targetX = tx + 0.5;
           const targetZ = ty + 0.5;
@@ -1213,7 +1485,7 @@ export default function HorrorScene({
 
         const capDx = monster.x - player.x;
         const capDz = monster.z - player.z;
-        if (capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS) {
+        if (!held && capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS) {
           dyingSince = elapsed;
           endedRef.current = true;
           flashLevel = 1;
@@ -1232,11 +1504,31 @@ export default function HorrorScene({
         }
 
         const proximity = THREE.MathUtils.clamp(1 - distToPlayerCells / 14, 0, 1);
-        const interval = THREE.MathUtils.lerp(1.1, 0.32, proximity);
+        const interval = THREE.MathUtils.lerp(1.1, 0.26, proximity);
         if (elapsed >= nextHeartbeatAt) {
-          playHeartbeat(audio.ctx, audio.master);
+          playHeartbeat(audio.ctx, audio.master, { gain: 0.7 + proximity * 0.9 });
           nextHeartbeatAt = elapsed + interval;
         }
+      }
+
+      // Angoisse : la proximite compte double quand elle te voit. C'est ce
+      // niveau qui pilote la vignette, le tremblement et la dissonance.
+      const proximityDread = monster.active
+        ? THREE.MathUtils.clamp(1 - distToMonster / 11, 0, 1) * (losToMonster ? 1 : 0.55)
+        : 0;
+      const progressDread = collectedCount / (ITEM_COUNT * 2);
+      const target = Math.min(1, Math.max(proximityDread, progressDread, phase === "chase" ? 1 : 0));
+      dreadLevel += (target - dreadLevel) * Math.min(1, delta * 3.2);
+      audio.setTension(dreadLevel);
+      if (Math.abs(dreadLevel - lastSyncedDread) > 0.03) {
+        lastSyncedDread = dreadLevel;
+        setDread(dreadLevel);
+      }
+      // Le souffle du joueur fait trembler la camera quand la terreur monte.
+      if (dreadLevel > 0.25 && dyingSince < 0) {
+        const shake = (dreadLevel - 0.25) * 0.028;
+        camera.rotation.x += Math.sin(elapsed * 13.7) * shake;
+        camera.rotation.z = Math.sin(elapsed * 9.1) * shake;
       }
 
       flashLevel = Math.max(0, flashLevel - delta * 1.1);
@@ -1245,19 +1537,33 @@ export default function HorrorScene({
         setScareFlash(flashLevel);
       }
 
-      // Sortie : dans la cave, avec les 5 objets.
-      if (!ended && !doorLocked) {
-        const dex = player.x - (end[0] + 0.5);
-        const dez = player.z - (end[1] + 0.5);
-        if (dex * dex + dez * dez < 0.7 * 0.7) {
-          if (items.every((it) => it.collected)) {
-            ended = true;
-            endedRef.current = true;
-            onEscape();
-          } else if (hintHideAt < 0) {
-            const missing = ITEM_COUNT - collectedCount;
-            showHint(`Il te manque encore ${missing} objet${missing > 1 ? "s" : ""}.`, 3);
-          }
+      // --- Rituel : les objets tournent au-dessus de l'autel, puis la
+      // trappe s'ouvre et la course commence. ---
+      if (phase === "ritual") {
+        const t = (elapsed - ritualStartedAt) / RITUAL_SECONDS;
+        offeringGroup.rotation.y += delta * (1.2 + t * 5);
+        offeringGroup.position.y = 1.1 + t * 0.55;
+        offeringGroup.scale.setScalar(1 + t * 0.5);
+        flashLevel = Math.max(flashLevel, Math.min(0.75, t * 0.9));
+        if (t >= 1) {
+          phase = "chase";
+          chaseStartedAt = elapsed;
+          setFinale("chase");
+          offeringGroup.visible = false;
+          hatchGroup.visible = true;
+          playHatch(audio.ctx, audio.master);
+          playWake(audio.ctx, audio.master);
+          flashLevel = 1;
+          showHint("La trappe ! COURS !", 3.5);
+        }
+      }
+
+      if (phase === "chase") {
+        hatchGlow.material.opacity = 0.55 + Math.sin(elapsed * 7) * 0.3;
+        if (!ended && Math.hypot(player.x - (HATCH.x + 0.5), player.z - (HATCH.y + 0.5)) < HATCH_REACH) {
+          ended = true;
+          endedRef.current = true;
+          onEscape();
         }
       }
 
@@ -1319,6 +1625,22 @@ export default function HorrorScene({
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black select-none">
+      {/* Vignette d'angoisse : le champ de vision se referme quand elle approche. */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(circle at 50% 50%, transparent ${Math.max(
+            10,
+            48 - dread * 34,
+          )}%, rgba(0,0,0,${(0.3 + dread * 0.55).toFixed(2)}) ${Math.max(42, 94 - dread * 32)}%)`,
+        }}
+      />
+      {dread > 0.55 && (
+        <div
+          className="pointer-events-none absolute inset-0 bg-red-950"
+          style={{ opacity: (dread - 0.55) * 0.8 }}
+        />
+      )}
       <div
         className="pointer-events-none absolute inset-0 bg-red-700 transition-opacity"
         style={{ opacity: scareFlash * 0.32 }}
@@ -1337,9 +1659,14 @@ export default function HorrorScene({
             {clueDisplay.map((d) => d ?? "_").join(" ")}
           </span>
         </span>
-        {doorOpen && (
+        {doorOpen && finale === "none" && (
           <span className="rounded-full bg-emerald-900/70 px-3 py-1 text-xs font-semibold text-emerald-200 backdrop-blur">
             🚪 Cave ouverte
+          </span>
+        )}
+        {finale === "chase" && (
+          <span className="animate-pulse rounded-full bg-red-800 px-3 py-1 text-xs font-black uppercase tracking-widest text-white">
+            Cours vers la trappe
           </span>
         )}
       </div>

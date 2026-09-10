@@ -379,6 +379,39 @@ export function makeNightSkyTexture(): THREE.CanvasTexture {
   return finish(canvas);
 }
 
+/** Ciel d'aube pour la fin : la nuit se retire, les etoiles s'effacent. */
+export function makeDawnSkyTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = canvas2d(512, 256);
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#131a2e");
+  grad.addColorStop(0.45, "#3b3350");
+  grad.addColorStop(0.72, "#8a5a52");
+  grad.addColorStop(0.88, "#d18c5c");
+  grad.addColorStop(1, "#f0b878");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 90; i++) {
+    const y = Math.random() * 110;
+    ctx.fillStyle = `rgba(255,255,255,${(1 - y / 110) * 0.5 * Math.random()})`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * 512, y, Math.random() * 1.1 + 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // bancs de nuages bas
+  for (let i = 0; i < 14; i++) {
+    const cx = Math.random() * 512;
+    const cy = 150 + Math.random() * 80;
+    const w = 60 + Math.random() * 130;
+    const g2 = ctx.createLinearGradient(cx - w / 2, cy, cx + w / 2, cy);
+    g2.addColorStop(0, "rgba(255,190,140,0)");
+    g2.addColorStop(0.5, `rgba(255,205,160,${0.1 + Math.random() * 0.16})`);
+    g2.addColorStop(1, "rgba(255,190,140,0)");
+    ctx.fillStyle = g2;
+    ctx.fillRect(cx - w / 2, cy - 7, w, 14);
+  }
+  return finish(canvas);
+}
+
 /** Facade du manoir vue de l'exterieur (plan unique pour la cinematique). */
 export function makeFacadeTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = canvas2d(512, 384);

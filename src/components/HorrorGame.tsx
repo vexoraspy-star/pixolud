@@ -5,8 +5,9 @@ import Link from "next/link";
 import HorrorScene from "./HorrorScene";
 import HorrorLobby, { type HorrorMode } from "./HorrorLobby";
 import HorrorCutscene from "./HorrorCutscene";
+import HorrorEnding from "./HorrorEnding";
 
-type Phase = "lobby" | "cutscene" | "playing" | "caught" | "escaped";
+type Phase = "lobby" | "cutscene" | "playing" | "caught" | "ending" | "escaped";
 
 export default function HorrorGame({ title }: { title: string }) {
   const [phase, setPhase] = useState<Phase>("lobby");
@@ -27,6 +28,10 @@ export default function HorrorGame({ title }: { title: string }) {
 
   if (phase === "cutscene") {
     return <HorrorCutscene onDone={() => setPhase("playing")} />;
+  }
+
+  if (phase === "ending") {
+    return <HorrorEnding onDone={() => setPhase("escaped")} />;
   }
 
   if (phase === "caught") {
@@ -105,7 +110,7 @@ export default function HorrorGame({ title }: { title: string }) {
     <HorrorScene
       seed={seed}
       onCaught={() => setPhase("caught")}
-      onEscape={() => setPhase("escaped")}
+      onEscape={() => setPhase("ending")}
     />
   );
 }

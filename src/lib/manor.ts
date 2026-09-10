@@ -73,6 +73,11 @@ export function floorHeightAt(z: number): number {
   return ((z - STAIR_ROW_FIRST) / (STAIR_ROW_LAST + 1 - STAIR_ROW_FIRST)) * UPPER_Y;
 }
 
+/** L'autel de la cave : on y depose les 5 objets pour declencher la fin. */
+export const ALTAR = { x0: 20, y0: 17, x1: 21, y1: 17 };
+/** La trappe de sortie, revelee seulement une fois le rituel accompli. */
+export const HATCH = { x: 22, y: 20 };
+
 export type PropKind =
   | "shelf"
   | "table"
@@ -81,7 +86,8 @@ export type PropKind =
   | "crate"
   | "fireplace"
   | "piano"
-  | "railing";
+  | "railing"
+  | "altar";
 
 export interface ManorProp {
   kind: PropKind;
@@ -144,10 +150,10 @@ const PROPS: ManorProp[] = [
   { kind: "shelf", x0: 15, y0: 15, x1: 15, y1: 15 },
   { kind: "seat", x0: 15, y0: 20, x1: 15, y1: 20 },
 
-  // --- Cave ---
+  // --- Cave (on laisse libre le chemin autel -> trappe en (22,20)) ---
   { kind: "crate", x0: 17, y0: 19, x1: 18, y1: 20 },
   { kind: "crate", x0: 22, y0: 15, x1: 23, y1: 16 },
-  { kind: "table", x0: 20, y0: 19, x1: 21, y1: 19 },
+  { kind: "altar", x0: ALTAR.x0, y0: ALTAR.y0, x1: ALTAR.x1, y1: ALTAR.y1 },
 
   // --- Palier (l'etage) ---
   { kind: "railing", x0: 10, y0: 27, x1: 11, y1: 27, walkable: true },
@@ -207,14 +213,14 @@ export function buildManor(): ManorData {
   }
 
   const entree = ROOMS.find((r) => r.name === "Entrée")!;
-  const cave = ROOMS.find((r) => r.name === "Cave")!;
 
   return {
     width,
     height,
     walls,
     start: [Math.floor((entree.x0 + entree.x1) / 2), Math.floor((entree.y0 + entree.y1) / 2)],
-    end: [Math.floor((cave.x0 + cave.x1) / 2), Math.floor((cave.y0 + cave.y1) / 2)],
+    // La vraie sortie est la trappe, pas le centre de la cave (occupe par l'autel).
+    end: [HATCH.x, HATCH.y],
     rooms: ROOMS,
     props: PROPS,
     blocked,
