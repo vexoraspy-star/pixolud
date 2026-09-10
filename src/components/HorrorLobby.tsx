@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { buildManor, type ManorRoom } from "@/lib/manor";
 import {
   BRIGHTNESS_MAX,
   BRIGHTNESS_MIN,
@@ -16,10 +17,13 @@ import {
   type Layout3D,
 } from "@/lib/settings3d";
 
-type Tab = "jouer" | "skins" | "amis" | "parametres";
+export type HorrorMode = "histoire" | "rapide";
+
+type Tab = "jouer" | "carte" | "skins" | "amis" | "parametres";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "jouer", label: "Jouer", icon: "▶" },
+  { id: "carte", label: "Carte", icon: "🗺" },
   { id: "skins", label: "Apparences", icon: "🎭" },
   { id: "amis", label: "Amis", icon: "👥" },
   { id: "parametres", label: "Paramètres", icon: "⚙" },
@@ -81,11 +85,69 @@ function LockedBadge({ children = "Bientôt disponible" }: { children?: string }
   );
 }
 
-export default function HorrorLobby({ title, onPlay }: { title: string; onPlay: () => void }) {
+/** Plan d'un etage, dessine directement a partir des donnees du manoir. */
+function FloorPlan({ rooms, label }: { rooms: ManorRoom[]; label: string }) {
+  const minX = Math.min(...rooms.map((r) => r.x0)) - 1;
+  const maxX = Math.max(...rooms.map((r) => r.x1)) + 2;
+  const minY = Math.min(...rooms.map((r) => r.y0)) - 1;
+  const maxY = Math.max(...rooms.map((r) => r.y1)) + 2;
+  const w = maxX - minX;
+  const h = maxY - minY;
+
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">{label}</p>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full rounded-xl bg-black/40 ring-1 ring-white/10">
+        <rect x={0} y={0} width={w} height={h} fill="#0b0a0c" />
+        {rooms.map((r) => {
+          const special =
+            r.name === "Entrée" ? "#3f2d13" : r.name === "Cave" ? "#3c1616" : "#1c1a20";
+          const stroke =
+            r.name === "Entrée" ? "#c9a24a" : r.name === "Cave" ? "#c05353" : "#3b3742";
+          return (
+            <g key={r.name}>
+              <rect
+                x={r.x0 - minX}
+                y={r.y0 - minY}
+                width={r.x1 - r.x0 + 1}
+                height={r.y1 - r.y0 + 1}
+                fill={special}
+                stroke={stroke}
+                strokeWidth={0.18}
+                rx={0.3}
+              />
+              <text
+                x={r.x0 - minX + (r.x1 - r.x0 + 1) / 2}
+                y={r.y0 - minY + (r.y1 - r.y0 + 1) / 2 + 0.35}
+                textAnchor="middle"
+                fill="#cfc9d6"
+                style={{ fontSize: 0.92, fontWeight: 600 }}
+              >
+                {r.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+export default function HorrorLobby({
+  title,
+  onPlay,
+}: {
+  title: string;
+  onPlay: (mode: HorrorMode) => void;
+}) {
   const [tab, setTab] = useState<Tab>("jouer");
   const [layout, setLayout] = useState<Layout3D>("azerty");
   const [brightness, setBrightness] = useState(1);
   const [sensitivity, setSensitivity] = useState(1.5);
+
+  const rooms = useMemo(() => buildManor().rooms, []);
+  const ground = rooms.filter((r) => r.floor === 0);
+  const upstairs = rooms.filter((r) => r.floor === 1);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -148,12 +210,12 @@ export default function HorrorLobby({ title, onPlay }: { title: string; onPlay: 
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {tab === "jouer" && (
-          <div className="mx-auto flex h-full max-w-3xl flex-col gap-4">
-            <div className="relative flex-1 overflow-hidden rounded-2xl ring-1 ring-white/10">
+          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+            <div className="relative h-52 overflow-hidden rounded-2xl ring-1 ring-white/10">
               <div className="absolute inset-0">
                 <ManorArt />
               </div>
-              <div className="relative flex h-full min-h-56 flex-col justify-end gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-5">
+              <div className="relative flex h-full flex-col justify-end gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-red-900/70 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-red-200">
                     Horreur
@@ -161,21 +223,86 @@ export default function HorrorLobby({ title, onPlay }: { title: string; onPlay: 
                   <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
                     Solo
                   </span>
+                  <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
+                    12 pièces · 2 étages
+                  </span>
                 </div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
                 <p className="max-w-lg text-sm text-zinc-400">
-                  Ta voiture t&apos;a lâché devant un manoir abandonné. Retrouve 5 objets et atteins
-                  la cave. Mais dès que tu touches au premier, Elle se réveille.
+                  Retrouve 5 objets, déchiffre le code à 3 chiffres de la cave, et sors. Dès que tu
+                  touches au premier objet, Elle se réveille.
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onPlay}
-              className="w-full rounded-xl bg-gradient-to-r from-red-700 to-red-600 py-4 text-lg font-black uppercase tracking-widest text-white shadow-lg shadow-red-950/50 transition hover:from-red-600 hover:to-red-500 active:scale-[0.99]"
-            >
-              Jouer
-            </button>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => onPlay("histoire")}
+                className="group rounded-xl bg-gradient-to-r from-red-800 to-red-700 p-4 text-left transition hover:from-red-700 hover:to-red-600 active:scale-[0.99]"
+              >
+                <p className="text-lg font-black uppercase tracking-wide">Histoire</p>
+                <p className="mt-1 text-xs text-red-100/80">
+                  Cinématique d&apos;introduction en 3D, puis la partie complète.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPlay("rapide")}
+                className="rounded-xl border border-white/15 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.09] active:scale-[0.99]"
+              >
+                <p className="text-lg font-black uppercase tracking-wide">Partie rapide</p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  Directement dans le manoir, sans la cinématique.
+                </p>
+              </button>
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 opacity-60">
+                <div className="flex items-center gap-2">
+                  <p className="text-lg font-black uppercase tracking-wide text-zinc-400">
+                    Multijoueur
+                  </p>
+                  <LockedBadge>Bientôt</LockedBadge>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Explorer le manoir à plusieurs avec un code de salon.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTab("carte")}
+                className="rounded-xl border border-white/15 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.09]"
+              >
+                <p className="text-lg font-black uppercase tracking-wide">Carte</p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  Le plan des deux étages, à étudier avant d&apos;entrer.
+                </p>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === "carte" && (
+          <div className="mx-auto max-w-3xl">
+            <h2 className="mb-1 text-lg font-bold">Plan du manoir</h2>
+            <p className="mb-4 text-sm text-zinc-500">
+              L&apos;escalier de l&apos;Entrée monte au Palier. La cave est verrouillée par un code
+              à 3 chiffres, gravé sur trois plaques réparties dans le manoir — dont une à
+              l&apos;étage.
+            </p>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <FloorPlan rooms={ground} label="Rez-de-chaussée" />
+              <FloorPlan rooms={upstairs} label="Étage" />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-4 text-xs text-zinc-500">
+              <span>
+                <span className="mr-1.5 inline-block size-3 rounded-sm bg-[#3f2d13] ring-1 ring-[#c9a24a]" />
+                Départ
+              </span>
+              <span>
+                <span className="mr-1.5 inline-block size-3 rounded-sm bg-[#3c1616] ring-1 ring-[#c05353]" />
+                Sortie (verrouillée)
+              </span>
+            </div>
           </div>
         )}
 
