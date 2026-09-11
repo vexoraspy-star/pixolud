@@ -6,6 +6,16 @@ export interface Game3D {
   description: string;
   emoji: string;
   gradient: string;
+  /** Genre affiche sur la vignette. */
+  genre: string;
+  /** "Solo", "1 contre 1"... */
+  players: string;
+  /** Duree indicative d'une partie. */
+  duration: string;
+  /** Deux ou trois points forts, listes sur la vignette. */
+  highlights: string[];
+  /** Mis en avant en grand en haut de la galerie. */
+  featured?: boolean;
 }
 
 // Jeux 3D geres par l'equipe Pixolud (pas de creation par les joueurs pour
@@ -18,14 +28,36 @@ export const GAMES_3D: Game3D[] = [
       "Un vrai labyrinthe en pierre à parcourir en vue à la première personne. Choisis ta difficulté et trouve la sortie !",
     emoji: "🧱",
     gradient: "from-amber-700 to-stone-950",
+    genre: "Exploration",
+    players: "Solo",
+    duration: "3 à 10 min",
+    highlights: ["3 difficultés", "Labyrinthe différent à chaque partie", "Mini-carte"],
+  },
+  {
+    slug: "duel-1v1",
+    title: "Duel — 1 contre 1",
+    description:
+      "Un jeu de tir en 1 contre 1 dans une arène symétrique. Affronte un ami avec un code de salon, ou entraîne-toi contre la Sentinelle.",
+    emoji: "🎯",
+    gradient: "from-cyan-700 to-slate-950",
+    genre: "Tir",
+    players: "1 contre 1",
+    duration: "5 à 8 min",
+    highlights: ["En ligne avec un code", "Bot d'entraînement", "Tirs à la tête"],
+    featured: true,
   },
   {
     slug: "manoir-maudit",
     title: "Le Manoir Maudit",
     description:
-      "Un manoir plongé dans le noir, une présence qui te traque... Trouve les pages avant qu'elle ne te trouve.",
+      "Douze pièces sur deux étages, un code à déchiffrer, cinq objets à rassembler — et une présence qui se réveille dès que tu touches au premier. Cache-toi dans les armoires.",
     emoji: "🕯️",
     gradient: "from-red-950 to-black",
+    genre: "Horreur",
+    players: "Solo",
+    duration: "10 à 20 min",
+    highlights: ["12 pièces, 2 étages", "Énigme à code", "Cachettes", "Cinématique et fin"],
+    featured: true,
   },
 ];
 

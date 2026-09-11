@@ -20,10 +20,12 @@ import {
   type ManorProp,
 } from "@/lib/manor";
 import { cellKey } from "@/lib/maze";
+import Game3DSettings from "./Game3DSettings";
 import {
   loadBrightness3D,
   loadLayout3D,
   loadSensitivity3D,
+  saveBrightness3D,
   type Layout3D as Layout,
 } from "@/lib/settings3d";
 import {
@@ -84,6 +86,14 @@ const DOOR_REACH = 2.4;
 const CLUE_REACH = 1.7;
 const ALTAR_REACH = 2.3;
 const HATCH_REACH = 0.9;
+// Les armoires occupent leur case, donc on s'en approche par le cote : la
+// portee doit couvrir la demi-largeur du meuble plus une case.
+const HIDE_REACH = 2.2;
+/** Combien de temps cachee avant qu'elle perde ta trace. */
+const HIDE_LOSE_SECONDS = 4;
+/** Piles de rechange a trouver dans le manoir. */
+const BATTERY_COUNT = 4;
+const BATTERY_RESTORE = 45;
 /** Duree du screamer avant l'ecran de mort. */
 const DEATH_SEQUENCE_SECONDS = 1.45;
 /** Chaque objet ramasse rend la chose plus rapide et le manoir plus sombre. */
@@ -283,6 +293,10 @@ export default function HorrorScene({
   /** 0 = tranquille, 1 = elle est sur toi. Pilote la vignette et le grain. */
   const [dread, setDread] = useState(0);
   const [finale, setFinale] = useState<"none" | "ritual" | "chase">("none");
+  /** Ce que le joueur doit faire maintenant : sans ca, on erre sans savoir. */
+  const [objective, setObjective] = useState("Explore le manoir");
+  const [hidden, setHidden] = useState(false);
+  const [loadedBrightness, setLoadedBrightness] = useState(1);
 
   const layoutRef = useRef<Layout>("azerty");
   const sensitivityRef = useRef(1.5);
@@ -290,12 +304,17 @@ export default function HorrorScene({
   const endedRef = useRef(false);
   const keypadOpenRef = useRef(false);
   const codeRef = useRef<number[]>([]);
-  const apiRef = useRef<{ unlock: () => void; deny: () => void } | null>(null);
+  const apiRef = useRef<{
+    unlock: () => void;
+    deny: () => void;
+    applyBrightness: (value: number) => void;
+  } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
       layoutRef.current = loadLayout3D();
       sensitivityRef.current = loadSensitivity3D();
+      setLoadedBrightness(loadBrightness3D());
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -402,10 +421,13 @@ export default function HorrorScene({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    const brightness = loadBrightness3D();
+    // Luminosite : modifiable en pleine partie via le panneau de reglages,
+    // sans avoir a ressortir au lobby.
+    let brightness = loadBrightness3D();
     // Lumiere d'ambiance (bon marche : aucune ombre a calculer). C'est elle
     // qui evite le noir total dans les pieces sans bougie.
-    scene.add(new THREE.HemisphereLight(0x6a6478, 0x231c12, 1.3 * brightness));
+    const hemi = new THREE.HemisphereLight(0x6a6478, 0x231c12, 1.3 * brightness);
+    scene.add(hemi);
 
     const flashlight = new THREE.SpotLight(
       0xfff4d8,
@@ -420,8 +442,8 @@ export default function HorrorScene({
     flashlight.target = flashTarget;
     scene.add(flashlight);
 
-    const glowOnIntensity = 0.85 * brightness;
-    const glowOffIntensity = 0.32 * brightness;
+    let glowOnIntensity = 0.85 * brightness;
+    let glowOffIntensity = 0.32 * brightness;
     const playerGlow = new THREE.PointLight(0xffd9a8, glowOnIntensity, 4.5 * CELL_SIZE, 2);
     scene.add(playerGlow);
 
@@ -753,6 +775,33 @@ export default function HorrorScene({
       return { x: nx + 0.5, z: ny + 0.5, group, collected: false, def };
     });
 
+    // --- Piles de rechange : la lampe devient une ressource a gerer ---
+    const batteryCells: [number, number][] = [];
+    const batteryPool = candidateCells.filter(
+      ([x, y]) => !itemCells.some(([ix, iy]) => ix === x && iy === y),
+    );
+    for (let i = 0; i < BATTERY_COUNT && batteryPool.length > 0; i++) {
+      const idx = Math.floor(Math.random() * batteryPool.length);
+      batteryCells.push(batteryPool[idx]);
+      batteryPool.splice(idx, 1);
+    }
+    const batteryGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.2, 8);
+    const batteryMat = new THREE.MeshBasicMaterial({ color: 0x86e57f });
+    const batteries = batteryCells.map(([bx, by]) => {
+      const mesh = new THREE.Mesh(batteryGeo, batteryMat);
+      mesh.position.set((bx + 0.5) * CELL_SIZE, floorHeightAt(by + 0.5) + 0.95, (by + 0.5) * CELL_SIZE);
+      scene.add(mesh);
+      return { x: bx + 0.5, z: by + 0.5, mesh, taken: false };
+    });
+
+    // --- Cachettes : les armoires des pieces, ou l'on peut se glisser ---
+    const hideouts = data.props
+      .filter((p) => p.kind === "shelf")
+      .map((p) => ({
+        x: (p.x0 + p.x1) / 2 + 0.5,
+        z: (p.y0 + p.y1) / 2 + 0.5,
+      }));
+
     // --- Monstre ---
     const monsterGroup = new THREE.Group();
     const monsterMat = new THREE.MeshLambertMaterial({ color: 0x08070a });
@@ -883,6 +932,10 @@ export default function HorrorScene({
     let ritualStartedAt = -1;
     let chaseStartedAt = -1;
     let phase: "none" | "ritual" | "chase" = "none";
+    let isHiding = false;
+    let hidingSince = 0;
+    let beforeHide = { x: 0, z: 0 };
+    let lastObjective = "";
     let torchFlicker = 1;
 
     /** Rien entre nous deux ? C'est la qu'elle chuchote et qu'elle te voit. */
@@ -927,7 +980,18 @@ export default function HorrorScene({
       playWake(audio.ctx, audio.master);
     }
 
+    /** Applique une nouvelle luminosite a toutes les lumieres de la scene. */
+    function applyBrightness(value: number) {
+      const ratio = value / brightness;
+      brightness = value;
+      hemi.intensity = 1.3 * value;
+      glowOnIntensity = 0.85 * value;
+      glowOffIntensity = 0.32 * value;
+      for (const s of sconces) s.base *= ratio;
+    }
+
     apiRef.current = {
+      applyBrightness,
       unlock: () => {
         if (!doorLocked) return;
         doorLocked = false;
@@ -1039,6 +1103,54 @@ export default function HorrorScene({
     function distanceToAltar() {
       return Math.hypot(player.x - altarCenter.x, player.z - altarCenter.z);
     }
+    function nearestHideout() {
+      let best: { x: number; z: number } | null = null;
+      let bestD = HIDE_REACH;
+      for (const h of hideouts) {
+        const d = Math.hypot(player.x - h.x, player.z - h.z);
+        if (d < bestD) {
+          bestD = d;
+          best = h;
+        }
+      }
+      return best;
+    }
+    /** Se glisser dans une armoire : elle ne peut plus t'attraper. */
+    function toggleHide() {
+      if (phase === "chase") return;
+      if (isHiding) {
+        isHiding = false;
+
+        player.x = beforeHide.x;
+        player.z = beforeHide.z;
+        setHidden(false);
+        return;
+      }
+      const spot = nearestHideout();
+      if (!spot) return;
+      beforeHide = { x: player.x, z: player.z };
+
+      isHiding = true;
+      hidingSince = elapsed;
+      player.x = spot.x;
+      player.z = spot.z;
+      setHidden(true);
+      showHint("Cachée. Reste immobile et attends qu'Elle s'éloigne.", 3.5);
+    }
+    /** L'objectif courant, affiche en permanence dans l'interface. */
+    function computeObjective(): string {
+      if (phase === "chase") return "COURS vers la trappe bleue !";
+      if (phase === "ritual") return "Le rituel est lancé...";
+      const found = cluePlaques.filter((p) => p.found).length;
+      if (doorLocked && found < cluePlaques.length) {
+        return `Trouve les plaques du code (${found}/${cluePlaques.length}) — Bureau, Chambre principale, Grenier`;
+      }
+      if (doorLocked) return "Entre le code sur la porte de la cave (E)";
+      if (collectedCount < ITEM_COUNT) {
+        return `Ramasse les objets (${collectedCount}/${ITEM_COUNT})`;
+      }
+      return "Dépose les 5 objets sur l'autel, dans la cave";
+    }
     function canOfferAtAltar() {
       return (
         phase === "none" &&
@@ -1100,6 +1212,8 @@ export default function HorrorScene({
           setKeypadOpen(true);
         } else if (canOfferAtAltar()) {
           startRitual();
+        } else if (isHiding || nearestHideout()) {
+          toggleHide();
         }
       }
     }
@@ -1155,7 +1269,7 @@ export default function HorrorScene({
         return;
       }
 
-      const blockedByUi = keypadOpenRef.current;
+      const blockedByUi = keypadOpenRef.current || isHiding;
       const forwardKey = layoutRef.current === "azerty" ? "z" : "w";
       const leftKey = layoutRef.current === "azerty" ? "q" : "a";
       let fwd = 0;
@@ -1352,15 +1466,39 @@ export default function HorrorScene({
         }
       }
 
+      // Piles de rechange.
+      for (const b of batteries) {
+        if (b.taken) continue;
+        b.mesh.rotation.y += delta * 2;
+        if (Math.hypot(player.x - b.x, player.z - b.z) < 0.45) {
+          b.taken = true;
+          scene.remove(b.mesh);
+          flashlightState.battery = Math.min(100, flashlightState.battery + BATTERY_RESTORE);
+          playPickup(audio.ctx, audio.master);
+          showHint("🔋 Pile de rechange (+45 %)", 2.6);
+        }
+      }
+
+      // Objectif courant.
+      const nextObjective = computeObjective();
+      if (nextObjective !== lastObjective) {
+        lastObjective = nextObjective;
+        setObjective(nextObjective);
+      }
+
       // Invite d'interaction.
       let promptText: string | null = null;
-      if (doorLocked && distanceToDoor() < DOOR_REACH) {
+      if (isHiding) {
+        promptText = "E — Sortir de la cachette";
+      } else if (doorLocked && distanceToDoor() < DOOR_REACH) {
         promptText = "E — Examiner la serrure";
       } else if (canOfferAtAltar()) {
         promptText = "E — Déposer les 5 objets";
       } else if (phase === "none" && !doorLocked && distanceToAltar() < ALTAR_REACH) {
         const missing = ITEM_COUNT - collectedCount;
         promptText = `Il manque ${missing} objet${missing > 1 ? "s" : ""} sur l'autel`;
+      } else if (phase !== "chase" && nearestHideout()) {
+        promptText = "E — Se cacher";
       }
       if (promptText !== lastPromptText) {
         lastPromptText = promptText;
@@ -1419,12 +1557,22 @@ export default function HorrorScene({
         // Elle ne bondit qu'une fois la trappe ouverte, apres un temps mort.
         const held =
           phase === "ritual" || (phase === "chase" && elapsed - chaseStartedAt < CHASE_RELEASE_SECONDS);
+        // Cache depuis assez longtemps : elle perd ta trace et part fouiller
+        // ailleurs. C'est ce qui rend l'armoire vraiment utile.
+        const lostYou = isHiding && elapsed - hidingSince > HIDE_LOSE_SECONDS;
         monster.repathTimer -= delta;
         if (monster.repathTimer <= 0) {
           monster.repathTimer = REPATH_INTERVAL;
           const from: [number, number] = [Math.floor(monster.x), Math.floor(monster.z)];
-          const to: [number, number] = [Math.floor(player.x), Math.floor(player.z)];
-          monster.path = bfsPath(from, to, isSolid, data.width, data.height);
+          let target: [number, number] = [Math.floor(player.x), Math.floor(player.z)];
+          if (lostYou) {
+            const wander = openCells[Math.floor(Math.random() * openCells.length)];
+            target = [wander[0], wander[1]];
+          } else if (isHiding) {
+            // Elle se dirige vers l'endroit ou tu etais avant de te cacher.
+            target = [Math.floor(beforeHide.x), Math.floor(beforeHide.z)];
+          }
+          monster.path = bfsPath(from, target, isSolid, data.width, data.height);
           monster.pathIndex = 0;
         }
         const distToPlayerCells = Math.abs(monster.x - player.x) + Math.abs(monster.z - player.z);
@@ -1485,7 +1633,7 @@ export default function HorrorScene({
 
         const capDx = monster.x - player.x;
         const capDz = monster.z - player.z;
-        if (!held && capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS) {
+        if (!held && !isHiding && capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS) {
           dyingSince = elapsed;
           endedRef.current = true;
           flashLevel = 1;
@@ -1646,6 +1794,21 @@ export default function HorrorScene({
         style={{ opacity: scareFlash * 0.32 }}
       />
 
+      <Game3DSettings
+        className="top-14"
+        onLayout={(l) => {
+          layoutRef.current = l;
+        }}
+        onSensitivity={(s) => {
+          sensitivityRef.current = s;
+        }}
+        onBrightness={(b) => {
+          saveBrightness3D(b);
+          apiRef.current?.applyBrightness(b);
+        }}
+        brightness={loadedBrightness}
+      />
+
       <div className="pointer-events-none absolute left-3 top-3 flex flex-col items-start gap-1.5">
         <span className="rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
           ⏱️ {seconds}s
@@ -1681,16 +1844,33 @@ export default function HorrorScene({
         </div>
       </div>
 
-      {roomLabel && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
-          <span className="rounded-full bg-black/70 px-4 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 backdrop-blur">
-            📍 {roomLabel}
+      {/* Vue depuis l'armoire : on regarde par l'entrebaillement des portes. */}
+      {hidden && (
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute inset-y-0 left-0 w-[34%] bg-black" />
+          <div className="absolute inset-y-0 right-0 w-[34%] bg-black" />
+          <div className="absolute inset-x-0 top-0 h-[12%] bg-black" />
+          <div className="absolute inset-x-0 bottom-0 h-[12%] bg-black" />
+          <span className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/80 px-3 py-1 text-xs font-semibold text-zinc-300">
+            🚪 Cachée
           </span>
         </div>
       )}
 
+      {/* Objectif permanent : on sait toujours quoi faire. */}
+      <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1.5">
+        <span className="max-w-[22rem] rounded-full bg-black/75 px-4 py-1.5 text-center text-xs font-semibold text-amber-200 backdrop-blur">
+          🎯 {objective}
+        </span>
+        {roomLabel && (
+          <span className="rounded-full bg-black/70 px-4 py-1 text-xs font-semibold tracking-wide text-zinc-300 backdrop-blur">
+            📍 {roomLabel}
+          </span>
+        )}
+      </div>
+
       {hint && (
-        <div className="pointer-events-none absolute left-1/2 top-14 -translate-x-1/2">
+        <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2">
           <span className="rounded-lg bg-black/80 px-4 py-2 text-center text-xs font-semibold text-amber-200 backdrop-blur">
             {hint}
           </span>
@@ -1802,8 +1982,7 @@ export default function HorrorScene({
       </div>
 
       <p className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-500">
-        Marche · souris pour regarder · F lampe · E interagir · monte à l&apos;étage pour le 3e
-        chiffre.
+        Marche · souris pour regarder · F lampe · E interagir et se cacher · ramasse les piles 🔋
       </p>
     </div>
   );
