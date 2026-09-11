@@ -20,24 +20,16 @@ export async function activateTier(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/connexion");
 
-  // Tant qu'il n'y a pas de vrai paiement, seul un compte admin peut
-  // s'attribuer un palier payant gratuitement (pour tester). Les autres
-  // comptes peuvent seulement repasser au palier gratuit.
-  if (tier !== "free") {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("is_admin")
-      .eq("id", user.id)
-      .single();
-    if (!profile?.is_admin) {
-      redirect(
-        "/premium?error=" +
-          encodeURIComponent("Le paiement réel n'est pas encore disponible."),
-      );
-    }
+  // Le palier n'est plus ecrit directement : la colonne `tier` n'est pas
+  // modifiable par le client. C'est la fonction `set_my_tier` qui verifie
+  // le drapeau admin cote base, hors d'atteinte du navigateur.
+  const { error } = await supabase.rpc("set_my_tier", { new_tier: tier });
+  if (error) {
+    redirect(
+      "/premium?error=" +
+        encodeURIComponent("Le paiement réel n'est pas encore disponible."),
+    );
   }
-
-  await supabase.from("profiles").update({ tier }).eq("id", user.id);
 
   revalidatePath("/", "layout");
   redirect("/premium?activated=1");

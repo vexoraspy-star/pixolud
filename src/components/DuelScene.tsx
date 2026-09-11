@@ -95,10 +95,28 @@ export default function DuelScene({
   const [feed, setFeed] = useState<KillFeedEntry[]>([]);
   const [locked, setLocked] = useState(false);
 
+  const [touchDevice, setTouchDevice] = useState(false);
+
   const onMatchEndRef = useRef(onMatchEnd);
   // Reglages modifiables en pleine partie via le panneau ⚙️.
   const sensitivityRef = useRef(1.5);
   const layoutRef = useRef<{ current: "azerty" | "qwerty" } | null>(null);
+  // Commandes tactiles : le joystick et les boutons ecrivent ici, la boucle
+  // de jeu les lit. Sans ca, le jeu est totalement injouable au telephone.
+  const touchRef = useRef({ moveX: 0, moveZ: 0, firing: false });
+  const sceneApiRef = useRef<{ reload: () => void } | null>(null);
+  const stickOrigin = useRef<{ x: number; y: number } | null>(null);
+  const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setTouchDevice(
+        typeof window !== "undefined" &&
+          (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window),
+      );
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     onMatchEndRef.current = onMatchEnd;
   }, [onMatchEnd]);
@@ -609,6 +627,47 @@ export default function DuelScene({
     function onContextMenu(e: MouseEvent) {
       e.preventDefault();
     }
+    // --- Visee tactile : glisser sur la moitie droite de l'ecran ---
+    // (la moitie gauche est reservee au joystick de deplacement)
+    let lookPointerId = -1;
+    let lookLastX = 0;
+    let lookLastY = 0;
+    function onTouchPointerDown(e: PointerEvent) {
+      if (e.pointerType !== "touch" || lookPointerId !== -1) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (e.clientX - rect.left < rect.width * 0.42) return;
+      lookPointerId = e.pointerId;
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+      try {
+        renderer.domElement.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    function onTouchPointerMove(e: PointerEvent) {
+      if (e.pointerId !== lookPointerId) return;
+      applyLook((e.clientX - lookLastX) * 1.5, (e.clientY - lookLastY) * 1.5);
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+    }
+    function onTouchPointerUp(e: PointerEvent) {
+      if (e.pointerId !== lookPointerId) return;
+      lookPointerId = -1;
+      try {
+        renderer.domElement.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    renderer.domElement.style.touchAction = "none";
+    renderer.domElement.addEventListener("pointerdown", onTouchPointerDown);
+    renderer.domElement.addEventListener("pointermove", onTouchPointerMove);
+    renderer.domElement.addEventListener("pointerup", onTouchPointerUp);
+    renderer.domElement.addEventListener("pointercancel", onTouchPointerUp);
+
+    sceneApiRef.current = { reload: () => startReload() };
+
     renderer.domElement.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
     document.addEventListener("mousemove", onMouseMove);
@@ -758,7 +817,13 @@ export default function DuelScene({
         if (keys.has(leftKey) || keys.has("arrowleft")) strafe -= 1;
         if (keys.has("d") || keys.has("arrowright")) strafe += 1;
       }
-      const moving = fwd !== 0 || strafe !== 0;
+      // Joystick tactile : s'ajoute au clavier, avec une amplitude analogique.
+      if (!me.dead && !ended) {
+        fwd += touchRef.current.moveZ;
+        strafe += touchRef.current.moveX;
+      }
+
+      const moving = Math.abs(fwd) > 0.03 || Math.abs(strafe) > 0.03;
       // Sprint : seulement vers l'avant, et tirer l'interrompt. C'est ce qui
       // donne du rythme aux deplacements entre deux couverts.
       const sprinting = moving && fwd > 0 && keys.has("shift") && elapsed > me.nextShotAt - 0.05;
@@ -766,7 +831,10 @@ export default function DuelScene({
         const f = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), me.yaw);
         const r = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), me.yaw);
         const mv = new THREE.Vector3().addScaledVector(f, fwd).addScaledVector(r, strafe);
-        mv.normalize().multiplyScalar(DUEL_MOVE_SPEED * (sprinting ? 1.5 : 1) * delta);
+        // On borne a 1 au lieu de normaliser : le joystick garde son dosage,
+        // le clavier reste a pleine vitesse.
+        if (mv.length() > 1) mv.normalize();
+        mv.multiplyScalar(DUEL_MOVE_SPEED * (sprinting ? 1.5 : 1) * delta);
         if (!circleHitsWall(me.x + mv.x, me.z)) me.x += mv.x;
         if (!circleHitsWall(me.x, me.z + mv.z)) me.z += mv.z;
         if (elapsed >= nextStepAt) {
@@ -775,8 +843,8 @@ export default function DuelScene({
         }
       }
 
-      // Tir automatique tant que le bouton est maintenu
-      if (firing) fire();
+      // Tir automatique tant que le bouton (souris ou tactile) est maintenu
+      if (firing || touchRef.current.firing) fire();
 
       // Camera : recul + balancement
       walkPhase += moving ? delta * 9 : 0;
@@ -867,6 +935,11 @@ export default function DuelScene({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mouseup", onMouseUp);
+      renderer.domElement.removeEventListener("pointerdown", onTouchPointerDown);
+      renderer.domElement.removeEventListener("pointermove", onTouchPointerMove);
+      renderer.domElement.removeEventListener("pointerup", onTouchPointerUp);
+      renderer.domElement.removeEventListener("pointercancel", onTouchPointerUp);
+      sceneApiRef.current = null;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("pointerlockchange", onPointerLockChange);
       renderer.domElement.removeEventListener("mousedown", onMouseDown);
@@ -927,7 +1000,7 @@ export default function DuelScene({
           <span className="font-mono text-sm font-bold text-white">{hpPct}</span>
         </div>
       </div>
-      <div className="pointer-events-none absolute bottom-4 right-4 text-right">
+      <div className="pointer-events-none absolute bottom-16 right-4 text-right sm:bottom-4">
         <p className="font-mono text-3xl font-black text-white">
           {reloading ? "—" : ammo}
           <span className="ml-1 text-base text-zinc-500">/ {DUEL_MAG_SIZE}</span>
@@ -986,12 +1059,85 @@ export default function DuelScene({
         </div>
       )}
 
-      {/* Invite de verrouillage souris */}
-      {!locked && respawnIn === 0 && (
+      {/* Commandes tactiles : joystick a gauche, tir a droite. */}
+      {touchDevice && (
+        <>
+          <div
+            // Remonte pour ne pas passer sous le bouton Radio du site.
+            className="absolute bottom-32 left-4 size-32 touch-none rounded-full border border-white/20 bg-black/40 sm:bottom-16 sm:left-5"
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              stickOrigin.current = { x: e.clientX, y: e.clientY };
+              setStickOffset({ x: 0, y: 0 });
+            }}
+            onPointerMove={(e) => {
+              const o = stickOrigin.current;
+              if (!o) return;
+              const dx = e.clientX - o.x;
+              const dy = e.clientY - o.y;
+              const max = 52;
+              const len = Math.hypot(dx, dy);
+              const k = len > max ? max / len : 1;
+              const ox = dx * k;
+              const oy = dy * k;
+              setStickOffset({ x: ox, y: oy });
+              touchRef.current.moveX = ox / max;
+              touchRef.current.moveZ = -oy / max;
+            }}
+            onPointerUp={(e) => {
+              try {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              } catch {
+                // ignore
+              }
+              stickOrigin.current = null;
+              setStickOffset({ x: 0, y: 0 });
+              touchRef.current.moveX = 0;
+              touchRef.current.moveZ = 0;
+            }}
+            onPointerCancel={() => {
+              stickOrigin.current = null;
+              setStickOffset({ x: 0, y: 0 });
+              touchRef.current.moveX = 0;
+              touchRef.current.moveZ = 0;
+            }}
+          >
+            <div
+              className="pointer-events-none absolute left-1/2 top-1/2 size-14 rounded-full bg-white/25"
+              style={{
+                transform: `translate(calc(-50% + ${stickOffset.x}px), calc(-50% + ${stickOffset.y}px))`,
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            aria-label="Tirer"
+            className="absolute bottom-32 right-5 size-20 touch-none rounded-full border border-red-400/40 bg-red-600/70 text-2xl text-white active:scale-95 sm:bottom-24 sm:right-6"
+            onPointerDown={() => (touchRef.current.firing = true)}
+            onPointerUp={() => (touchRef.current.firing = false)}
+            onPointerLeave={() => (touchRef.current.firing = false)}
+            onPointerCancel={() => (touchRef.current.firing = false)}
+          >
+            🔥
+          </button>
+          <button
+            type="button"
+            aria-label="Recharger"
+            onClick={() => sceneApiRef.current?.reload()}
+            className="absolute bottom-56 right-8 size-14 touch-none rounded-full border border-white/20 bg-black/60 text-lg font-bold text-white active:scale-95 sm:bottom-24 sm:right-28"
+          >
+            ⟳
+          </button>
+        </>
+      )}
+
+      {/* Invite de verrouillage souris (inutile au doigt) */}
+      {!locked && respawnIn === 0 && !touchDevice && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="rounded-lg bg-black/80 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/20">
-            Clique pour jouer · ZQSD/WASD · clic gauche : tirer · R : recharger · Échap : libérer la
-            souris
+            Clique pour jouer · ZQSD/WASD · clic gauche : tirer · Maj : sprint · R : recharger ·
+            Échap : libérer la souris
           </span>
         </div>
       )}

@@ -27,16 +27,21 @@ export async function signup(formData: FormData) {
   const origin = (await headers()).get("origin");
   const supabase = await createClient();
 
-  const { data: existingProfile } = await supabase
-    .from("profiles")
-    .select("id")
-    .ilike("pseudo", pseudo)
-    .maybeSingle();
+  // Le profil est cree des signUp(), donc avant la confirmation de l'e-mail :
+  // un pseudo peut etre "pris" par une inscription abandonnee, y compris la
+  // tienne. Cette fonction distingue les deux cas.
+  const { data: pseudoStatus } = await supabase.rpc("signup_pseudo_status", {
+    p_pseudo: pseudo,
+    p_email: email,
+  });
 
-  if (existingProfile) {
+  // Si la fonction n'existe pas encore en base, pseudoStatus vaut null et on
+  // laisse passer : la contrainte d'unicite du trigger reste le garde-fou,
+  // et son erreur est traduite plus bas.
+  if (pseudoStatus === "taken") {
     redirect(
       `/inscription?error=${encodeURIComponent(
-        "Ce pseudo est déjà pris, choisis-en un autre.",
+        "Ce pseudo est déjà pris. Si c'est toi qui viens de t'inscrire, reprends la même adresse e-mail.",
       )}`,
     );
   }
