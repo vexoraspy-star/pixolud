@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Message de commit temporaire (PowerShell gere mal les heredocs)
+.git-commit-msg.txt
