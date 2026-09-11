@@ -50,13 +50,18 @@ export const GAMES_3D: Game3D[] = [
     slug: "manoir-maudit",
     title: "Le Manoir Maudit",
     description:
-      "Douze pièces sur deux étages, un code à déchiffrer, cinq objets à rassembler — et une présence qui se réveille dès que tu touches au premier. Cache-toi dans les armoires.",
+      "Seize pièces sur deux étages, un code gravé dans les murs, cinq reliques à rassembler — et une présence qui se réveille dès que tu touches à la première. Le rituel n'ouvre pas la sortie : il révèle trois sceaux, puis quarante-cinq secondes de fuite.",
     emoji: "🕯️",
     gradient: "from-red-950 to-black",
     genre: "Horreur",
     players: "Solo",
-    duration: "10 à 20 min",
-    highlights: ["12 pièces, 2 étages", "Énigme à code", "Cachettes", "Cinématique et fin"],
+    duration: "20 à 35 min",
+    highlights: [
+      "16 pièces, 2 étages",
+      "Narration parlée",
+      "Rituel et 3 sceaux",
+      "Fuite de 45 secondes",
+    ],
     featured: true,
   },
 ];

@@ -323,3 +323,32 @@ export function playDeathScream(ctx: AudioContext, master: GainNode) {
     noiseBurst(ctx, master, 0.9, 0.4, (t) => Math.sin(t * Math.PI * 2) * (1 - t) * 0.8);
   }, 700);
 }
+
+/** Un sceau qui cede : la pierre se fend, puis une cloche sourde sonne. */
+export function playSealBreak(ctx: AudioContext, master: GainNode, remaining: number) {
+  noiseBurst(ctx, master, 0.5, 0.55, (t) => Math.pow(1 - t, 2.2), {
+    type: "lowpass",
+    freq: 900,
+  });
+  tone(ctx, master, "square", 190, 48, 0.5, 0.2, 0.005);
+  // La cloche monte d'un demi-ton a chaque sceau : on entend qu'on avance.
+  const bell = 104 * Math.pow(2, (3 - remaining) / 12);
+  window.setTimeout(() => {
+    tone(ctx, master, "sine", bell, bell * 0.985, 3.2, 0.42, 0.02);
+    tone(ctx, master, "triangle", bell * 3, bell * 2.96, 2.1, 0.12, 0.02);
+  }, 180);
+}
+
+/** Le tic-tac des dernieres secondes de la fuite. */
+export function playTick(ctx: AudioContext, master: GainNode, urgent: boolean) {
+  tone(ctx, master, "square", urgent ? 1150 : 820, urgent ? 700 : 520, 0.09, urgent ? 0.3 : 0.16, 0.002);
+}
+
+/** La trappe finit de s'ouvrir : l'air froid du dehors s'engouffre. */
+export function playHatchOpen(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 2.6, 0.3, (t) => Math.sin(t * Math.PI) * (1 - t * 0.3), {
+    type: "highpass",
+    freq: 600,
+  });
+  tone(ctx, master, "sine", 58, 180, 2.2, 0.4, 0.4);
+}

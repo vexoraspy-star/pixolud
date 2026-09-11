@@ -3,6 +3,7 @@ export type Layout3D = "azerty" | "qwerty";
 const LAYOUT_KEY = "pixolud-3d-layout";
 const BRIGHTNESS_KEY = "pixolud-3d-brightness";
 const SENSITIVITY_KEY = "pixolud-3d-sensitivity";
+const VOICE_KEY = "pixolud-3d-voice";
 
 export const BRIGHTNESS_MIN = 0.5;
 export const BRIGHTNESS_MAX = 1.8;
@@ -54,6 +55,23 @@ export function loadSensitivity3D(): number {
 export function saveSensitivity3D(value: number) {
   try {
     localStorage.setItem(SENSITIVITY_KEY, String(value));
+  } catch {
+    // ignore
+  }
+}
+
+/** Narration parlee : activee par defaut, coupable depuis le panneau en jeu. */
+export function loadVoice3D(): boolean {
+  try {
+    return localStorage.getItem(VOICE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveVoice3D(value: boolean) {
+  try {
+    localStorage.setItem(VOICE_KEY, value ? "on" : "off");
   } catch {
     // ignore
   }

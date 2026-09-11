@@ -25,6 +25,17 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Jeu 3D en plein ecran : pas de pied de page, pas de defilement. Sinon
+   l'en-tete colle en haut recouvre l'interface du jeu. Voir Game3DFrame. */
+html[data-game-fullscreen],
+html[data-game-fullscreen] body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html[data-game-fullscreen] body > footer {
+  display: none;
+}
+
 /* Ambiance du lobby du Manoir Maudit (Mode 3D). */
 @keyframes horror-flicker {
   0%, 100% { opacity: 1; }
@@ -40,4 +51,69 @@ body {
   0% { transform: translateX(-8%); }
   50% { transform: translateX(6%); }
   100% { transform: translateX(-8%); }
+}
+
+/* Interface de quete du Manoir Maudit : carnet brule et lettres qui tremblent. */
+@keyframes horror-quest-in {
+  0% { opacity: 0; transform: translateY(-8px); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes horror-act-in {
+  0% { opacity: 0; }
+  14% { opacity: 1; }
+  76% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes horror-act-title {
+  0% { letter-spacing: 0.9em; filter: blur(14px); opacity: 0; }
+  40% { letter-spacing: 0.08em; filter: blur(0); opacity: 1; }
+  100% { letter-spacing: 0.08em; filter: blur(0); opacity: 1; }
+}
+@keyframes horror-rule-grow {
+  0%, 45% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+@keyframes horror-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-1px, 1px); }
+  40% { transform: translate(1px, -1px); }
+  60% { transform: translate(-1px, -1px); }
+  80% { transform: translate(1px, 1px); }
+}
+@keyframes horror-burn {
+  0% { box-shadow: 0 0 0 0 rgba(255, 176, 74, 0.85); filter: brightness(2.6); }
+  100% { box-shadow: 0 0 0 16px rgba(255, 176, 74, 0); filter: none; }
+}
+@keyframes horror-scanline {
+  0% { transform: translateY(-120%); }
+  100% { transform: translateY(520%); }
+}
+@keyframes horror-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+/* Grain de pellicule du Manoir : le bruit defile par sauts, comme une
+   projection argentique. Deplacer un fond coute bien moins cher que
+   redessiner du bruit a chaque image. */
+@keyframes horror-grain {
+  0% { transform: translate(0, 0); }
+  10% { transform: translate(-4%, -3%); }
+  20% { transform: translate(-8%, 2%); }
+  30% { transform: translate(3%, -6%); }
+  40% { transform: translate(-2%, 7%); }
+  50% { transform: translate(-6%, 3%); }
+  60% { transform: translate(5%, -2%); }
+  70% { transform: translate(-3%, 5%); }
+  80% { transform: translate(6%, -4%); }
+  90% { transform: translate(-5%, -5%); }
+  100% { transform: translate(0, 0); }
+}
+/* Decrochage d'image quand elle te voit : la bande glisse et se decale. */
+@keyframes horror-tear {
+  0%, 100% { transform: translateY(0) scaleY(1); opacity: 0; }
+  4% { opacity: 0.9; }
+  8% { transform: translateY(28vh) scaleY(1.8); opacity: 0.5; }
+  12% { transform: translateY(62vh) scaleY(0.6); opacity: 0; }
 }

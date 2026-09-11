@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { buildManor, type ManorRoom } from "@/lib/manor";
+import { buildManor, CODE_LENGTH, type ManorRoom } from "@/lib/manor";
 import {
   BRIGHTNESS_MAX,
   BRIGHTNESS_MIN,
@@ -224,13 +224,13 @@ export default function HorrorLobby({
                     Solo
                   </span>
                   <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
-                    12 pièces · 2 étages
+                    {rooms.length} pièces · 2 étages
                   </span>
                 </div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
                 <p className="max-w-lg text-sm text-zinc-400">
-                  Retrouve 5 objets, déchiffre le code à 3 chiffres de la cave, et sors. Dès que tu
-                  touches au premier objet, Elle se réveille.
+                  Relève les {CODE_LENGTH} chiffres du code, ouvre la cave, rassemble 5 reliques et
+                  accomplis le rituel. Puis brise trois sceaux, tiens 45 secondes, et fuis.
                 </p>
               </div>
             </div>
@@ -286,8 +286,8 @@ export default function HorrorLobby({
             <h2 className="mb-1 text-lg font-bold">Plan du manoir</h2>
             <p className="mb-4 text-sm text-zinc-500">
               L&apos;escalier de l&apos;Entrée monte au Palier. La cave est verrouillée par un code
-              à 3 chiffres, gravé sur trois plaques réparties dans le manoir — dont une à
-              l&apos;étage.
+              à {CODE_LENGTH} chiffres, gravé sur autant de plaques réparties dans le manoir — dont
+              une à l&apos;étage.
             </p>
             <div className="grid gap-5 sm:grid-cols-2">
               <FloorPlan rooms={ground} label="Rez-de-chaussée" />

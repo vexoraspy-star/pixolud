@@ -31,9 +31,14 @@ const ROOMS: ManorRoom[] = [
   { name: "Salle à manger", x0: 1, y0: 15, x1: 7, y1: 20, floor: 0 },
   { name: "Entrée", x0: 9, y0: 15, x1: 15, y1: 20, floor: 0 },
   { name: "Cave", x0: 17, y0: 15, x1: 23, y1: 20, floor: 0 },
+  // --- Aile est, ajoutee pour allonger les trajets et la fuite finale ---
+  { name: "Serre", x0: 25, y0: 1, x1: 31, y1: 6, floor: 0 },
+  { name: "Galerie des portraits", x0: 25, y0: 8, x1: 31, y1: 13, floor: 0 },
+  { name: "Chapelle", x0: 25, y0: 15, x1: 31, y1: 20, floor: 0 },
   { name: "Palier", x0: 10, y0: 27, x1: 16, y1: 32, floor: 1 },
   { name: "Chambre d'enfant", x0: 2, y0: 27, x1: 8, y1: 32, floor: 1 },
   { name: "Grenier", x0: 18, y0: 27, x1: 24, y1: 32, floor: 1 },
+  { name: "Atelier", x0: 26, y0: 27, x1: 31, y1: 32, floor: 1 },
 ];
 
 const DOORS: [number, number, number, number][] = [
@@ -47,11 +52,17 @@ const DOORS: [number, number, number, number][] = [
   [11, 7, 12, 7],
   [11, 14, 12, 14],
   [19, 7, 20, 7],
+  // Aile est : la Serre et la Galerie s'ouvrent depuis l'aile principale.
+  [24, 3, 24, 4],
+  [24, 10, 24, 11],
+  [27, 7, 28, 7],
+  [27, 14, 28, 14],
   // Escalier : couloir montant qui relie l'Entree au Palier de l'etage.
   [STAIR_X0, STAIR_ROW_FIRST, STAIR_X1, STAIR_ROW_LAST],
   // Portes de l'etage.
   [9, 29, 9, 30],
   [17, 29, 17, 30],
+  [25, 29, 25, 30],
 ];
 
 // La seule entree de la cave, verrouillee par un code a 3 chiffres : c'est
@@ -63,7 +74,7 @@ export const CAVE_DOOR: { x0: number; y0: number; x1: number; y1: number } = {
   y1: 18,
 };
 
-export const MANOR_WIDTH = 25;
+export const MANOR_WIDTH = 33;
 export const MANOR_HEIGHT = 34;
 
 // Hauteur du sol pour une position continue en z (en cases).
@@ -172,6 +183,28 @@ const PROPS: ManorProp[] = [
   { kind: "shelf", x0: 24, y0: 30, x1: 24, y1: 32 },
   { kind: "crate", x0: 19, y0: 31, x1: 20, y1: 32 },
   { kind: "table", x0: 21, y0: 30, x1: 21, y1: 30 },
+
+  // --- Serre (entrees en x25 lignes 3-4 et en y6 colonnes 27-28) ---
+  { kind: "shelf", x0: 25, y0: 1, x1: 26, y1: 1 },
+  { kind: "table", x0: 30, y0: 2, x1: 31, y1: 3 },
+  { kind: "seat", x0: 30, y0: 5, x1: 30, y1: 5 },
+  { kind: "crate", x0: 25, y0: 6, x1: 25, y1: 6 },
+
+  // --- Galerie des portraits (entrees en x25 lignes 10-11, y8 et y13) ---
+  { kind: "shelf", x0: 30, y0: 8, x1: 31, y1: 8 },
+  { kind: "table", x0: 30, y0: 11, x1: 31, y1: 12 },
+  { kind: "seat", x0: 25, y0: 13, x1: 25, y1: 13 },
+
+  // --- Chapelle : bancs de part et d'autre, allee centrale libre ---
+  { kind: "seat", x0: 25, y0: 17, x1: 26, y1: 17 },
+  { kind: "seat", x0: 25, y0: 19, x1: 26, y1: 19 },
+  { kind: "seat", x0: 30, y0: 17, x1: 31, y1: 17 },
+  { kind: "seat", x0: 30, y0: 19, x1: 31, y1: 19 },
+
+  // --- Atelier (entree en x26 lignes 29-30) ---
+  { kind: "crate", x0: 30, y0: 27, x1: 31, y1: 28 },
+  { kind: "table", x0: 26, y0: 32, x1: 27, y1: 32 },
+  { kind: "shelf", x0: 31, y0: 31, x1: 31, y1: 32 },
 ];
 
 export interface ManorData extends MazeData {
@@ -248,9 +281,24 @@ export const MANOR_ITEMS: ManorItemDef[] = [
   { name: "Une photo de famille déchirée", flavor: "Un visage a été grossièrement rayé.", emoji: "🖼️" },
 ];
 
-/** Les 3 indices du code de la cave : un par piece, dont une a l'etage. */
+/** Les indices du code de la cave : un par piece, dont un a l'etage. */
 export const CLUE_SPOTS: { room: string; x: number; wallRow: number }[] = [
   { room: "Bureau", x: 4, wallRow: 0 },
   { room: "Chambre principale", x: 22, wallRow: 0 },
+  { room: "Chapelle", x: 29, wallRow: 14 },
   { room: "Grenier", x: 20, wallRow: 26 },
+];
+
+/** Longueur du code de la cave : une plaque = un chiffre. */
+export const CODE_LENGTH = CLUE_SPOTS.length;
+
+/**
+ * Les trois sceaux qui verrouillent la trappe apres le rituel. Ils sont
+ * volontairement aux quatre coins du manoir, dont un a l'etage : il faut
+ * traverser toute la maison pendant qu'elle te chasse.
+ */
+export const SEALS: { room: string; x: number; y: number }[] = [
+  { room: "Chapelle", x: 28, y: 18 },
+  { room: "Bibliothèque", x: 12, y: 5 },
+  { room: "Chambre d'enfant", x: 5, y: 29 },
 ];

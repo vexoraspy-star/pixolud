@@ -3,6 +3,7 @@ import { getGame3D } from "@/lib/games3d";
 import LabyrintheGame from "@/components/LabyrintheGame";
 import HorrorGame from "@/components/HorrorGame";
 import DuelGame from "@/components/DuelGame";
+import Game3DFrame from "@/components/Game3DFrame";
 
 export default async function Play3DPage({
   params,
@@ -16,10 +17,10 @@ export default async function Play3DPage({
   const title = `${game.emoji} ${game.title}`;
 
   return (
-    <div className="h-[calc(100vh-4rem)] bg-black">
+    <Game3DFrame>
       {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
       {slug === "manoir-maudit" && <HorrorGame title={title} />}
       {slug === "duel-1v1" && <DuelGame title={title} />}
-    </div>
+    </Game3DFrame>
   );
 }

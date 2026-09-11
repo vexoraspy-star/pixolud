@@ -259,88 +259,174 @@ export function makeDoorTexture(): THREE.CanvasTexture {
   return finish(canvas);
 }
 
-/** Visage du monstre : pale, orbites creuses, bouche hurlante. */
+/**
+ * Le visage.
+ *
+ * Trois principes, et ils comptent plus que le nombre de details :
+ *  - l'asymetrie (un oeil plus haut, la machoire de travers) : le regard
+ *    humain lit une symetrie brisee comme « quelque chose ne va pas » avant
+ *    meme de comprendre quoi ;
+ *  - le vide des orbites, avec un seul point humide au fond. Une pupille
+ *    dessinee fait dessin anime ; un reflet dans un trou noir fait vivant ;
+ *  - la peau mouillee et tachee, jamais uniforme.
+ *
+ * Le fond reste transparent : le plan se pose sur le crane en volume, il
+ * n'apporte que le detail.
+ */
 export function makeMonsterFaceTexture(): THREE.CanvasTexture {
-  const { canvas, ctx } = canvas2d(256, 320);
-  ctx.clearRect(0, 0, 256, 320);
+  const W = 256;
+  const H = 320;
+  const { canvas, ctx } = canvas2d(W, H);
+  ctx.clearRect(0, 0, W, H);
 
-  // crane
-  const skin = ctx.createRadialGradient(128, 140, 20, 128, 160, 150);
-  skin.addColorStop(0, "#d8cdb8");
-  skin.addColorStop(0.65, "#9d907a");
-  skin.addColorStop(1, "#4a4239");
+  // --- Masque du visage : un ovale etire, legerement penche ---
+  ctx.save();
+  ctx.translate(128, 158);
+  ctx.rotate(0.035);
+  const skin = ctx.createRadialGradient(-8, -30, 10, 0, 10, 140);
+  skin.addColorStop(0, "#a99e8b");
+  skin.addColorStop(0.42, "#6f6558");
+  skin.addColorStop(0.76, "#332d27");
+  skin.addColorStop(1, "rgba(18,14,12,0)");
   ctx.fillStyle = skin;
   ctx.beginPath();
-  ctx.ellipse(128, 150, 92, 122, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 86, 130, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
-  // orbites
-  for (const ex of [88, 168]) {
-    const socket = ctx.createRadialGradient(ex, 132, 2, ex, 132, 34);
-    socket.addColorStop(0, "#000000");
-    socket.addColorStop(0.7, "#0b0705");
-    socket.addColorStop(1, "rgba(11,7,5,0)");
-    ctx.fillStyle = socket;
+  // --- Taches et coulures : rien n'est propre sur ce visage ---
+  for (let i = 0; i < 42; i++) {
+    const bx = 52 + Math.random() * 152;
+    const by = 40 + Math.random() * 250;
+    const r = 5 + Math.random() * 24;
+    const blot = ctx.createRadialGradient(bx, by, 0, bx, by, r);
+    blot.addColorStop(0, `rgba(28,20,16,${0.16 + Math.random() * 0.3})`);
+    blot.addColorStop(1, "rgba(28,20,16,0)");
+    ctx.fillStyle = blot;
     ctx.beginPath();
-    ctx.ellipse(ex, 132, 32, 26, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // pupille rouge
-    ctx.fillStyle = "#ff2a1a";
-    ctx.beginPath();
-    ctx.ellipse(ex, 134, 8, 9, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,120,90,0.55)";
-    ctx.beginPath();
-    ctx.ellipse(ex, 134, 15, 16, 0, 0, Math.PI * 2);
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // nez creux
-  ctx.fillStyle = "#0d0907";
-  ctx.beginPath();
-  ctx.moveTo(128, 152);
-  ctx.lineTo(140, 190);
-  ctx.lineTo(116, 190);
-  ctx.closePath();
-  ctx.fill();
-
-  // bouche hurlante
-  ctx.fillStyle = "#080505";
-  ctx.beginPath();
-  ctx.ellipse(128, 240, 44, 52, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#cfc4ad";
-  for (let i = 0; i < 7; i++) {
-    const tx = 90 + i * 12.5;
+  // --- Orbites : deux trous, pas deux yeux. Le gauche est plus haut. ---
+  const EYES: [number, number, number, number][] = [
+    // x, y, rayon horizontal, rayon vertical
+    [86, 126, 33, 27],
+    [170, 134, 30, 24],
+  ];
+  for (const [ex, ey, rx, ry] of EYES) {
+    // Cerne creuse autour de l'orbite.
+    const bruise = ctx.createRadialGradient(ex, ey, rx * 0.6, ex, ey, rx * 1.9);
+    bruise.addColorStop(0, "rgba(26,16,14,0.75)");
+    bruise.addColorStop(1, "rgba(26,16,14,0)");
+    ctx.fillStyle = bruise;
     ctx.beginPath();
-    ctx.moveTo(tx, 196);
-    ctx.lineTo(tx + 11, 196);
-    ctx.lineTo(tx + 5.5, 216);
-    ctx.closePath();
+    ctx.ellipse(ex, ey, rx * 1.9, ry * 1.9, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    ctx.fillStyle = "#040303";
     ctx.beginPath();
-    ctx.moveTo(tx, 284);
-    ctx.lineTo(tx + 11, 284);
-    ctx.lineTo(tx + 5.5, 264);
+    ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Le seul point vivant : un reflet humide, minuscule, decentre. Plus
+    // gros, il deviendrait une pupille — et une pupille fait dessin anime.
+    ctx.fillStyle = "rgba(214,204,186,0.6)";
+    ctx.beginPath();
+    ctx.ellipse(ex + rx * 0.26, ey - ry * 0.22, 1.7, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(214,204,186,0.26)";
+    ctx.beginPath();
+    ctx.ellipse(ex - rx * 0.32, ey + ry * 0.12, 1.1, 1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(150,40,28,0.5)";
+    ctx.beginPath();
+    ctx.ellipse(ex, ey + ry * 0.35, rx * 0.5, ry * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Nez : deux fentes, l'os est parti ---
+  ctx.fillStyle = "#0a0706";
+  for (const [nx, skew] of [
+    [120, -3],
+    [138, 4],
+  ]) {
+    ctx.beginPath();
+    ctx.moveTo(nx, 168);
+    ctx.quadraticCurveTo(nx + skew, 186, nx + 5, 198);
+    ctx.quadraticCurveTo(nx + 11, 186, nx + 10, 168);
     ctx.closePath();
     ctx.fill();
   }
 
-  // craquelures
-  ctx.strokeStyle = "rgba(20,12,8,0.5)";
-  ctx.lineWidth = 2;
+  // --- Bouche : la machoire est descendue trop bas, et de travers ---
+  ctx.save();
+  ctx.translate(126, 246);
+  ctx.rotate(0.07);
+  ctx.fillStyle = "#060404";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 46, 58, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Gorge : un degrade qui s'enfonce, pour que le trou ait un fond.
+  const throat = ctx.createRadialGradient(0, 12, 2, 0, 12, 44);
+  throat.addColorStop(0, "#1c0b0a");
+  throat.addColorStop(1, "rgba(6,4,4,0)");
+  ctx.fillStyle = throat;
+  ctx.beginPath();
+  ctx.ellipse(0, 12, 40, 48, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dents irregulieres : ni la meme taille, ni le meme axe.
+  ctx.fillStyle = "#c8bda6";
   for (let i = 0; i < 9; i++) {
+    const tx = -42 + i * 10.5;
+    const len = 13 + Math.random() * 13;
+    const lean = (Math.random() - 0.5) * 6;
     ctx.beginPath();
-    let cx = 60 + Math.random() * 136;
-    let cy = 40 + Math.random() * 240;
+    ctx.moveTo(tx, -52);
+    ctx.lineTo(tx + 8, -52);
+    ctx.lineTo(tx + 4 + lean, -52 + len);
+    ctx.closePath();
+    ctx.fill();
+  }
+  for (let i = 0; i < 8; i++) {
+    const tx = -38 + i * 10.5;
+    const len = 11 + Math.random() * 12;
+    const lean = (Math.random() - 0.5) * 6;
+    ctx.beginPath();
+    ctx.moveTo(tx, 54);
+    ctx.lineTo(tx + 8, 54);
+    ctx.lineTo(tx + 4 + lean, 54 - len);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // --- Veines sombres sous la peau ---
+  ctx.lineCap = "round";
+  for (let i = 0; i < 14; i++) {
+    ctx.strokeStyle = `rgba(30,18,16,${0.18 + Math.random() * 0.3})`;
+    ctx.lineWidth = 0.8 + Math.random() * 1.6;
+    ctx.beginPath();
+    let cx = 58 + Math.random() * 140;
+    let cy = 46 + Math.random() * 200;
     ctx.moveTo(cx, cy);
-    for (let s = 0; s < 3; s++) {
-      cx += Math.random() * 26 - 13;
-      cy += Math.random() * 26 - 13;
+    for (let s = 0; s < 4; s++) {
+      cx += Math.random() * 22 - 11;
+      cy += Math.random() * 24 - 6;
       ctx.lineTo(cx, cy);
     }
     ctx.stroke();
   }
+
+  // --- Bord du visage fondu dans le noir : pas de decoupe nette ---
+  const edge = ctx.createRadialGradient(128, 158, 96, 128, 158, 150);
+  edge.addColorStop(0, "rgba(0,0,0,0)");
+  edge.addColorStop(1, "rgba(0,0,0,0.92)");
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "source-over";
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { makeDawnSkyTexture, makeFacadeTexture } from "@/lib/manorTextures";
 import { createAudio, playHatch, playWhisper, playStinger } from "@/lib/manorAudio";
+import { createNarrator } from "@/lib/voice";
+import { loadVoice3D } from "@/lib/settings3d";
 
 interface Beat {
   at: number;
@@ -144,6 +146,8 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
     scene.add(grass);
 
     const audio = createAudio();
+    // La revelation finale est lue a voix haute : c'est la qu'elle porte.
+    const narrator = createNarrator(loadVoice3D());
     audio.setTension(0.15);
     let elapsed = 0;
     let lastTime = performance.now();
@@ -162,6 +166,7 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
       if (idx !== beatIndex) {
         beatIndex = idx;
         setCaption(BEATS[idx].text);
+        narrator.say(BEATS[idx].text);
       }
 
       // Ouverture : on emerge du trou. Fermeture : fondu au noir.
@@ -234,6 +239,7 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
     return () => {
       window.clearInterval(intervalId);
       window.removeEventListener("resize", handleResize);
+      narrator.stop();
       audio.stop();
       audio.ctx.close().catch(() => {});
       renderer.dispose();

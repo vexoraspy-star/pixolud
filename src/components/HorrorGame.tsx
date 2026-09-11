@@ -78,7 +78,8 @@ export default function HorrorGame({ title }: { title: string }) {
         <span className="text-5xl">🕊️</span>
         <p className="text-xl font-bold text-emerald-400">Tu t&apos;es échappé du manoir !</p>
         <p className="max-w-sm text-center text-sm text-zinc-400">
-          Cinq objets, un code, et la cave. Tu ne sauras jamais qui t&apos;a ouvert la porte.
+          Le code, les reliques, le rituel, les trois sceaux et quarante-cinq secondes. Tu ne
+          sauras jamais qui t&apos;a ouvert la porte.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <button

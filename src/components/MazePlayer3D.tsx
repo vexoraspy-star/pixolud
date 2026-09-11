@@ -549,6 +549,14 @@ export default function MazePlayer3D({
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
+    // Une touche enfoncee pendant un Alt+Tab restait enfoncee au retour.
+    function onBlur() {
+      keys.clear();
+      heldRef.current.forward = false;
+      heldRef.current.back = false;
+    }
+    window.addEventListener("blur", onBlur);
+
     let lastTime = performance.now();
     function tick() {
       const now = performance.now();
@@ -631,6 +639,7 @@ export default function MazePlayer3D({
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);

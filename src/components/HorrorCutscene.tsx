@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createNarrator } from "@/lib/voice";
+import { loadVoice3D } from "@/lib/settings3d";
 import * as THREE from "three";
 import { makeNightSkyTexture, makeFacadeTexture } from "@/lib/manorTextures";
 import { createAudio, playCrash, playStinger } from "@/lib/manorAudio";
@@ -192,6 +194,8 @@ export default function HorrorCutscene({ onDone }: { onDone: () => void }) {
     scene.add(rain);
 
     const audio = createAudio();
+    // Le narrateur lit les cartons : la cinematique n'est plus muette.
+    const narrator = createNarrator(loadVoice3D());
     let elapsed = 0;
     let lastTime = performance.now();
     let beatIndex = -1;
@@ -216,6 +220,7 @@ export default function HorrorCutscene({ onDone }: { onDone: () => void }) {
       if (idx !== beatIndex) {
         beatIndex = idx;
         setCaption(BEATS[idx].text);
+        narrator.say(BEATS[idx].text);
       }
 
       // Fondu d'ouverture puis fondu au noir final.
@@ -301,6 +306,7 @@ export default function HorrorCutscene({ onDone }: { onDone: () => void }) {
     return () => {
       window.clearInterval(intervalId);
       window.removeEventListener("resize", handleResize);
+      narrator.stop();
       audio.stop();
       audio.ctx.close().catch(() => {});
       renderer.dispose();

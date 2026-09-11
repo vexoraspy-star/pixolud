@@ -8,8 +8,10 @@ import {
   SENSITIVITY_MIN,
   loadLayout3D,
   loadSensitivity3D,
+  loadVoice3D,
   saveLayout3D,
   saveSensitivity3D,
+  saveVoice3D,
   type Layout3D,
 } from "@/lib/settings3d";
 
@@ -23,6 +25,7 @@ export default function Game3DSettings({
   onSensitivity,
   onBrightness,
   brightness,
+  onVoice,
   className = "",
 }: {
   onLayout?: (value: Layout3D) => void;
@@ -30,17 +33,21 @@ export default function Game3DSettings({
   /** Omettre pour masquer le reglage (inutile dans une arene bien eclairee). */
   onBrightness?: (value: number) => void;
   brightness?: number;
+  /** Omettre pour masquer le reglage (un jeu sans narration n'en a pas besoin). */
+  onVoice?: (value: boolean) => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [layout, setLayout] = useState<Layout3D>("azerty");
   const [sensitivity, setSensitivity] = useState(1.5);
   const [localBrightness, setLocalBrightness] = useState(brightness ?? 1);
+  const [voice, setVoice] = useState(true);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setLayout(loadLayout3D());
       setSensitivity(loadSensitivity3D());
+      setVoice(loadVoice3D());
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -58,6 +65,11 @@ export default function Game3DSettings({
   function changeBrightness(value: number) {
     setLocalBrightness(value);
     onBrightness?.(value);
+  }
+  function changeVoice(value: boolean) {
+    setVoice(value);
+    saveVoice3D(value);
+    onVoice?.(value);
   }
 
   return (
@@ -121,6 +133,22 @@ export default function Game3DSettings({
                 className="w-full accent-violet-500"
               />
             </>
+          )}
+
+          {onVoice && (
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-zinc-300">Voix du narrateur</p>
+              <button
+                type="button"
+                onClick={() => changeVoice(!voice)}
+                aria-pressed={voice}
+                className={`rounded-lg px-2.5 py-1 text-xs font-bold uppercase transition ${
+                  voice ? "bg-violet-600 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                }`}
+              >
+                {voice ? "Activée" : "Coupée"}
+              </button>
+            </div>
           )}
 
           <p className="mt-3 border-t border-white/10 pt-2 text-[11px] leading-relaxed text-zinc-500">

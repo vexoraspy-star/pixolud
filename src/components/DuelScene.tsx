@@ -676,6 +676,18 @@ export default function DuelScene({
     window.addEventListener("keyup", onKeyUp);
     renderer.domElement.addEventListener("contextmenu", onContextMenu);
 
+    // Alt+Tab en pleine course laissait la touche "enfoncee" : on revenait
+    // en train de courir droit dans un mur, et parfois de tirer tout seul.
+    function onBlur() {
+      keys.clear();
+      firing = false;
+      lookPointerId = -1;
+      touchRef.current.moveX = 0;
+      touchRef.current.moveZ = 0;
+      touchRef.current.firing = false;
+    }
+    window.addEventListener("blur", onBlur);
+
     // --- Reception reseau ---
     function drainInbox() {
       const box = link.current.inbox;
@@ -934,6 +946,7 @@ export default function DuelScene({
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("mouseup", onMouseUp);
       renderer.domElement.removeEventListener("pointerdown", onTouchPointerDown);
       renderer.domElement.removeEventListener("pointermove", onTouchPointerMove);
