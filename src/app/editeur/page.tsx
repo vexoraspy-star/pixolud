@@ -13,6 +13,7 @@ const NEW_GAME_BUTTONS = [
   { type: "Plateforme", emoji: "🎮" },
   { type: "Runner", emoji: "🦔" },
   { type: "Musique", emoji: "🎵" },
+  { type: "Mélodie", emoji: "🎶" },
   { type: "Calcul Mental", emoji: "🧮" },
   { type: "Petit Bac", emoji: "📝" },
   { type: "Devinettes", emoji: "🔍" },

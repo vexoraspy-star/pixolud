@@ -21,6 +21,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Course: "🏁",
   Runner: "🦔",
   Musique: "🎵",
+  Mélodie: "🎶",
   "Calcul Mental": "🧮",
   "Petit Bac": "📝",
   Devinettes: "🔍",

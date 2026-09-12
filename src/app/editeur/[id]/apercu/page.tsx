@@ -9,6 +9,7 @@ import { emptyCourse, isCoursePlayable, type CourseData } from "@/lib/course";
 import { emptyPlateforme, isPlateformePlayable, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique";
+import { emptyMelodie, isMelodiePlayable, type MelodieData } from "@/lib/melodie";
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
@@ -22,6 +23,7 @@ import CoursePlayer from "@/components/CoursePlayer";
 import PlateformePlayer from "@/components/PlateformePlayer";
 import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
+import MelodiePlayer from "@/components/MelodiePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
@@ -37,6 +39,7 @@ type AnyData =
   | PlateformeData
   | RunnerData
   | MusiqueData
+  | MelodieData
   | CalculData
   | PetitBacData
   | DevinettesData
@@ -143,6 +146,16 @@ export default async function ApercuPage({
       playable = isMusiquePlayable(data);
       player = <MusiquePlayer data={data} />;
       emptyMessage = "Place au moins une note pour pouvoir tester ton morceau.";
+      break;
+    }
+    case "Mélodie": {
+      const data =
+        game.data && typeof game.data === "object" && "strokes" in game.data
+          ? (game.data as MelodieData)
+          : emptyMelodie();
+      playable = isMelodiePlayable(data);
+      player = <MelodiePlayer data={data} />;
+      emptyMessage = "Dessine au moins un trait pour pouvoir tester ta mélodie.";
       break;
     }
     case "Calcul Mental": {

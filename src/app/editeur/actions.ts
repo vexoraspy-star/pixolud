@@ -11,6 +11,7 @@ import { emptyCourse, isCoursePlayable, type CourseData } from "@/lib/course";
 import { emptyPlateforme, isPlateformePlayable, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { emptyMusique, isMusiquePlayable, type MusiqueData } from "@/lib/musique";
+import { emptyMelodie, isMelodiePlayable, type MelodieData } from "@/lib/melodie";
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
@@ -27,6 +28,7 @@ type AnyGameData =
   | PlateformeData
   | RunnerData
   | MusiqueData
+  | MelodieData
   | CalculData
   | PetitBacData
   | DevinettesData
@@ -82,6 +84,12 @@ const GAME_TYPES = {
     emoji: "🎵",
     emptyData: emptyMusique,
   },
+  "Mélodie": {
+    defaultTitle: "Nouvelle mélodie",
+    gradient: "from-fuchsia-500 to-indigo-600",
+    emoji: "🎶",
+    emptyData: emptyMelodie,
+  },
   "Calcul Mental": {
     defaultTitle: "Nouveau calcul mental",
     gradient: "from-lime-400 to-emerald-600",
@@ -125,6 +133,7 @@ function isPublishable(category: string, data: unknown): boolean {
   if (category === "Plateforme") return isPlateformePlayable(data as PlateformeData);
   if (category === "Runner") return isRunnerPlayable(data as RunnerData);
   if (category === "Musique") return isMusiquePlayable(data as MusiqueData);
+  if (category === "Mélodie") return isMelodiePlayable(data as MelodieData);
   if (category === "Calcul Mental") return isCalculPlayable(data as CalculData);
   if (category === "Petit Bac") return isPetitBacPlayable(data as PetitBacData);
   if (category === "Devinettes") return isDevinettesPlayable(data as DevinettesData);
@@ -144,6 +153,7 @@ const PUBLISH_ERROR_MESSAGES: Record<string, string> = {
   Runner:
     "Configure la longueur du parcours et laisse au moins une case libre entre deux obstacles avant de publier.",
   Musique: "Place au moins une note avant de publier.",
+  Mélodie: "Dessine au moins un trait (deux points minimum) avant de publier.",
   "Calcul Mental": "Choisis au moins une opération avant de publier.",
   "Petit Bac": "Ajoute au moins 2 catégories non vides avant de publier.",
   Devinettes: "Ajoute au moins une devinette complète (réponse + indices) avant de publier.",

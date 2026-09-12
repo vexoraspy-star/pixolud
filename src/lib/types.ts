@@ -7,6 +7,7 @@ export const CATEGORIES = [
   "Course",
   "Runner",
   "Musique",
+  "Mélodie",
   "Calcul Mental",
   "Petit Bac",
   "Devinettes",

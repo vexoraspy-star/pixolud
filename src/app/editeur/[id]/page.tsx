@@ -8,6 +8,7 @@ import { emptyCourse, type CourseData } from "@/lib/course";
 import { emptyPlateforme, type PlateformeData } from "@/lib/plateforme";
 import { emptyRunner, type RunnerData } from "@/lib/runner";
 import { emptyMusique, type MusiqueData } from "@/lib/musique";
+import { emptyMelodie, type MelodieData } from "@/lib/melodie";
 import { emptyCalcul, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, type DevinettesData } from "@/lib/devinettes";
@@ -21,6 +22,7 @@ import CourseEditor from "@/components/CourseEditor";
 import PlateformeEditor from "@/components/PlateformeEditor";
 import RunnerEditor from "@/components/RunnerEditor";
 import MusiqueEditor from "@/components/MusiqueEditor";
+import MelodieEditor from "@/components/MelodieEditor";
 import CalculEditor from "@/components/CalculEditor";
 import PetitBacEditor from "@/components/PetitBacEditor";
 import DevinettesEditor from "@/components/DevinettesEditor";
@@ -37,6 +39,7 @@ type AnyData =
   | PlateformeData
   | RunnerData
   | MusiqueData
+  | MelodieData
   | CalculData
   | PetitBacData
   | DevinettesData
@@ -153,6 +156,14 @@ export default async function EditeurJeuPage({
         ? (game.data as MusiqueData)
         : emptyMusique();
     return <MusiqueEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Mélodie") {
+    const data =
+      game.data && typeof game.data === "object" && "strokes" in game.data
+        ? (game.data as MelodieData)
+        : emptyMelodie();
+    return <MelodieEditor {...common} initialData={data} />;
   }
 
   if (game.category === "Calcul Mental") {

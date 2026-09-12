@@ -9,6 +9,7 @@ import { isCoursePlayable, type CourseData } from "@/lib/course";
 import { isPlateformePlayable, type PlateformeData } from "@/lib/plateforme";
 import { isRunnerPlayable, type RunnerData } from "@/lib/runner";
 import { isMusiquePlayable, type MusiqueData } from "@/lib/musique";
+import { isMelodiePlayable, type MelodieData } from "@/lib/melodie";
 import { isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
@@ -22,6 +23,7 @@ import CoursePlayer from "@/components/CoursePlayer";
 import PlateformePlayer from "@/components/PlateformePlayer";
 import RunnerPlayer from "@/components/RunnerPlayer";
 import MusiquePlayer from "@/components/MusiquePlayer";
+import MelodiePlayer from "@/components/MelodiePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
@@ -38,6 +40,7 @@ type AnyData =
   | PlateformeData
   | RunnerData
   | MusiqueData
+  | MelodieData
   | CalculData
   | PetitBacData
   | DevinettesData
@@ -109,6 +112,8 @@ export default async function PlayGamePage({
     player = <RunnerPlayer data={game.data as RunnerData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Musique" && isMusiquePlayable(game.data as MusiqueData)) {
     player = <MusiquePlayer data={game.data as MusiqueData} gameId={game.id} countsAsPlay />;
+  } else if (game.category === "Mélodie" && isMelodiePlayable(game.data as MelodieData)) {
+    player = <MelodiePlayer data={game.data as MelodieData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Calcul Mental" && isCalculPlayable(game.data as CalculData)) {
     player = <CalculPlayer data={game.data as CalculData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Petit Bac" && isPetitBacPlayable(game.data as PetitBacData)) {
