@@ -35,15 +35,20 @@ export const GAMES_3D: Game3D[] = [
   },
   {
     slug: "duel-1v1",
-    title: "Duel — 1 contre 1",
+    title: "Duel — Arène de tir",
     description:
-      "Un jeu de tir en 1 contre 1 dans une arène symétrique. Affronte un ami avec un code de salon, ou entraîne-toi contre la Sentinelle.",
+      "Quatre modes de tir à la première personne et cinq armes : duel en 1 contre 1 avec un code de salon, match à mort contre quatre Sentinelles, course à l'armement où chaque élimination change ton arme, et une battle royale sur grand terrain avec zone qui se referme.",
     emoji: "🎯",
     gradient: "from-cyan-700 to-slate-950",
     genre: "Tir",
-    players: "1 contre 1",
-    duration: "5 à 8 min",
-    highlights: ["En ligne avec un code", "Bot d'entraînement", "Tirs à la tête"],
+    players: "Solo ou 1 contre 1",
+    duration: "5 à 15 min",
+    highlights: [
+      "4 modes dont battle royale",
+      "5 armes",
+      "En ligne avec un code",
+      "Tirs à la tête",
+    ],
     featured: true,
   },
   {

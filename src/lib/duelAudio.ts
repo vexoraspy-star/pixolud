@@ -145,9 +145,12 @@ export function playHurt(ctx: AudioContext, master: GainNode) {
 }
 
 /** Elimination : descente grave. */
-export function playDeath(ctx: AudioContext, master: GainNode) {
-  tone(ctx, master, "sawtooth", 420, 60, 0.9, 0.5, 0.01);
-  noise(ctx, master, 0.7, 0.45, (t) => Math.pow(1 - t, 1.6), { type: "lowpass", freq: 900 });
+// Spatialisee : dans un match a plusieurs, une elimination a l'autre bout
+// de la carte ne doit pas sonner comme la tienne.
+export function playDeath(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  tone(ctx, dest, "sawtooth", 420, 60, 0.9, 0.5, 0.01);
+  noise(ctx, dest, 0.7, 0.45, (t) => Math.pow(1 - t, 1.6), { type: "lowpass", freq: 900 });
 }
 
 /** Rechargement : chargeur qui sort, qui claque, culasse. */
