@@ -46,6 +46,11 @@ export interface DevSnapshot {
   dolls: { x: number; z: number }[];
   plaques: { x: number; z: number; digit: number; rank: number; found: boolean }[];
   seals: { x: number; z: number; broken: boolean }[];
+  /** Objets encore au sol : pieces, piles, sel, boites, cles, notes. */
+  pickups: { x: number; z: number; kind: string }[];
+  keyDoors: { x0: number; y0: number; x1: number; y1: number; open: boolean }[];
+  /** Ce que fait la chose : errer, enqueter, poursuivre, fouiller, debusquer. */
+  monsterState: string;
   phase: DevPhase;
   code: string;
   doorLocked: boolean;
@@ -75,6 +80,24 @@ function nextStepLabel(snap: DevSnapshot | null): string {
   return "Aller à la trappe";
 }
 
+const PICKUP_COLORS: Record<string, string> = {
+  coin: "#eab308",
+  battery: "#4ade80",
+  salt: "#f5f5f4",
+  musicbox: "#c2410c",
+  key: "#fde047",
+  note: "#d6d3d1",
+};
+
+const MONSTER_STATES: Record<string, string> = {
+  endormie: "Endormie",
+  errer: "Erre",
+  enqueter: "Enquête sur un bruit",
+  poursuivre: "Te poursuit",
+  fouiller: "Fouille",
+  debusquer: "Vient te sortir de ta cachette",
+};
+
 const PHASE_NAMES: Record<DevPhase, string> = {
   none: "Exploration",
   ritual: "Rituel",
@@ -92,6 +115,7 @@ export default function HorrorDevPanel({
   height,
   onTeleport,
   onAdvance,
+  onGiveAll,
   onClose,
 }: {
   flags: DevFlags;
@@ -102,6 +126,7 @@ export default function HorrorDevPanel({
   height: number;
   onTeleport: (x: number, z: number) => void;
   onAdvance: () => void;
+  onGiveAll: () => void;
   onClose: () => void;
 }) {
   function onMapClick(e: React.MouseEvent<SVGSVGElement>) {
@@ -127,7 +152,7 @@ export default function HorrorDevPanel({
             🛠️ Mode développeur
           </p>
           <p className="text-[10px] text-zinc-500">
-            F2 pour fermer · Maj pour libérer la souris
+            F2 pour fermer · Échap pour libérer la souris
           </p>
         </div>
         <button
@@ -224,6 +249,27 @@ export default function HorrorDevPanel({
             opacity={snap && snap.phase !== "none" ? 1 : 0.35}
           />
 
+          {snap?.keyDoors.map((d, i) => (
+            <rect
+              key={`k${i}`}
+              x={d.x0}
+              y={d.y0}
+              width={d.x1 - d.x0 + 1}
+              height={d.y1 - d.y0 + 1}
+              fill={d.open ? "#166534" : "#991b1b"}
+            />
+          ))}
+          {snap?.pickups.map((p, i) => (
+            <circle
+              key={`o${i}`}
+              cx={p.x}
+              cy={p.z}
+              r={p.kind === "key" ? 0.42 : 0.24}
+              fill={PICKUP_COLORS[p.kind] ?? "#fff"}
+              stroke={p.kind === "key" ? "#000" : "none"}
+              strokeWidth={0.08}
+            />
+          ))}
           {snap?.plaques.map((p) => (
             <g key={`p${p.rank}`} opacity={p.found ? 0.4 : 1}>
               <rect x={p.x - 0.42} y={p.z - 0.42} width={0.84} height={0.84} fill="#b45309" rx={0.12} />
@@ -274,7 +320,16 @@ export default function HorrorDevPanel({
           <span><span className="text-pink-400">●</span> poupée</span>
           <span><span className="text-cyan-400">●</span> sceau</span>
           <span><span className="text-sky-400">■</span> trappe</span>
+          <span><span className="text-yellow-300">●</span> clé</span>
+          <span><span className="text-red-700">■</span> porte fermée</span>
+          <span><span className="text-green-500">●</span> pile</span>
+          <span><span className="text-orange-600">●</span> boîte à musique</span>
         </div>
+        {snap && (
+          <p className="mt-1.5 text-[11px] text-zinc-400">
+            La chose : <span className="font-semibold text-red-300">{MONSTER_STATES[snap.monsterState] ?? snap.monsterState}</span>
+          </p>
+        )}
       </div>
 
       {/* Interrupteurs */}
@@ -320,6 +375,13 @@ export default function HorrorDevPanel({
         className="rounded-lg bg-amber-500 px-3 py-2.5 text-sm font-black text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
       >
         ⏭️ {nextStepLabel(snap)}
+      </button>
+      <button
+        type="button"
+        onClick={onGiveAll}
+        className="rounded-lg bg-white/5 px-3 py-2 text-xs font-bold text-amber-200 ring-1 ring-amber-500/30 transition hover:bg-white/10"
+      >
+        🎒 Toutes les clés, notes et objets
       </button>
 
       <p className="text-[10px] leading-relaxed text-zinc-600">

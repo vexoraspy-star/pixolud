@@ -237,8 +237,9 @@ export default function HorrorLobby({
                 </div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
                 <p className="max-w-lg text-sm text-zinc-400">
-                  Relève les {CODE_LENGTH} chiffres du code, ouvre la cave, rassemble 5 reliques et
-                  accomplis le rituel. Puis brise trois sceaux, tiens 45 secondes, et fuis.
+                  Relève les {CODE_LENGTH} chiffres du code, trouve les clés, rassemble 5 reliques et
+                  accomplis le rituel. Elle ne te voit pas venir : elle t&apos;entend. Fais le moins de
+                  bruit possible.
                 </p>
               </div>
             </div>

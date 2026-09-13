@@ -265,6 +265,9 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
       narrator.stop();
       audio.stop();
       audio.ctx.close().catch(() => {});
+      // Libere la carte graphique tout de suite : sinon les contextes WebGL
+      // s'accumulent a chaque aller-retour et le navigateur finit par en tuer un.
+      renderer.forceContextLoss();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);

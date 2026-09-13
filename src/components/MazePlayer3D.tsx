@@ -651,6 +651,9 @@ export default function MazePlayer3D({
       if (document.pointerLockElement === renderer.domElement) {
         document.exitPointerLock?.();
       }
+      // Libere la carte graphique tout de suite : sinon les contextes WebGL
+      // s'accumulent a chaque aller-retour et le navigateur finit par en tuer un.
+      renderer.forceContextLoss();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);

@@ -395,3 +395,278 @@ export function playVoiceBed(ctx: AudioContext, master: GainNode, seconds: numbe
     }, at);
   }
 }
+
+// --- Sons du joueur, de l'inventaire et des screamers ---
+
+/** Le declic de la lampe : un clic sec, plus grave quand on l'eteint. */
+export function playFlashlightClick(ctx: AudioContext, master: GainNode, on: boolean) {
+  noiseBurst(ctx, master, 0.03, 0.5, (t) => Math.pow(1 - t, 4), { type: "highpass", freq: 2400 });
+  tone(ctx, master, "square", on ? 2200 : 1500, on ? 1800 : 900, 0.035, 0.08, 0.001);
+}
+
+/** Tissu froisse et genoux qui craquent : on se baisse, ou on se releve. */
+export function playCrouch(ctx: AudioContext, master: GainNode, down: boolean) {
+  noiseBurst(ctx, master, 0.28, 0.16, (t) => Math.sin(t * Math.PI) * (down ? 1 : 0.7), {
+    type: "bandpass",
+    freq: down ? 1600 : 2100,
+    q: 1.2,
+  });
+  if (down && Math.random() < 0.5) {
+    window.setTimeout(() => tone(ctx, master, "square", 260, 180, 0.03, 0.05, 0.001), 90);
+  }
+}
+
+/**
+ * Pas du joueur. Accroupi on les entend a peine, en courant ils claquent :
+ * c'est l'ecoute qui apprend au joueur ce que la chose entend.
+ */
+export function playPlayerStep(ctx: AudioContext, master: GainNode, kind: "accroupi" | "pas" | "course") {
+  const gain = kind === "accroupi" ? 0.045 : kind === "course" ? 0.2 : 0.11;
+  const freq = (kind === "course" ? 1800 : kind === "pas" ? 1200 : 700) * (0.85 + Math.random() * 0.3);
+  noiseBurst(ctx, master, kind === "course" ? 0.1 : 0.14, gain, (t) => Math.pow(1 - t, 3), {
+    type: "lowpass",
+    freq,
+  });
+  // Le plancher repond parfois sous le poids.
+  if (kind !== "accroupi" && Math.random() < (kind === "course" ? 0.3 : 0.12)) {
+    tone(ctx, master, "sawtooth", 180 + Math.random() * 120, 90, 0.22, 0.035, 0.04);
+  }
+}
+
+/** Une piece lancee : le sifflement, puis rien jusqu'a l'impact. */
+export function playCoinThrow(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.12, 0.12, (t) => Math.sin(t * Math.PI), { type: "highpass", freq: 3000 });
+}
+
+/** La piece touche le sol et roule. Placee dans l'espace : on sait ou elle est tombee. */
+export function playCoinLand(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  [0, 140, 250, 330, 385].forEach((at, i) => {
+    window.setTimeout(() => {
+      if (ctx.state === "closed") return;
+      const f = 3100 + Math.random() * 500;
+      tone(ctx, dest, "sine", f, f * 0.98, 0.09, 0.22 * Math.pow(0.62, i), 0.001);
+      tone(ctx, dest, "triangle", f * 1.47, f * 1.45, 0.06, 0.08 * Math.pow(0.62, i), 0.001);
+    }, at);
+  });
+}
+
+export interface MusicBoxSound {
+  stop: () => void;
+  /** Le joueur bouge : la boite reste ou elle est, le son doit suivre. */
+  place: (pan: number, gain: number) => void;
+}
+
+/**
+ * Boite a musique : une berceuse en mineur, clochettes aigues un peu
+ * desaccordees. Renvoie de quoi la couper et la replacer dans l'espace.
+ */
+export function playMusicBox(ctx: AudioContext, master: GainNode, seconds: number): MusicBoxSound {
+  const dest = ctx.createGain();
+  dest.gain.value = 1;
+  let panner: StereoPannerNode | null = null;
+  if (typeof ctx.createStereoPanner === "function") {
+    panner = ctx.createStereoPanner();
+    dest.connect(panner);
+    panner.connect(master);
+  } else {
+    dest.connect(master);
+  }
+  const melody = [659, 880, 1047, 988, 880, 659, 587, 523, 494, 415, 440, 0, 523, 494, 440, 330];
+  const step = 0.36;
+  let stopped = false;
+  const timers: number[] = [];
+  const total = Math.floor(seconds / step);
+  for (let i = 0; i < total; i++) {
+    const f = melody[i % melody.length];
+    if (!f) continue;
+    // Le ressort se detend : la melodie ralentit et baisse sur la fin.
+    const tired = 1 - (i / total) * 0.04;
+    timers.push(
+      window.setTimeout(() => {
+        if (stopped || ctx.state === "closed") return;
+        tone(ctx, dest, "sine", f * tired, f * tired, 0.9, 0.16, 0.003);
+        tone(ctx, dest, "triangle", f * 2.01 * tired, f * 2 * tired, 0.35, 0.04, 0.002);
+      }, i * step * 1000 * (1 + (i / total) * 0.25)),
+    );
+  }
+  return {
+    stop: () => {
+      stopped = true;
+      for (const t of timers) window.clearTimeout(t);
+    },
+    place: (pan: number, gain: number) => {
+      if (ctx.state === "closed") return;
+      const now = ctx.currentTime;
+      dest.gain.setTargetAtTime(Math.max(0, gain), now, 0.1);
+      panner?.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), now, 0.1);
+    },
+  };
+}
+
+/** Une poignee de sel jetee : un crepitement sec. */
+export function playSaltThrow(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.45, 0.4, (t) => (Math.random() < 0.3 ? 1 : 0.2) * (1 - t), {
+    type: "highpass",
+    freq: 2600,
+  });
+}
+
+/** Elle recule, brulee par le sel : un cri etrangle qui monte. */
+export function playRecoil(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  tone(ctx, dest, "sawtooth", 300, 1300, 0.55, 0.3, 0.02);
+  tone(ctx, dest, "sawtooth", 313, 1190, 0.55, 0.22, 0.02);
+  noiseBurst(ctx, dest, 0.7, 0.3, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 1400, q: 3 });
+}
+
+/** Gonds d'armoire : un grincement long, puis le battant qui claque doucement. */
+export function playWardrobe(ctx: AudioContext, master: GainNode, opening: boolean) {
+  tone(ctx, master, "sawtooth", opening ? 420 : 520, opening ? 610 : 300, 0.45, 0.06, 0.12);
+  tone(ctx, master, "sawtooth", opening ? 432 : 540, opening ? 590 : 310, 0.45, 0.04, 0.12);
+  window.setTimeout(() => {
+    if (ctx.state === "closed") return;
+    noiseBurst(ctx, master, 0.12, 0.3, (t) => Math.pow(1 - t, 3), { type: "lowpass", freq: 900 });
+  }, opening ? 380 : 420);
+}
+
+/** Se glisser sous un lit : parquet et draps. */
+export function playUnderBed(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.5, 0.2, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 900, q: 0.8 });
+}
+
+/** La poignee d'une porte verrouillee qu'on secoue. */
+export function playLockedRattle(ctx: AudioContext, master: GainNode) {
+  for (let i = 0; i < 3; i++) {
+    window.setTimeout(() => {
+      if (ctx.state === "closed") return;
+      noiseBurst(ctx, master, 0.06, 0.35, (t) => Math.pow(1 - t, 2), { type: "bandpass", freq: 1900, q: 2 });
+      tone(ctx, master, "square", 340, 260, 0.05, 0.06, 0.001);
+    }, i * 95);
+  }
+}
+
+/** Un trousseau : ramasser une cle. */
+export function playKeyPickup(ctx: AudioContext, master: GainNode) {
+  [2900, 3600, 3300].forEach((f, i) => {
+    window.setTimeout(() => {
+      if (ctx.state === "closed") return;
+      tone(ctx, master, "sine", f, f * 0.99, 0.18, 0.12, 0.001);
+    }, i * 70);
+  });
+}
+
+/** Papier qu'on deplie. */
+export function playPaper(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.35, 0.22, (t) => (Math.random() < 0.5 ? 1 : 0.3) * Math.sin(t * Math.PI), {
+    type: "highpass",
+    freq: 1800,
+  });
+}
+
+/** Changer d'objet dans la main. */
+export function playSlot(ctx: AudioContext, master: GainNode) {
+  tone(ctx, master, "triangle", 520, 480, 0.05, 0.05, 0.002);
+}
+
+/** Retenir son souffle : une inspiration coupee net. */
+export function playBreathHold(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.4, 0.2, (t) => (t < 0.8 ? t : (1 - t) * 4), { type: "bandpass", freq: 1100, q: 1 });
+}
+
+/** On ne tient plus : le souffle repart d'un coup, beaucoup trop fort. */
+export function playGasp(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.9, 0.55, (t) => Math.pow(1 - t, 1.3), { type: "bandpass", freq: 900, q: 0.9 });
+  window.setTimeout(() => {
+    if (ctx.state === "closed") return;
+    noiseBurst(ctx, master, 0.7, 0.3, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 800, q: 1 });
+  }, 850);
+}
+
+/** Respiration du joueur, tremblante, quand elle rode pres de la cachette. */
+export function playPlayerBreath(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.75, 0.12, (t) => Math.sin(t * Math.PI) * (0.7 + Math.random() * 0.3), {
+    type: "bandpass",
+    freq: 1000,
+    q: 1.1,
+  });
+}
+
+/** Elle te repere : un cri aigu, bref, qui vient de sa direction. */
+export function playShriek(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  const now = ctx.currentTime;
+  for (const f of [620, 655, 930]) {
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(f * 0.7, now);
+    osc.frequency.exponentialRampToValueAtTime(f * 1.6, now + 0.18);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.9, now + 0.8);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.18, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.85);
+    osc.connect(g);
+    g.connect(dest);
+    osc.start(now);
+    osc.stop(now + 0.9);
+  }
+  noiseBurst(ctx, dest, 0.6, 0.35, (t) => Math.pow(1 - t, 1.5), { type: "bandpass", freq: 2200, q: 2 });
+}
+
+/** Elle a entendu quelque chose : grognement grave, venu de sa direction. */
+export function playGrowl(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  tone(ctx, dest, "sawtooth", 72, 58, 1.1, 0.22, 0.2);
+  noiseBurst(ctx, dest, 1.1, 0.25, (t) => Math.sin(t * Math.PI) * (0.6 + Math.random() * 0.4), {
+    type: "lowpass",
+    freq: 320,
+    q: 4,
+  });
+}
+
+/**
+ * Screamer en pleine partie. Plus court que le cri de mort, mais sans
+ * attaque douce : le son arrive plein pot des la premiere milliseconde.
+ */
+export function playScreamer(ctx: AudioContext, master: GainNode) {
+  const now = ctx.currentTime;
+  noiseBurst(ctx, master, 0.7, 0.9, (t) => Math.pow(1 - t, 0.9));
+  for (const f of [1046, 1108, 1480, 740]) {
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(f, now);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.45, now + 0.65);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.26, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(now);
+    osc.stop(now + 0.75);
+  }
+  tone(ctx, master, "sine", 120, 30, 0.6, 0.8, 0.002);
+}
+
+/** Juste a cote de l'oreille : un souffle, puis un mot qu'on ne comprend pas. */
+export function playEarWhisper(ctx: AudioContext, master: GainNode, pan: number) {
+  playBreath(ctx, master, { pan, gain: 1.4 });
+  window.setTimeout(() => {
+    if (ctx.state === "closed") return;
+    playWhisper(ctx, master, { pan, gain: 1.6 });
+  }, 500);
+}
+
+/** La lampe qui meurt : un gresillement electrique. */
+export function playBulbDie(ctx: AudioContext, master: GainNode) {
+  for (let i = 0; i < 5; i++) {
+    window.setTimeout(() => {
+      if (ctx.state === "closed") return;
+      noiseBurst(ctx, master, 0.04 + Math.random() * 0.05, 0.25, () => 1, { type: "bandpass", freq: 4000, q: 3 });
+    }, i * 60 + Math.random() * 40);
+  }
+  window.setTimeout(() => {
+    if (ctx.state === "closed") return;
+    tone(ctx, master, "sine", 120, 60, 0.3, 0.1, 0.005);
+  }, 340);
+}

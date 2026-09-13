@@ -19,12 +19,48 @@ import {
   STAIR_X1,
   STAIR_ROW_FIRST,
   STAIR_ROW_LAST,
+  LOCKED_DOORS,
+  LOCKED_ROOMS,
+  LOCKED_RELIC_SPOT,
+  HIDEOUT_KINDS,
+  PICKUP_SPOTS,
+  PICKUP_RANDOM_COUNT,
+  MANOR_NOTES,
+  propGeometry,
+  type Footprint,
   type ManorItemDef,
-  type ManorProp,
+  type ManorNote,
+  type PickupKind,
+  type PickupSpot,
+  type PropBox,
 } from "@/lib/manor";
 import { cellKey } from "@/lib/maze";
 import { buildMonster, poseMonster } from "@/lib/manorMonster";
 import { buildDolls } from "@/lib/manorDolls";
+import { NOISE_RADIUS, audibility, pruneNoises, wallsBetween, type Noise, type NoiseKind } from "@/lib/manorNoise";
+import {
+  createBrain,
+  noteHidingSeen,
+  sightRange,
+  thinkMonster,
+  type BrainState,
+  type MapQuery,
+  type SpeedMode,
+} from "@/lib/manorAI";
+import {
+  ITEM_DEFS,
+  KEY_NAMES,
+  addItem,
+  addKey,
+  addNote,
+  consumeSelected,
+  emptyInventory,
+  isUsable,
+  selectSlot as selectInventorySlot,
+  type Inventory,
+  type UsableItem,
+} from "@/lib/manorInventory";
+import { buildGhost, makeScareFaceUrl, makeScareHandUrl } from "@/lib/manorScares";
 import HorrorDevPanel, { DEV_OFF, type DevFlags, type DevSnapshot } from "./HorrorDevPanel";
 import Game3DSettings from "./Game3DSettings";
 import {
@@ -66,6 +102,29 @@ import {
   playSealBreak,
   playTick,
   playHatchOpen,
+  playFlashlightClick,
+  playCrouch,
+  playPlayerStep,
+  playCoinThrow,
+  playCoinLand,
+  playMusicBox,
+  playSaltThrow,
+  playRecoil,
+  playWardrobe,
+  playUnderBed,
+  playLockedRattle,
+  playKeyPickup,
+  playPaper,
+  playSlot,
+  playBreathHold,
+  playGasp,
+  playPlayerBreath,
+  playShriek,
+  playGrowl,
+  playScreamer,
+  playEarWhisper,
+  playBulbDie,
+  type MusicBoxSound,
 } from "@/lib/manorAudio";
 
 const CELL_SIZE = 1.7;
@@ -74,10 +133,38 @@ const PLAYER_RADIUS = 0.26;
 const MOVE_SPEED = 2.6;
 const BASE_LOOK_SENSITIVITY = 0.0038;
 const ITEM_COUNT = MANOR_ITEMS.length;
+/** Elle patrouille sans rien savoir : lentement. */
+const MONSTER_SPEED_WANDER = 1.15;
+/** Elle va voir un bruit. */
 const MONSTER_SPEED_BASE = 1.55;
+/** Elle te voit. */
 const MONSTER_SPEED_HUNTING = 2.05;
-const MONSTER_HUNT_RADIUS = 12;
 const CAPTURE_RADIUS = 0.55;
+/** Cadence de reflexion de la chose : dix fois par seconde suffit largement. */
+const THINK_INTERVAL = 0.1;
+/** Accroupi : lent, silencieux, et plus bas dans son champ de vision. */
+const CROUCH_SPEED = 1.35;
+const CROUCH_EYE = 0.95;
+/** Sous un lit, la camera frole le plancher. */
+const BED_EYE = 0.3;
+/** Maj : on court, mais on s'epuise et on s'entend de loin. */
+const SPRINT_SPEED = 3.7;
+const STAMINA_DRAIN_PER_SEC = 24;
+const STAMINA_REGEN_PER_SEC = 13;
+/** Apres un epuisement, il faut reprendre ce souffle-la avant de recourir. */
+const STAMINA_RECOVER_AT = 35;
+/** Duree maximale d'apnee dans une cachette. */
+const BREATH_HOLD_SECONDS = 6;
+const PICKUP_REACH = 1.05;
+/** Le sel ne sert qu'a bout portant. */
+const SALT_REACH = 2.4;
+const SALT_STUN_SECONDS = 4.5;
+const MUSICBOX_SECONDS = 12;
+const COIN_RANGE = 7.5;
+/** Temps minimal entre deux screamers : au-dela, on s'y habitue. */
+const SCARE_COOLDOWN = 55;
+/** Elle debusque le joueur quand elle arrive a portee de bras de la cachette. */
+const DEBUSK_REACH = 0.9;
 const REPATH_INTERVAL = 0.7;
 const FLASHLIGHT_DRAIN_PER_SEC = 100 / 90;
 const FLASHLIGHT_REGEN_PER_SEC = 100 / 45;
@@ -96,13 +183,10 @@ const DOOR_REACH = 2.4;
 const CLUE_REACH = 1.7;
 const ALTAR_REACH = 2.3;
 const HATCH_REACH = 0.9;
-// Les armoires occupent leur case, donc on s'en approche par le cote : la
-// portee doit couvrir la demi-largeur du meuble plus une case.
-const HIDE_REACH = 2.2;
-/** Combien de temps cachee avant qu'elle perde ta trace. */
-const HIDE_LOSE_SECONDS = 4;
-/** Piles de rechange a trouver dans le manoir. */
-const BATTERY_COUNT = 4;
+// Distance au BORD du meuble (son emprise reelle), pas a son centre : un lit
+// de trois cases se prend par n'importe quel cote, et un mur fait plus d'une
+// case d'epaisseur, donc on ne se cache jamais a travers une cloison.
+const HIDE_REACH = 0.9;
 /** Distance a laquelle on ramasse une poupee assise au sol. */
 const DOLL_REACH = 0.85;
 /**
@@ -275,114 +359,18 @@ function bfsPath(
   return null;
 }
 
-/** Chaque meuble est une petite pile de boites : une seule InstancedMesh les rend toutes. */
-interface BoxEntry {
-  x: number;
-  y: number;
-  z: number;
-  w: number;
-  h: number;
-  d: number;
-  color: number;
+/** Distance d'un point au rectangle d'une emprise de meuble, en cases. */
+function distToFootprint(px: number, pz: number, fp: Footprint): number {
+  const cx = Math.max(fp.x0, Math.min(px, fp.x1));
+  const cz = Math.max(fp.z0, Math.min(pz, fp.z1));
+  return Math.hypot(px - cx, pz - cz);
 }
 
-function buildPropBoxes(p: ManorProp): BoxEntry[] {
-  const cx = ((p.x0 + p.x1) / 2 + 0.5) * CELL_SIZE;
-  const cz = ((p.y0 + p.y1) / 2 + 0.5) * CELL_SIZE;
-  const baseY = floorHeightAt((p.y0 + p.y1) / 2 + 0.5);
-  const w = (p.x1 - p.x0 + 1) * CELL_SIZE * 0.84;
-  const d = (p.y1 - p.y0 + 1) * CELL_SIZE * 0.84;
-  const dark = p.tint ?? 0x33240f;
-  const mid = 0x54401d;
-  const cloth = 0x4a2620;
-  const out: BoxEntry[] = [];
-  const box = (
-    dx: number,
-    y: number,
-    dz: number,
-    bw: number,
-    bh: number,
-    bd: number,
-    color: number,
-  ) => out.push({ x: cx + dx, y: baseY + y, z: cz + dz, w: bw, h: bh, d: bd, color });
-
-  switch (p.kind) {
-    case "shelf": {
-      box(0, 0.95, 0, w, 1.9, d * 0.5, dark);
-      for (let i = 0; i < 3; i++) {
-        box(0, 0.45 + i * 0.5, d * 0.12, w * 0.9, 0.05, d * 0.34, mid);
-      }
-      break;
-    }
-    case "table": {
-      box(0, 0.74, 0, w, 0.08, d, mid);
-      const lx = w / 2 - 0.12;
-      const lz = d / 2 - 0.12;
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          box(sx * lx, 0.35, sz * lz, 0.09, 0.7, 0.09, dark);
-        }
-      }
-      break;
-    }
-    case "seat": {
-      box(0, 0.42, 0, w, 0.12, d, cloth);
-      box(0, 0.68, -d / 2 + 0.08, w, 0.52, 0.12, dark);
-      const lx = w / 2 - 0.1;
-      const lz = d / 2 - 0.1;
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          box(sx * lx, 0.18, sz * lz, 0.07, 0.36, 0.07, dark);
-        }
-      }
-      break;
-    }
-    case "bed": {
-      box(0, 0.22, 0, w, 0.44, d, dark);
-      box(0, 0.52, 0.06, w * 0.94, 0.18, d * 0.92, 0x6d5f4c);
-      box(0, 0.9, -d / 2 + 0.06, w, 0.95, 0.12, dark);
-      box(0, 0.66, -d / 2 + 0.34, w * 0.55, 0.12, d * 0.16, 0x8d8272);
-      break;
-    }
-    case "crate": {
-      box(0, 0.32, 0, w * 0.9, 0.64, d * 0.9, mid);
-      box(0.06, 0.86, -0.05, w * 0.62, 0.44, d * 0.62, dark);
-      break;
-    }
-    case "fireplace": {
-      box(0, 0.75, 0, w, 1.5, d * 0.45, 0x3a3733);
-      box(0, 0.5, d * 0.12, w * 0.55, 0.9, d * 0.3, 0x0a0806);
-      box(0, 1.36, d * 0.1, w * 1.08, 0.14, d * 0.6, mid);
-      break;
-    }
-    case "piano": {
-      box(0, 0.5, 0, w, 0.7, d, 0x161009);
-      box(0, 0.88, -d * 0.08, w * 0.98, 0.07, d * 0.8, 0x241a10);
-      box(0, 0.78, d * 0.3, w * 0.8, 0.06, d * 0.22, 0xcfc6b4);
-      for (const sx of [-1, 1]) box(sx * (w / 2 - 0.14), 0.22, 0, 0.12, 0.44, 0.12, 0x161009);
-      break;
-    }
-    case "railing": {
-      box(0, 0.98, 0, w, 0.08, 0.09, mid);
-      const posts = Math.max(2, Math.round(w / 0.42));
-      for (let i = 0; i <= posts; i++) {
-        box(-w / 2 + (i * w) / posts, 0.5, 0, 0.06, 0.92, 0.06, dark);
-      }
-      break;
-    }
-    case "altar": {
-      const stone = 0x3d3a35;
-      box(0, 0.16, 0, w * 0.95, 0.32, d * 0.95, 0x2a2724);
-      box(0, 0.52, 0, w * 0.8, 0.42, d * 0.8, stone);
-      box(0, 0.78, 0, w, 0.12, d, 0x4a4640);
-      // deux chandeliers de pierre aux extremites
-      for (const sx of [-1, 1]) {
-        box(sx * (w / 2 - 0.22), 0.98, 0, 0.13, 0.3, 0.13, stone);
-      }
-      break;
-    }
-  }
-  return out;
+/** Ce qu'on voit d'un objet ramassable : les trois cles partagent un modele. */
+type PickupVisual = "coin" | "battery" | "salt" | "musicbox" | "key" | "note";
+function visualOf(kind: PickupKind): PickupVisual {
+  if (kind === "cle-condamnee" || kind === "cle-laboratoire" || kind === "cle-docteur") return "key";
+  return kind;
 }
 
 /** Bouton tactile maintenu : il pilote une direction tant que le doigt reste. */
@@ -494,7 +482,25 @@ export default function HorrorScene({
   /** Quete secondaire : poupees trouvees, et protection encore disponible. */
   const [dollsFound, setDollsFound] = useState(0);
   const [dollShield, setDollShield] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  /** Ou l'on est cache : dans une armoire, sous un lit, ou nulle part. */
+  const [hideKind, setHideKind] = useState<"wardrobe" | "bed" | null>(null);
+  const hidden = hideKind !== null;
+  const [crouched, setCrouched] = useState(false);
+  const [stamina, setStamina] = useState(100);
+  /** Le bruit que tu fais, de 0 a 1 : la jauge qui apprend a marcher doucement. */
+  const [noiseMeter, setNoiseMeter] = useState(0);
+  /** Apnee restante dans la cachette, de 0 a 1. */
+  const [breath, setBreath] = useState(1);
+  const [holdingBreath, setHoldingBreath] = useState(false);
+  const [inventory, setInventory] = useState<Inventory>(emptyInventory);
+  /** Le carnet complet (Tab) : objets, cles et pages lues. */
+  const [bagOpen, setBagOpen] = useState(false);
+  const [readingNote, setReadingNote] = useState<ManorNote | null>(null);
+  /** Image plein ecran d'un screamer, le temps d'un battement de coeur. */
+  const [screamer, setScreamer] = useState<"face" | "hand" | null>(null);
+  const [scareImages, setScareImages] = useState<{ face: string; hand: string } | null>(null);
+  /** Le navigateur a repris la carte graphique : sans ca, ecran noir et rien a faire. */
+  const [contextLost, setContextLost] = useState(false);
   /** Sceaux restants pendant l'acte V, secondes restantes pendant l'acte VI. */
   const [sealsLeft, setSealsLeft] = useState(SEALS.length);
   const [surviveLeft, setSurviveLeft] = useState(SURVIVE_SECONDS);
@@ -517,21 +523,37 @@ export default function HorrorScene({
 
   const layoutRef = useRef<Layout>("azerty");
   const sensitivityRef = useRef(1.5);
-  const heldRef = useRef({ forward: false, back: false, left: false, right: false });
+  const heldRef = useRef({
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    sprint: false,
+    breath: false,
+  });
   const endedRef = useRef(false);
   const pausedRef = useRef(false);
   const keypadOpenRef = useRef(false);
+  const bagOpenRef = useRef(false);
+  const readingRef = useRef(false);
   const codeRef = useRef<number[]>([]);
   const apiRef = useRef<{
     unlock: () => void;
     deny: () => void;
     applyBrightness: (value: number) => void;
-    /** Les memes actions que E et F, pour les boutons tactiles. */
+    /** Les memes actions que E, F, C et le clic, pour les boutons tactiles. */
     interact: () => void;
     toggleFlashlight: () => void;
-    /** Mode dev : se placer sur une case, et sauter a l'etape suivante. */
+    toggleCrouch: () => void;
+    applyHeldItem: () => void;
+    selectSlot: (index: number) => void;
+    /** Reprendre apres une pause, meme si le navigateur a rate l'evenement de retour. */
+    resume: () => void;
+    readNote: (id: string) => void;
+    /** Mode dev : se placer sur une case, sauter a l'etape suivante, tout recevoir. */
     devTeleport: (x: number, z: number) => void;
     devAdvance: () => void;
+    devGiveAll: () => void;
   } | null>(null);
 
   useEffect(() => {
@@ -545,9 +567,17 @@ export default function HorrorScene({
       setIsTouch(coarse);
       setQuestOpen(!coarse);
       setGrain(getGrainUrl());
+      setScareImages({ face: makeScareFaceUrl(), hand: makeScareHandUrl() });
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    bagOpenRef.current = bagOpen;
+  }, [bagOpen]);
+  useEffect(() => {
+    readingRef.current = readingNote !== null;
+  }, [readingNote]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -572,12 +602,46 @@ export default function HorrorScene({
       for (let x = CAVE_DOOR.x0; x <= CAVE_DOOR.x1; x++) doorCells.add(cellKey(x, y));
     }
     let doorLocked = true;
+    // Portes a cle : case -> identifiant de la porte, et celles deja ouvertes.
+    const lockedDoorCells = new Map<string, string>();
+    for (const ld of LOCKED_DOORS) {
+      for (let y = ld.y0; y <= ld.y1; y++) {
+        for (let x = ld.x0; x <= ld.x1; x++) lockedDoorCells.set(cellKey(x, y), ld.id);
+      }
+    }
+    const openedDoorIds = new Set<string>();
 
-    function isSolid(cx: number, cy: number): boolean {
+    /** Murs et portes fermees : ce qui bloque tout le monde, sur toute la case. */
+    function isHardSolid(cx: number, cy: number): boolean {
       if (cx < 0 || cy < 0 || cx >= data.width || cy >= data.height) return true;
       const k = cellKey(cx, cy);
-      if (wallSet.has(k) || propSet.has(k)) return true;
-      return doorLocked && doorCells.has(k);
+      if (wallSet.has(k)) return true;
+      if (doorLocked && doorCells.has(k)) return true;
+      const door = lockedDoorCells.get(k);
+      return door !== undefined && !openedDoorIds.has(door);
+    }
+    /**
+     * Grille de l'IA et du placement : un meuble bloque toute sa case. Le
+     * joueur, lui, ne heurte que l'emprise reelle du meuble (voir plus bas) —
+     * c'etait la cause du mur invisible.
+     */
+    function isSolid(cx: number, cy: number): boolean {
+      return isHardSolid(cx, cy) || propSet.has(cellKey(cx, cy));
+    }
+
+    // --- Meubles : geometrie affichee ET emprise au sol, tirees des memes boites ---
+    const propInfo = data.props.map((prop) => ({ prop, ...propGeometry(prop, CELL_SIZE) }));
+    const footprintsByCell = new Map<string, Footprint[]>();
+    for (const { footprint } of propInfo) {
+      if (!footprint) continue;
+      for (let cz = Math.floor(footprint.z0); cz <= Math.floor(footprint.z1); cz++) {
+        for (let cx = Math.floor(footprint.x0); cx <= Math.floor(footprint.x1); cx++) {
+          const k = cellKey(cx, cz);
+          const list = footprintsByCell.get(k);
+          if (list) list.push(footprint);
+          else footprintsByCell.set(k, [footprint]);
+        }
+      }
     }
 
     const openCells: [number, number][] = [];
@@ -590,30 +654,90 @@ export default function HorrorScene({
     const start = data.start ?? [1, 1];
     const end = data.end ?? [data.width - 2, data.height - 2];
 
+    // Cases atteignables depuis l'entree avec les portes dans leur etat
+    // actuel. La chose n'erre que la-dedans : sans ca, elle choisissait une
+    // case derriere une porte fermee et restait plantee devant.
+    let reachableCells: [number, number][] = [];
+    let reachableSet = new Set<string>();
+    function refreshReachable() {
+      const seen = new Set<string>([cellKey(start[0], start[1])]);
+      const queue: [number, number][] = [[start[0], start[1]]];
+      for (let qi = 0; qi < queue.length; qi++) {
+        const [x, y] = queue[qi];
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const k = cellKey(nx, ny);
+          if (seen.has(k) || isSolid(nx, ny)) continue;
+          seen.add(k);
+          queue.push([nx, ny]);
+        }
+      }
+      reachableSet = seen;
+      reachableCells = queue;
+    }
+    refreshReachable();
+
+    /** La case libre la plus proche : un but d'IA tombe parfois dans un meuble. */
+    function nearestOpenCell(cx: number, cy: number, maxRadius = 4): [number, number] | null {
+      if (!isSolid(cx, cy)) return [cx, cy];
+      for (let r = 1; r <= maxRadius; r++) {
+        let best: [number, number] | null = null;
+        let bestD = Infinity;
+        for (let y = cy - r; y <= cy + r; y++) {
+          for (let x = cx - r; x <= cx + r; x++) {
+            if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r || isSolid(x, y)) continue;
+            const d = (x - cx) ** 2 + (y - cy) ** 2;
+            if (d < bestD) {
+              bestD = d;
+              best = [x, y];
+            }
+          }
+        }
+        if (best) return best;
+      }
+      return null;
+    }
+
     // Le joueur regarde vers l'escalier en arrivant (la piece maitresse).
     const player = { x: start[0] + 0.5, z: start[1] + 0.5, yaw: Math.PI, pitch: 0 };
 
-    // --- Code de la cave : 3 chiffres tires au sort, un indice par piece ---
+    // --- Code de la cave : un chiffre tire au sort par plaque ---
     const code = CLUE_SPOTS.map(() => 1 + Math.floor(Math.random() * 9));
     codeRef.current = code;
 
-    // --- Objets a collecter (jamais dans la cave, elle est verrouillee) ---
-    const caveRoom = data.rooms.find((r) => r.name === "Cave")!;
-    const candidateCells = openCells.filter(([x, y]) => {
+    // --- Objets ramassables : les fixes, plus un tirage parmi les emplacements ---
+    const chosenPickups: PickupSpot[] = PICKUP_SPOTS.filter((s) => s.fixed);
+    for (const [kind, count] of Object.entries(PICKUP_RANDOM_COUNT) as [PickupKind, number][]) {
+      const pool = PICKUP_SPOTS.filter((s) => !s.fixed && s.kind === kind);
+      for (let i = 0; i < count && pool.length > 0; i++) {
+        chosenPickups.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+      }
+    }
+    const pickupCellKeys = new Set(PICKUP_SPOTS.map((s) => cellKey(s.x, s.y)));
+
+    // --- Reliques : une toujours dans la Chambre condamnee (la cle de la
+    // Crypte devient indispensable), les autres au hasard hors des pieces
+    // fermees et de la cave. ---
+    const lockedRoomRects = data.rooms.filter((r) => LOCKED_ROOMS.includes(r.name));
+    const candidateCells = reachableCells.filter(([x, y]) => {
       if (Math.abs(x - start[0]) + Math.abs(y - start[1]) <= 4) return false;
-      const inCave = x >= caveRoom.x0 && x <= caveRoom.x1 && y >= caveRoom.y0 && y <= caveRoom.y1;
-      return !inCave;
+      if (pickupCellKeys.has(cellKey(x, y))) return false;
+      if (DOLL_SPOTS.some((d) => Math.abs(d.x - x) + Math.abs(d.y - y) <= 1)) return false;
+      return !lockedRoomRects.some((r) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
     });
-    const itemCells: [number, number][] = [];
+    const itemCells: [number, number][] = [[LOCKED_RELIC_SPOT.x, LOCKED_RELIC_SPOT.y]];
     const pool = [...candidateCells];
-    for (let i = 0; i < ITEM_COUNT && pool.length > 0; i++) {
-      const idx = Math.floor(Math.random() * pool.length);
-      itemCells.push(pool[idx]);
-      pool.splice(idx, 1);
+    while (itemCells.length < ITEM_COUNT && pool.length > 0) {
+      const [x, y] = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      // Pas deux reliques dans la meme piece : on veut faire le tour du manoir.
+      const room = roomAt(data.rooms, x, y);
+      if (itemCells.some(([ix, iy]) => roomAt(data.rooms, ix, iy) === room) && pool.length > 12) continue;
+      itemCells.push([x, y]);
     }
     const shuffledItemDefs = [...MANOR_ITEMS].sort(() => Math.random() - 0.5);
 
-    // --- Monstre : la case ouverte la plus eloignee du joueur ---
+    // --- Monstre : la case atteignable la plus eloignee du joueur ---
     let monsterStart: [number, number] = end;
     let bestMonsterDist = -1;
     for (const [x, y] of candidateCells) {
@@ -629,7 +753,18 @@ export default function HorrorScene({
       path: null as [number, number][] | null,
       pathIndex: 0,
       repathTimer: 0,
+      goalKey: "",
       active: false,
+    };
+    const brain = createBrain(0);
+    const mapQuery: MapQuery = {
+      randomOpenCell: (rng) => reachableCells[Math.floor(rng() * reachableCells.length)],
+      randomOpenCellNear: (x, z, radius, rng) => {
+        const near = reachableCells.filter(
+          ([cx, cy]) => Math.hypot(cx + 0.5 - x, cy + 0.5 - z) <= radius,
+        );
+        return near.length > 0 ? near[Math.floor(rng() * near.length)] : null;
+      },
     };
 
     const scene = new THREE.Scene();
@@ -839,8 +974,7 @@ export default function HorrorScene({
     scene.add(wallMesh);
 
     // --- Meubles : une seule InstancedMesh teintee par instance ---
-    const propBoxes: BoxEntry[] = [];
-    for (const p of data.props) propBoxes.push(...buildPropBoxes(p));
+    const propBoxes: PropBox[] = propInfo.flatMap((info) => info.boxes);
     const furnitureMesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshLambertMaterial({ map: makeWoodTexture() }),
@@ -921,7 +1055,8 @@ export default function HorrorScene({
       { x: 6, wallRow: 14, room: "Salle à manger" },
       { x: 10, wallRow: 14, room: "Entrée" },
       { x: 22, wallRow: 14, room: "Cave" },
-      { x: 13, wallRow: 26, room: "Palier" },
+      // x 13 tombait pile dans l'ouverture de l'escalier : le tableau flottait.
+      { x: 15, wallRow: 26, room: "Palier" },
       { x: 5, wallRow: 26, room: "Chambre d'enfant" },
     ];
     const paintingTextures = [makePaintingTexture(0), makePaintingTexture(1), makePaintingTexture(2)];
@@ -976,6 +1111,46 @@ export default function HorrorScene({
     });
     const doorCenter = { x: CAVE_DOOR.x0 + 0.5, z: (CAVE_DOOR.y0 + CAVE_DOOR.y1 + 1) / 2 };
     let doorSwing = 0;
+
+    // --- Portes fermees a cle : memes battants, et un cadenas qui brille ---
+    const doorLeafGeoX = new THREE.BoxGeometry(CELL_SIZE, 2.35, 0.14);
+    const padlockGeo = new THREE.BoxGeometry(0.16, 0.2, 0.26);
+    const padlockMat = new THREE.MeshBasicMaterial({ color: 0xb8892f });
+    const keyDoors = LOCKED_DOORS.map((def) => {
+      const vertical = def.x0 === def.x1;
+      const baseY = floorHeightAt((def.y0 + def.y1) / 2 + 0.5);
+      const hinges: THREE.Group[] = [];
+      if (vertical) {
+        [def.y0, def.y1 + 1].forEach((row, i) => {
+          const hinge = new THREE.Group();
+          hinge.position.set((def.x0 + 0.5) * CELL_SIZE, baseY + 1.18, row * CELL_SIZE);
+          const leaf = new THREE.Mesh(doorLeafGeo, doorMat);
+          leaf.position.z = (i === 0 ? 1 : -1) * (CELL_SIZE / 2);
+          hinge.add(leaf);
+          scene.add(hinge);
+          hinges.push(hinge);
+        });
+      } else {
+        [def.x0, def.x1 + 1].forEach((col, i) => {
+          const hinge = new THREE.Group();
+          hinge.position.set(col * CELL_SIZE, baseY + 1.18, (def.y0 + 0.5) * CELL_SIZE);
+          const leaf = new THREE.Mesh(doorLeafGeoX, doorMat);
+          leaf.position.x = (i === 0 ? 1 : -1) * (CELL_SIZE / 2);
+          hinge.add(leaf);
+          scene.add(hinge);
+          hinges.push(hinge);
+        });
+      }
+      const center = vertical
+        ? { x: def.x0 + 0.5, z: (def.y0 + def.y1 + 1) / 2 }
+        : { x: (def.x0 + def.x1 + 1) / 2, z: def.y0 + 0.5 };
+      const padlock = new THREE.Mesh(padlockGeo, padlockMat);
+      padlock.position.set(center.x * CELL_SIZE, baseY + 1.05, center.z * CELL_SIZE);
+      // Le cadenas doit depasser des deux faces du battant, donc suivre son epaisseur.
+      if (vertical) padlock.rotation.y = Math.PI / 2;
+      scene.add(padlock);
+      return { def, hinges, center, padlock, swing: 0, open: false };
+    });
 
     // --- Tapis ---
     const rugTexture = makeRugTexture();
@@ -1109,32 +1284,92 @@ export default function HorrorScene({
       return { x: nx + 0.5, z: ny + 0.5, group, collected: false, def };
     });
 
-    // --- Piles de rechange : la lampe devient une ressource a gerer ---
-    const batteryCells: [number, number][] = [];
-    const batteryPool = candidateCells.filter(
-      ([x, y]) => !itemCells.some(([ix, iy]) => ix === x && iy === y),
-    );
-    for (let i = 0; i < BATTERY_COUNT && batteryPool.length > 0; i++) {
-      const idx = Math.floor(Math.random() * batteryPool.length);
-      batteryCells.push(batteryPool[idx]);
-      batteryPool.splice(idx, 1);
-    }
-    const batteryGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.2, 8);
-    const batteryMat = new THREE.MeshBasicMaterial({ color: 0x86e57f });
-    const batteries = batteryCells.map(([bx, by]) => {
-      const mesh = new THREE.Mesh(batteryGeo, batteryMat);
-      mesh.position.set((bx + 0.5) * CELL_SIZE, floorHeightAt(by + 0.5) + 0.95, (by + 0.5) * CELL_SIZE);
+    // --- Objets ramassables ---
+    // Une InstancedMesh par apparence : trente objets, six appels de rendu.
+    // Materiaux non eclaires : un objet qu'on ne voit pas dans le noir est un
+    // objet qu'on ne trouve jamais.
+    const pickupLooks: Record<PickupVisual, { geo: THREE.BufferGeometry; mat: THREE.Material }> = {
+      coin: {
+        geo: new THREE.CylinderGeometry(0.075, 0.075, 0.018, 14).rotateX(Math.PI / 2),
+        mat: new THREE.MeshBasicMaterial({ color: 0xd9a93f }),
+      },
+      battery: {
+        geo: new THREE.CylinderGeometry(0.05, 0.05, 0.17, 8),
+        mat: new THREE.MeshBasicMaterial({ color: 0x86e57f }),
+      },
+      salt: {
+        geo: new THREE.SphereGeometry(0.08, 8, 6).scale(1, 0.8, 1),
+        mat: new THREE.MeshBasicMaterial({ color: 0xe9e4d6 }),
+      },
+      musicbox: {
+        geo: new THREE.BoxGeometry(0.22, 0.13, 0.15),
+        mat: new THREE.MeshBasicMaterial({ color: 0x9a6534 }),
+      },
+      key: {
+        geo: new THREE.BoxGeometry(0.22, 0.04, 0.06),
+        mat: new THREE.MeshBasicMaterial({ color: 0xf0c75a }),
+      },
+      note: {
+        geo: new THREE.PlaneGeometry(0.2, 0.26),
+        mat: new THREE.MeshBasicMaterial({ color: 0xeadcb8, side: THREE.DoubleSide }),
+      },
+    };
+    const pickups = chosenPickups.map((spot, i) => ({
+      spot,
+      visual: visualOf(spot.kind),
+      x: spot.x + 0.5,
+      z: spot.y + 0.5,
+      phase: i * 0.7,
+      taken: false,
+      /** Index dans l'InstancedMesh de son apparence. */
+      slot: 0,
+    }));
+    const pickupMeshes = {} as Record<PickupVisual, THREE.InstancedMesh>;
+    for (const visual of Object.keys(pickupLooks) as PickupVisual[]) {
+      const own = pickups.filter((p) => p.visual === visual);
+      own.forEach((p, k) => (p.slot = k));
+      const mesh = new THREE.InstancedMesh(pickupLooks[visual].geo, pickupLooks[visual].mat, Math.max(1, own.length));
+      mesh.count = own.length;
+      // Les objets tournent sur place : la sphere englobante de depart ne suffit pas.
+      mesh.frustumCulled = false;
       scene.add(mesh);
-      return { x: bx + 0.5, z: by + 0.5, mesh, taken: false };
-    });
+      pickupMeshes[visual] = mesh;
+    }
+    const pickupMatrix = new THREE.Matrix4();
+    const pickupQuat = new THREE.Quaternion();
+    const pickupEuler = new THREE.Euler();
+    const pickupPos = new THREE.Vector3();
+    const pickupScale = new THREE.Vector3();
+    function writePickup(p: (typeof pickups)[number]) {
+      const floor = floorHeightAt(p.z);
+      if (p.taken) {
+        pickupMatrix.compose(pickupPos.set(0, -20, 0), pickupQuat.identity(), pickupScale.set(0, 0, 0));
+      } else {
+        const bob = Math.sin(elapsed * 2 + p.phase) * 0.035;
+        // La note se presente de face et se balance ; le reste tourne.
+        if (p.visual === "note") pickupEuler.set(-0.35, Math.sin(elapsed * 0.8 + p.phase) * 0.6, 0);
+        else pickupEuler.set(p.visual === "key" ? 0.4 : 0, elapsed * 1.4 + p.phase, 0);
+        pickupQuat.setFromEuler(pickupEuler);
+        pickupMatrix.compose(
+          pickupPos.set(p.x * CELL_SIZE, floor + 0.82 + bob, p.z * CELL_SIZE),
+          pickupQuat,
+          pickupScale.set(1, 1, 1),
+        );
+      }
+      pickupMeshes[p.visual].setMatrixAt(p.slot, pickupMatrix);
+    }
 
-    // --- Cachettes : les armoires des pieces, ou l'on peut se glisser ---
-    const hideouts = data.props
-      .filter((p) => p.kind === "shelf")
-      .map((p) => ({
-        x: (p.x0 + p.x1) / 2 + 0.5,
-        z: (p.y0 + p.y1) / 2 + 0.5,
+    // --- Cachettes : armoires (debout) et lits (on se glisse dessous) ---
+    const hideouts = propInfo
+      .filter((info) => info.footprint && HIDEOUT_KINDS.includes(info.prop.kind))
+      .map(({ prop, footprint }) => ({
+        kind: (prop.kind === "bed" ? "bed" : "wardrobe") as "wardrobe" | "bed",
+        prop,
+        fp: footprint!,
+        x: (prop.x0 + prop.x1) / 2 + 0.5,
+        z: (prop.y0 + prop.y1) / 2 + 0.5,
       }));
+    type Hideout = (typeof hideouts)[number];
 
     // --- Monstre ---
     const beast = buildMonster();
@@ -1269,12 +1504,77 @@ export default function HorrorScene({
     const FOG_FAR = fog.far;
     let phase: Phase = "none";
     let isHiding = false;
-    let hidingSince = 0;
     let beforeHide = { x: 0, z: 0 };
     let lastQuestId = "";
     let lastQuestWhere: string | null = null;
     let actCardHideAt = -1;
     let torchFlicker = 1;
+
+    // --- Corps du joueur : accroupi, course, souffle ---
+    let crouching = false;
+    /** 0 debout, 1 accroupi : lisse, pour que la camera descende au lieu de sauter. */
+    let crouchLevel = 0;
+    let staminaLevel = 100;
+    let exhausted = false;
+    let sprinting = false;
+    let lastSyncedStamina = 100;
+    let currentHideout: Hideout | null = null;
+    let breathLeft = 1;
+    let breathLocked = false;
+    let wasHoldingBreath = false;
+    let nextPlayerBreathAt = 0;
+    let lastSyncedBreath = 1;
+    let hideHintShown = false;
+
+    // --- Bruit et cerveau de la chose ---
+    let noises: Noise[] = [];
+    let noiseLevel = 0;
+    let lastSyncedNoise = 0;
+    let thinkTimer = 0;
+    let monsterMode: SpeedMode = "lent";
+    let monsterState: BrainState = "errer";
+    let monsterCanSee = false;
+    let monsterStunUntil = -1;
+    let nextGrowlAt = 0;
+
+    // --- Inventaire et objets en jeu ---
+    let inv: Inventory = emptyInventory();
+    const thrownCoins: {
+      mesh: THREE.Mesh;
+      fromX: number;
+      fromZ: number;
+      fromY: number;
+      toX: number;
+      toZ: number;
+      at: number;
+      duration: number;
+      landed: boolean;
+    }[] = [];
+    const musicBoxes: {
+      mesh: THREE.Mesh;
+      x: number;
+      z: number;
+      until: number;
+      nextNoiseAt: number;
+      sound: MusicBoxSound;
+    }[] = [];
+    const saltMat = new THREE.MeshBasicMaterial({ color: 0xf4f1ea });
+
+    // --- Screamers ---
+    const ghost = buildGhost();
+    ghost.setOpacity(0);
+    scene.add(ghost.group);
+    let nextScareAt = 70 + Math.random() * 40;
+    let ghostMode: "none" | "behind" | "front" = "none";
+    let ghostSince = 0;
+    let ghostX = 0;
+    let ghostZ = 0;
+    let ghostRushAt = -1;
+    let lightsOutUntil = -1;
+    let lightsOutWhisperAt = -1;
+    let screamerHideAt = -1;
+    let pendingHandScareAt = -1;
+    const scaredRooms = new Set<string>();
 
     /** Rien entre nous deux ? C'est la qu'elle chuchote et qu'elle te voit. */
     function hasLineOfSight(ax: number, az: number, bx: number, bz: number): boolean {
@@ -1328,12 +1628,177 @@ export default function HorrorScene({
       for (const s of sconces) s.base *= ratio;
     }
 
+    // --- Screamers ---
+    let frontGhostPending = false;
+
+    /** Visage plein ecran, le temps d'un clignement. */
+    function triggerFaceScare() {
+      setScreamer("face");
+      screamerHideAt = elapsed + 0.2;
+      flashLevel = Math.max(flashLevel, 0.9);
+      playScreamer(audio.ctx, audio.master);
+      nextScareAt = Math.max(nextScareAt, elapsed + SCARE_COOLDOWN);
+    }
+
+    /** Un point libre, visible depuis le joueur, a `dist` cases dans une direction. */
+    function spotAlong(dirX: number, dirZ: number, dist: number): { x: number; z: number } | null {
+      const gx = player.x + dirX * dist;
+      const gz = player.z + dirZ * dist;
+      if (isSolid(Math.floor(gx), Math.floor(gz)) || circleBlocked(gx, gz, 0.3)) return null;
+      if (!hasLineOfSight(player.x, player.z, gx, gz)) return null;
+      return { x: gx, z: gz };
+    }
+
+    function placeGhost(x: number, z: number, rush: number) {
+      ghostX = x;
+      ghostZ = z;
+      ghostSince = elapsed;
+      ghost.setRush(rush);
+      ghost.group.position.set(x * CELL_SIZE, floorHeightAt(z), z * CELL_SIZE);
+      ghost.group.rotation.y = Math.atan2(player.x - x, player.z - z);
+    }
+
+    /**
+     * Trois screamers qui tournent : la dame dans ton dos (quand tu te
+     * retournes), la lampe qui meurt puis la dame devant toi, et le visage.
+     * Jamais pendant le final, jamais cache, jamais avec la chose a moins de
+     * neuf cases : ils ne doivent pas se meler a une vraie menace.
+     */
+    function updateScares(delta: number) {
+      if (screamerHideAt >= 0 && elapsed > screamerHideAt) {
+        screamerHideAt = -1;
+        setScreamer(null);
+      }
+      if (pendingHandScareAt >= 0 && elapsed >= pendingHandScareAt) {
+        pendingHandScareAt = -1;
+        if (isHiding && currentHideout?.kind === "wardrobe") {
+          setScreamer("hand");
+          screamerHideAt = elapsed + 1.15;
+          flashLevel = Math.max(flashLevel, 0.55);
+          playScreamer(audio.ctx, audio.master);
+        }
+      }
+
+      const lookX = -Math.sin(player.yaw);
+      const lookZ = -Math.cos(player.yaw);
+
+      if (ghostMode !== "none") {
+        if (ghostRushAt >= 0) {
+          // Elle se jette sur la camera, bras leves, bouche ouverte.
+          const t = Math.min(1, (elapsed - ghostRushAt) / 0.3);
+          const k = t * t;
+          const gx = THREE.MathUtils.lerp(ghostX, player.x + lookX * 0.32, k);
+          const gz = THREE.MathUtils.lerp(ghostZ, player.z + lookZ * 0.32, k);
+          ghost.group.position.set(gx * CELL_SIZE, floorHeightAt(gz) - 0.4 * k, gz * CELL_SIZE);
+          ghost.group.rotation.y = Math.atan2(-lookX, -lookZ);
+          ghost.setRush(t);
+          ghost.setOpacity(1);
+          if (t >= 1) {
+            ghostMode = "none";
+            ghostRushAt = -1;
+            ghost.setOpacity(0);
+            flashLevel = 1;
+          }
+        } else if (ghostMode === "behind") {
+          const age = elapsed - ghostSince;
+          const dx = ghostX - player.x;
+          const dz = ghostZ - player.z;
+          const d = Math.hypot(dx, dz) || 1;
+          const watched = (dx * lookX + dz * lookZ) / d > 0.78;
+          ghost.setOpacity(Math.min(1, age / 0.5));
+          ghost.group.rotation.y = Math.atan2(player.x - ghostX, player.z - ghostZ);
+          if (watched && age > 0.35) {
+            ghostRushAt = elapsed;
+            playScreamer(audio.ctx, audio.master);
+            flashLevel = Math.max(flashLevel, 0.8);
+          } else if (age > 7 || isHiding || phase !== "none" || distToMonster < 6 || d > 4) {
+            // Elle s'en va sans que tu l'aies vue. Tu ne sauras jamais.
+            ghostMode = "none";
+            ghost.setOpacity(0);
+          }
+        } else if (ghostMode === "front" && elapsed - ghostSince > 0.34) {
+          ghostMode = "none";
+          ghost.setOpacity(0);
+        }
+      }
+
+      if (lightsOutWhisperAt >= 0 && elapsed >= lightsOutWhisperAt) {
+        lightsOutWhisperAt = -1;
+        playEarWhisper(audio.ctx, audio.master, Math.random() < 0.5 ? -0.9 : 0.9);
+      }
+      if (frontGhostPending && elapsed >= lightsOutUntil) {
+        // La lumiere revient... et elle est la, juste devant.
+        frontGhostPending = false;
+        const spot = spotAlong(lookX, lookZ, 2.1);
+        if (spot && !isHiding && dyingSince < 0) {
+          placeGhost(spot.x, spot.z, 0.45);
+          ghost.setOpacity(1);
+          ghostMode = "front";
+          playScreamer(audio.ctx, audio.master);
+          flashLevel = Math.max(flashLevel, 0.85);
+        }
+      }
+
+      const calm =
+        phase === "none" &&
+        !isHiding &&
+        dyingSince < 0 &&
+        !devRef.current.fly &&
+        ghostMode === "none" &&
+        elapsed >= lightsOutUntil &&
+        !keypadOpenRef.current &&
+        distToMonster > 9;
+      if (!calm || elapsed < nextScareAt) return;
+      const roll = Math.random();
+      if (roll < 0.5) {
+        const spot = spotAlong(-lookX, -lookZ, 1.7);
+        if (!spot) {
+          nextScareAt = elapsed + 3;
+          return;
+        }
+        placeGhost(spot.x, spot.z, 0);
+        ghost.setOpacity(0);
+        ghostMode = "behind";
+        // Un souffle dans ton dos : de quoi donner envie de se retourner.
+        playWhisper(audio.ctx, audio.master, spatialFor(spot.x, spot.z, 6, 0.9));
+      } else if (roll < 0.85 && flashlightState.on && flashlightState.battery > 10) {
+        lightsOutUntil = elapsed + 2.6;
+        lightsOutWhisperAt = elapsed + 1.1;
+        frontGhostPending = true;
+        playBulbDie(audio.ctx, audio.master);
+      } else {
+        triggerFaceScare();
+      }
+      nextScareAt = elapsed + SCARE_COOLDOWN + Math.random() * 45 + delta;
+    }
+
     apiRef.current = {
       applyBrightness,
       interact,
       toggleFlashlight,
-      devTeleport: (x: number, z: number) => {
+      toggleCrouch,
+      applyHeldItem,
+      selectSlot,
+      resume,
+      readNote: (id: string) => {
+        const note = MANOR_NOTES.find((n) => n.id === id);
+        if (note) setReadingNote(note);
+      },
+      devGiveAll: () => {
         if (!devAllowed) return;
+        let next = inv;
+        for (const [item, def] of Object.entries(ITEM_DEFS) as [UsableItem, (typeof ITEM_DEFS)[UsableItem]][]) {
+          next = addItem(next, item, def.stack) ?? next;
+        }
+        for (const ld of LOCKED_DOORS) next = addKey(next, ld.key);
+        for (const note of MANOR_NOTES) next = addNote(next, note.id);
+        commitInventory(next);
+        showHint("[DEV] Toutes les clés, les notes et des objets plein les poches.", 2.5);
+      },
+      devTeleport: (x: number, z: number) => {
+        // Une carte pas encore mesuree renvoie NaN : la camera partait dans
+        // le vide et l'ecran devenait noir.
+        if (!devAllowed || !Number.isFinite(x) || !Number.isFinite(z)) return;
         let tx = Math.floor(x);
         let tz = Math.floor(z);
         // Case pleine (mur, meuble) : on prend la case libre la plus proche,
@@ -1353,9 +1818,9 @@ export default function HorrorScene({
           }
           if (best) [tx, tz] = best;
         }
+        if (isHiding) toggleHide();
         player.x = tx + 0.5;
         player.z = tz + 0.5;
-        if (isHiding) toggleHide();
       },
       devAdvance: () => {
         if (!devAllowed) return;
@@ -1407,26 +1872,39 @@ export default function HorrorScene({
       unlock: () => {
         if (!doorLocked) return;
         doorLocked = false;
+        refreshReachable();
         setDoorOpen(true);
         playUnlock(audio.ctx, audio.master);
+        emitNoise("porte", doorCenter.x, doorCenter.z);
         showHint("La porte de la cave s'ouvre en grinçant.", 4);
       },
       deny: () => playDenied(audio.ctx, audio.master),
     };
 
-    function circleHitsWall(px: number, pz: number): boolean {
-      const minX = Math.floor(px - PLAYER_RADIUS);
-      const maxX = Math.floor(px + PLAYER_RADIUS);
-      const minZ = Math.floor(pz - PLAYER_RADIUS);
-      const maxZ = Math.floor(pz + PLAYER_RADIUS);
+    /**
+     * Collision d'un cercle : cases pleines pour les murs et les portes, mais
+     * emprise REELLE pour les meubles. On ne heurte que ce qu'on voit.
+     */
+    function circleBlocked(px: number, pz: number, radius: number): boolean {
+      const minX = Math.floor(px - radius);
+      const maxX = Math.floor(px + radius);
+      const minZ = Math.floor(pz - radius);
+      const maxZ = Math.floor(pz + radius);
+      const r2 = radius * radius;
       for (let cx = minX; cx <= maxX; cx++) {
         for (let cz = minZ; cz <= maxZ; cz++) {
-          if (!isSolid(cx, cz)) continue;
-          const closestX = Math.max(cx, Math.min(px, cx + 1));
-          const closestZ = Math.max(cz, Math.min(pz, cz + 1));
-          const dx = px - closestX;
-          const dz = pz - closestZ;
-          if (dx * dx + dz * dz < PLAYER_RADIUS * PLAYER_RADIUS) return true;
+          if (isHardSolid(cx, cz)) {
+            const closestX = Math.max(cx, Math.min(px, cx + 1));
+            const closestZ = Math.max(cz, Math.min(pz, cz + 1));
+            if ((px - closestX) ** 2 + (pz - closestZ) ** 2 < r2) return true;
+          }
+          const fps = footprintsByCell.get(cellKey(cx, cz));
+          if (!fps) continue;
+          for (const fp of fps) {
+            const closestX = Math.max(fp.x0, Math.min(px, fp.x1));
+            const closestZ = Math.max(fp.z0, Math.min(pz, fp.z1));
+            if ((px - closestX) ** 2 + (pz - closestZ) ** 2 < r2) return true;
+          }
         }
       }
       return false;
@@ -1434,9 +1912,48 @@ export default function HorrorScene({
     function resolveCollision(nx: number, nz: number): [number, number] {
       let x = player.x;
       let z = player.z;
-      if (!circleHitsWall(nx, z)) x = nx;
-      if (!circleHitsWall(x, nz)) z = nz;
+      if (!circleBlocked(nx, z, PLAYER_RADIUS)) x = nx;
+      if (!circleBlocked(x, nz, PLAYER_RADIUS)) z = nz;
       return [x, z];
+    }
+
+    /** Un bruit dans le manoir. Elle l'entendra peut-etre. */
+    function emitNoise(kind: NoiseKind, x = player.x, z = player.z, scale = 1) {
+      const radius = NOISE_RADIUS[kind] * scale;
+      noises.push({ kind, x, z, radius, at: elapsed });
+      noises = pruneNoises(noises, elapsed);
+      // La jauge ne montre que les bruits du joueur, pas la piece lancee au loin.
+      if (Math.hypot(x - player.x, z - player.z) < 1.5) {
+        noiseLevel = Math.max(noiseLevel, Math.min(1, radius / 9));
+      }
+    }
+
+    function commitInventory(next: Inventory) {
+      inv = next;
+      setInventory(next);
+    }
+    function selectSlot(index: number) {
+      if (index === inv.selected) return;
+      commitInventory(selectInventorySlot(inv, index));
+      playSlot(audio.ctx, audio.master);
+    }
+
+    function toggleCrouch() {
+      if (isHiding || dyingSince >= 0) return;
+      crouching = !crouching;
+      setCrouched(crouching);
+      playCrouch(audio.ctx, audio.master, crouching);
+    }
+
+    /** Reprendre la partie : l'evenement de retour sur l'onglet n'arrive pas toujours. */
+    function resume() {
+      if (document.hidden || contextIsLost) return;
+      if (pausedRef.current) {
+        pausedRef.current = false;
+        setPaused(false);
+      }
+      lastTime = performance.now();
+      audio.ctx.resume().catch(() => {});
     }
 
     function applyLook(dx: number, dy: number) {
@@ -1448,7 +1965,13 @@ export default function HorrorScene({
     }
     function onCanvasClick() {
       if (keypadOpenRef.current) return;
-      if (document.pointerLockElement === renderer.domElement) return;
+      if (pausedRef.current) resume();
+      // Souris capturee : le clic sert l'objet en main (ou ferme la page lue).
+      if (document.pointerLockElement === renderer.domElement) {
+        if (readingRef.current) setReadingNote(null);
+        else applyHeldItem();
+        return;
+      }
       try {
         renderer.domElement.requestPointerLock?.()?.catch(() => {});
       } catch {
@@ -1466,6 +1989,8 @@ export default function HorrorScene({
     let lastDragX = 0;
     let lastDragY = 0;
     function onPointerDown(e: PointerEvent) {
+      // Le navigateur suspend parfois le son en arriere-plan : un clic le relance.
+      if (audio.ctx.state === "suspended" && !pausedRef.current) audio.ctx.resume().catch(() => {});
       if (document.pointerLockElement === renderer.domElement) return;
       dragging = true;
       lastDragX = e.clientX;
@@ -1495,6 +2020,14 @@ export default function HorrorScene({
     function onContextMenu(e: MouseEvent) {
       e.preventDefault();
     }
+    let lastWheelAt = 0;
+    function onWheel(e: WheelEvent) {
+      const now = performance.now();
+      if (now - lastWheelAt < 110 || Math.abs(e.deltaY) < 1) return;
+      lastWheelAt = now;
+      selectSlot(inv.selected + (e.deltaY > 0 ? 1 : -1));
+    }
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: true });
     renderer.domElement.style.touchAction = "none";
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointermove", onPointerMove);
@@ -1504,10 +2037,209 @@ export default function HorrorScene({
 
     const flashlightState = { on: true, battery: 100 };
     function toggleFlashlight() {
-      if (!flashlightState.on && flashlightState.battery < 8) return;
+      if (dyingSince >= 0) return;
+      if (!flashlightState.on && flashlightState.battery < 8) {
+        playFlashlightClick(audio.ctx, audio.master, false);
+        showHint("La lampe est vide. Utilise une pile 🔋 ou attends qu'elle se recharge.", 3);
+        return;
+      }
       flashlightState.on = !flashlightState.on;
       setFlashlightOn(flashlightState.on);
       torchToggleAt = elapsed;
+      playFlashlightClick(audio.ctx, audio.master, flashlightState.on);
+      emitNoise("lampe");
+    }
+
+    // --- Objets : ramasser et utiliser ---
+    function nearestPickup() {
+      let best: (typeof pickups)[number] | null = null;
+      let bestD = PICKUP_REACH;
+      for (const p of pickups) {
+        if (p.taken) continue;
+        const d = Math.hypot(player.x - p.x, player.z - p.z);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+      return best;
+    }
+    function pickupLabel(kind: PickupKind): string {
+      if (kind === "note") return "📜 une page";
+      if (isUsable(kind)) return `${ITEM_DEFS[kind].emoji} ${ITEM_DEFS[kind].name}`;
+      return `${KEY_NAMES[kind].emoji} ${KEY_NAMES[kind].name}`;
+    }
+    function takePickup(p: (typeof pickups)[number]) {
+      const kind = p.spot.kind;
+      if (isUsable(kind)) {
+        const next = addItem(inv, kind);
+        if (!next) {
+          playDenied(audio.ctx, audio.master);
+          showHint("Tes poches sont pleines : utilise un objet avant d'en prendre un autre.", 3);
+          return;
+        }
+        // Main vide : on prend directement l'objet ramasse.
+        const selectedEmpty = !inv.slots[inv.selected];
+        const landed = next.slots.findIndex((s) => s?.item === kind);
+        commitInventory(selectedEmpty && landed >= 0 ? { ...next, selected: landed } : next);
+        playPickup(audio.ctx, audio.master);
+        showHint(`${ITEM_DEFS[kind].emoji} ${ITEM_DEFS[kind].name} — ${ITEM_DEFS[kind].description}`, 3.4);
+      } else if (kind === "note") {
+        const note = MANOR_NOTES.find((n) => n.id === p.spot.note);
+        if (note) {
+          commitInventory(addNote(inv, note.id));
+          setReadingNote(note);
+        }
+        playPaper(audio.ctx, audio.master);
+      } else {
+        commitInventory(addKey(inv, kind));
+        playKeyPickup(audio.ctx, audio.master);
+        const door = LOCKED_DOORS.find((d) => d.key === kind);
+        showHint(`${KEY_NAMES[kind].emoji} ${KEY_NAMES[kind].name}${door ? ` — elle ouvre : ${door.label}` : ""}.`, 4.5);
+      }
+      p.taken = true;
+      writePickup(p);
+      pickupMeshes[p.visual].instanceMatrix.needsUpdate = true;
+      const flyer = new THREE.Mesh(pickupLooks[p.visual].geo, pickupLooks[p.visual].mat);
+      flyer.position.set(p.x * CELL_SIZE, floorHeightAt(p.z) + 0.82, p.z * CELL_SIZE);
+      scene.add(flyer);
+      flyToHand(flyer);
+      emitNoise("ramassage");
+    }
+
+    function nearestKeyDoor() {
+      let best: (typeof keyDoors)[number] | null = null;
+      let bestD = DOOR_REACH;
+      for (const door of keyDoors) {
+        if (door.open) continue;
+        const d = Math.hypot(player.x - door.center.x, player.z - door.center.z);
+        if (d < bestD) {
+          bestD = d;
+          best = door;
+        }
+      }
+      return best;
+    }
+    function tryKeyDoor(door: (typeof keyDoors)[number]) {
+      if (!inv.keys.includes(door.def.key)) {
+        playLockedRattle(audio.ctx, audio.master);
+        emitNoise("porte", door.center.x, door.center.z, 0.5);
+        showHint(`🔒 ${door.def.label} : fermée à clé. Il te faut la ${KEY_NAMES[door.def.key].name.toLowerCase()}.`, 3.5);
+        return;
+      }
+      door.open = true;
+      openedDoorIds.add(door.def.id);
+      door.padlock.visible = false;
+      refreshReachable();
+      playUnlock(audio.ctx, audio.master);
+      emitNoise("porte", door.center.x, door.center.z);
+      reachAt = elapsed;
+      showHint(`🗝️ La porte de la ${door.def.label.toLowerCase()} s'ouvre.`, 3.5);
+    }
+
+    function applyHeldItem() {
+      if (dyingSince >= 0 || keypadOpenRef.current || isHiding) return;
+      const slot = inv.slots[inv.selected];
+      if (!slot) {
+        showHint("Main vide. Choisis un objet avec 1-5 ou la molette.", 2.4);
+        return;
+      }
+      const item = slot.item;
+      if (item === "battery") {
+        if (flashlightState.battery >= 97) {
+          showHint("La lampe est déjà chargée.", 2);
+          return;
+        }
+        flashlightState.battery = Math.min(100, flashlightState.battery + BATTERY_RESTORE);
+        playFlashlightClick(audio.ctx, audio.master, true);
+        showHint(`🔋 Lampe rechargée (${Math.round(flashlightState.battery)} %).`, 2.4);
+      } else if (item === "salt") {
+        if (!monster.active || distToMonster > SALT_REACH) {
+          showHint("Garde ton sel : il ne sert que lorsqu'elle est sur toi.", 2.6);
+          return;
+        }
+        monsterStunUntil = elapsed + SALT_STUN_SECONDS;
+        // Elle recule d'un pas, si rien ne l'en empeche.
+        const away = Math.hypot(monster.x - player.x, monster.z - player.z) || 1;
+        const bx = monster.x + ((monster.x - player.x) / away) * 0.8;
+        const bz = monster.z + ((monster.z - player.z) / away) * 0.8;
+        if (!circleBlocked(bx, bz, 0.22)) {
+          monster.x = bx;
+          monster.z = bz;
+        }
+        monster.path = null;
+        playSaltThrow(audio.ctx, audio.master);
+        playRecoil(audio.ctx, audio.master, monsterSpatial(10, 1.3));
+        emitNoise("sel");
+        flashLevel = Math.max(flashLevel, 0.4);
+        for (let k = 0; k < 14; k++) {
+          const grain = new THREE.Mesh(shardGeo, saltMat);
+          grain.scale.setScalar(0.5);
+          grain.position.copy(camera.position).add(new THREE.Vector3(0.15, -0.25, -0.4).applyQuaternion(camera.quaternion));
+          scene.add(grain);
+          const dirX = -Math.sin(player.yaw);
+          const dirZ = -Math.cos(player.yaw);
+          shards.push({
+            mesh: grain,
+            vx: dirX * (3 + Math.random() * 2) + (Math.random() - 0.5),
+            vy: 1 + Math.random() * 1.5,
+            vz: dirZ * (3 + Math.random() * 2) + (Math.random() - 0.5),
+            at: elapsed,
+          });
+        }
+        showHint("🧂 Elle recule en hurlant. Quelques secondes : fuis.", 3);
+      } else if (item === "coin") {
+        throwCoin();
+      } else if (item === "musicbox") {
+        const mesh = new THREE.Mesh(pickupLooks.musicbox.geo, pickupLooks.musicbox.mat);
+        mesh.position.set(player.x * CELL_SIZE, floorHeightAt(player.z) + 0.07, player.z * CELL_SIZE);
+        mesh.rotation.y = player.yaw;
+        scene.add(mesh);
+        musicBoxes.push({
+          mesh,
+          x: player.x,
+          z: player.z,
+          until: elapsed + MUSICBOX_SECONDS,
+          nextNoiseAt: elapsed,
+          sound: playMusicBox(audio.ctx, audio.master, MUSICBOX_SECONDS),
+        });
+        showHint("🎶 La boîte joue. Éloigne-toi avant qu'elle arrive.", 3.4);
+      }
+      commitInventory(consumeSelected(inv).inv);
+      reachAt = elapsed;
+    }
+
+    /** La piece part dans l'axe du regard, rebondit sur le premier obstacle. */
+    function throwCoin() {
+      const dirX = -Math.sin(player.yaw);
+      const dirZ = -Math.cos(player.yaw);
+      // Viser haut lance plus loin, viser le sol lache la piece a ses pieds.
+      const range = COIN_RANGE * THREE.MathUtils.clamp(0.75 + player.pitch * 0.6, 0.25, 1.15);
+      let lx = player.x;
+      let lz = player.z;
+      for (let t = 0.12; t <= range; t += 0.12) {
+        const nx = player.x + dirX * t;
+        const nz = player.z + dirZ * t;
+        if (circleBlocked(nx, nz, 0.06)) break;
+        lx = nx;
+        lz = nz;
+      }
+      const mesh = new THREE.Mesh(pickupLooks.coin.geo, pickupLooks.coin.mat);
+      mesh.position.copy(camera.position);
+      scene.add(mesh);
+      const dist = Math.hypot(lx - player.x, lz - player.z);
+      thrownCoins.push({
+        mesh,
+        fromX: player.x,
+        fromZ: player.z,
+        fromY: camera.position.y - 0.2,
+        toX: lx,
+        toZ: lz,
+        at: elapsed,
+        duration: 0.2 + dist * 0.07,
+        landed: false,
+      });
+      playCoinThrow(audio.ctx, audio.master);
     }
 
     /** Distance (en cases) du joueur a la porte de la cave. */
@@ -1517,11 +2249,11 @@ export default function HorrorScene({
     function distanceToAltar() {
       return Math.hypot(player.x - altarCenter.x, player.z - altarCenter.z);
     }
-    function nearestHideout() {
-      let best: { x: number; z: number } | null = null;
+    function nearestHideout(): Hideout | null {
+      let best: Hideout | null = null;
       let bestD = HIDE_REACH;
       for (const h of hideouts) {
-        const d = Math.hypot(player.x - h.x, player.z - h.z);
+        const d = distToFootprint(player.x, player.z, h.fp);
         if (d < bestD) {
           bestD = d;
           best = h;
@@ -1529,17 +2261,55 @@ export default function HorrorScene({
       }
       return best;
     }
-    /** Se glisser dans une armoire : elle ne peut plus t'attraper. */
+    /** La case libre d'ou elle viendra te tirer de la cachette. */
+    function approachCell(h: Hideout): [number, number] {
+      let best: [number, number] | null = null;
+      let bestD = Infinity;
+      for (let y = h.prop.y0 - 1; y <= h.prop.y1 + 1; y++) {
+        for (let x = h.prop.x0 - 1; x <= h.prop.x1 + 1; x++) {
+          if (isSolid(x, y) || !reachableSet.has(cellKey(x, y))) continue;
+          const d = Math.hypot(x + 0.5 - beforeHide.x, y + 0.5 - beforeHide.z);
+          if (d < bestD) {
+            bestD = d;
+            best = [x, y];
+          }
+        }
+      }
+      return best ?? [Math.floor(beforeHide.x), Math.floor(beforeHide.z)];
+    }
+    /** Elle te voit, maintenant, sans attendre le prochain calcul de ligne de vue. */
+    function monsterSeesPlayerNow(): boolean {
+      if (!monster.active || dyingSince >= 0) return false;
+      const d = Math.hypot(monster.x - player.x, monster.z - player.z);
+      if (d < 1.1) return true;
+      const fwdX = Math.sin(bodyYaw);
+      const fwdZ = Math.cos(bodyYaw);
+      const behind = ((player.x - monster.x) * fwdX + (player.z - monster.z) * fwdZ) / (d || 1) < -0.25;
+      const torchOn = flashlightState.on && flashlightState.battery > 0 && elapsed >= lightsOutUntil;
+      const range = sightRange({ flashlightOn: torchOn, crouched: crouching, behind });
+      return d < range && hasLineOfSight(monster.x, monster.z, player.x, player.z);
+    }
+    /** Se glisser dans une armoire ou sous un lit. Invisible — pas inaudible. */
     function toggleHide() {
       // Sortir reste toujours possible, quelle que soit la phase : sinon se
       // cacher pendant le rituel bloquait la partie pour de bon.
       if (isHiding) {
+        const wasBed = currentHideout?.kind === "bed";
         isHiding = false;
+        currentHideout = null;
         camSlideFrom = { x: player.x, z: player.z };
         camSlideAt = elapsed;
         player.x = beforeHide.x;
         player.z = beforeHide.z;
-        setHidden(false);
+        setHideKind(null);
+        breathLeft = 1;
+        breathLocked = false;
+        wasHoldingBreath = false;
+        setHoldingBreath(false);
+        setBreath(1);
+        if (wasBed) playUnderBed(audio.ctx, audio.master);
+        else playWardrobe(audio.ctx, audio.master, true);
+        emitNoise("armoire", player.x, player.z, wasBed ? 0.6 : 1);
         return;
       }
       // On peut encore se cacher pendant la course aux sceaux : c'est une
@@ -1548,16 +2318,59 @@ export default function HorrorScene({
       if (phase !== "none" && phase !== "seals") return;
       const spot = nearestHideout();
       if (!spot) return;
+      // Elle te regarde entrer : la cachette ne sert plus a rien.
+      const seenHiding = monsterSeesPlayerNow();
       beforeHide = { x: player.x, z: player.z };
 
       isHiding = true;
-      hidingSince = elapsed;
+      currentHideout = spot;
+      if (crouching) {
+        crouching = false;
+        setCrouched(false);
+      }
       camSlideFrom = { x: player.x, z: player.z };
       camSlideAt = elapsed;
       player.x = spot.x;
       player.z = spot.z;
-      setHidden(true);
-      showHint("Cachée. Reste immobile et attends qu'Elle s'éloigne.", 3.5);
+      // On se retourne dans la cachette : on regarde la piece par la fente,
+      // pas le fond de l'armoire. Sous un lit, vers le cote par ou on est venu.
+      {
+        let outX = beforeHide.x - spot.x;
+        let outZ = beforeHide.z - spot.z;
+        if (spot.kind === "wardrobe") {
+          const front = { N: [0, 1], S: [0, -1], W: [1, 0], E: [-1, 0] }[spot.prop.facing ?? "N"];
+          outX = front[0];
+          outZ = front[1];
+        }
+        player.yaw = Math.atan2(-outX, -outZ);
+        player.pitch = spot.kind === "bed" ? 0.05 : 0;
+      }
+      setHideKind(spot.kind);
+      if (spot.kind === "bed") playUnderBed(audio.ctx, audio.master);
+      else playWardrobe(audio.ctx, audio.master, false);
+      emitNoise("armoire", beforeHide.x, beforeHide.z, spot.kind === "bed" ? 0.6 : 1);
+      if (seenHiding) {
+        noteHidingSeen(brain, approachCell(spot), elapsed);
+        playShriek(audio.ctx, audio.master, monsterSpatial(16, 1.1));
+      }
+      if (!hideHintShown) {
+        hideHintShown = true;
+        showHint(
+          "Cachée. Si elle rôde tout près, retiens ton souffle (Espace). Si elle t'a vue entrer, sors et cours.",
+          5.5,
+        );
+      }
+      // Une fois de temps en temps, l'armoire n'etait pas vide.
+      if (
+        spot.kind === "wardrobe" &&
+        !seenHiding &&
+        elapsed >= nextScareAt &&
+        distToMonster > 9 &&
+        Math.random() < 0.3
+      ) {
+        pendingHandScareAt = elapsed + 1.3 + Math.random() * 1.2;
+        nextScareAt = elapsed + SCARE_COOLDOWN + Math.random() * 40;
+      }
     }
     /** L'etape courante, mise en scene par l'interface de quete. */
     function computeQuest(): Quest {
@@ -1628,12 +2441,24 @@ export default function HorrorScene({
         };
       }
       if (collectedCount < ITEM_COUNT) {
+        // La relique enfermee est la seule qui demande une cle : on le dit,
+        // sinon on fait le tour du manoir sans comprendre ce qui manque.
+        const lockedRelic = items.find(
+          (i) => i.x === LOCKED_RELIC_SPOT.x + 0.5 && i.z === LOCKED_RELIC_SPOT.y + 0.5,
+        );
+        const condemned = keyDoors.find((d) => d.def.id === "condamnee");
+        let where = "Partout, sauf la cave";
+        if (lockedRelic && !lockedRelic.collected && condemned && !condemned.open) {
+          where = inv.keys.includes(condemned.def.key)
+            ? "Une t'attend dans la Chambre condamnée — tu as la clé"
+            : "L'une est dans la Chambre condamnée, fermée à clé";
+        }
         return {
           id: "reliques",
           act: "Acte III",
           title: "Les cinq reliques",
           detail: "Chaque relique volée la rend plus rapide, et souffle une bougie.",
-          where: "Partout, sauf la cave",
+          where,
           mood: "calme",
         };
       }
@@ -1684,7 +2509,19 @@ export default function HorrorScene({
      */
     function interact() {
       if (keypadOpenRef.current || dyingSince >= 0) return;
-      if (doorLocked && distanceToDoor() < DOOR_REACH) {
+      if (readingRef.current) {
+        setReadingNote(null);
+        return;
+      }
+      if (isHiding) {
+        toggleHide();
+        return;
+      }
+      const pickup = nearestPickup();
+      const keyDoor = nearestKeyDoor();
+      if (pickup) {
+        takePickup(pickup);
+      } else if (doorLocked && distanceToDoor() < DOOR_REACH) {
         try {
           document.exitPointerLock?.();
         } catch {
@@ -1692,9 +2529,11 @@ export default function HorrorScene({
         }
         keys.clear();
         setKeypadOpen(true);
+      } else if (keyDoor) {
+        tryKeyDoor(keyDoor);
       } else if (canOfferAtAltar()) {
         startRitual();
-      } else if (isHiding || nearestHideout()) {
+      } else if (nearestHideout()) {
         toggleHide();
       }
     }
@@ -1705,25 +2544,40 @@ export default function HorrorScene({
         if (e.key === "Escape") setKeypadOpen(false);
         return;
       }
-      keys.add(e.key.toLowerCase());
-      if (e.key === "Shift") {
-        if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
-        else {
+      const k = e.key.toLowerCase();
+      // Tab ouvre le carnet ; le navigateur, lui, voudrait changer de champ.
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const open = !bagOpenRef.current;
+        setBagOpen(open);
+        if (open) {
+          releaseEverything();
           try {
-            renderer.domElement.requestPointerLock?.()?.catch(() => {});
+            document.exitPointerLock?.();
           } catch {
             // ignore
           }
         }
+        return;
       }
-      if (e.key.toLowerCase() === "f") toggleFlashlight();
-      if (e.key.toLowerCase() === "e") interact();
+      if (e.key === "Escape") {
+        if (readingRef.current) setReadingNote(null);
+        if (bagOpenRef.current) setBagOpen(false);
+      }
+      if (e.repeat) return;
+      keys.add(k);
+      if (/^[1-5]$/.test(e.key)) selectSlot(Number(e.key) - 1);
+      if (k === "f") toggleFlashlight();
+      if (k === "e") interact();
+      if (k === "g") applyHeldItem();
+      // En vol, C sert a descendre : on ne s'accroupit pas en plein ciel.
+      if (k === "c" && !devRef.current.fly) toggleCrouch();
       if (e.key === "F2" && devAllowed) {
         e.preventDefault();
         setDevOpen((open) => !open);
       }
-      // Espace sert a monter en vol : on empeche la page de defiler.
-      if (e.key === " " && devRef.current.fly) e.preventDefault();
+      // Espace : monter en vol, ou retenir son souffle. Jamais faire defiler la page.
+      if (e.key === " ") e.preventDefault();
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
@@ -1739,6 +2593,8 @@ export default function HorrorScene({
       heldRef.current.back = false;
       heldRef.current.left = false;
       heldRef.current.right = false;
+      heldRef.current.sprint = false;
+      heldRef.current.breath = false;
       dragging = false;
     }
     function onBlur() {
@@ -1747,19 +2603,46 @@ export default function HorrorScene({
     // L'onglet passe en arriere-plan : on gele la partie et on coupe le son.
     // Sinon la chose continue de te traquer pendant que tu regardes ailleurs.
     function onVisibility() {
-      const away = document.hidden;
-      pausedRef.current = away;
-      setPaused(away);
-      if (away) {
+      if (document.hidden) {
+        pausedRef.current = true;
+        setPaused(true);
         releaseEverything();
         audio.ctx.suspend().catch(() => {});
       } else {
-        lastTime = performance.now();
-        audio.ctx.resume().catch(() => {});
+        resume();
       }
     }
+    // Filets de securite pour le retour : selon le navigateur (retour arriere,
+    // fenetre masquee puis rendue, veille), « visibilitychange » peut ne pas
+    // arriver. La partie restait alors gelee derriere un ecran noir.
+    function onReturn() {
+      if (pausedRef.current && !document.hidden) resume();
+    }
     window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onReturn);
+    window.addEventListener("pageshow", onReturn);
     document.addEventListener("visibilitychange", onVisibility);
+    // Onglet deja en arriere-plan au montage : on demarre en pause.
+    const initialVisibility = window.setTimeout(() => {
+      if (document.hidden) onVisibility();
+    }, 0);
+
+    // Contexte WebGL perdu (pilote, trop d'onglets 3D, veille) : on l'annonce,
+    // et on laisse Three.js le reconstruire quand le navigateur le rend.
+    let contextIsLost = false;
+    function onContextLost(e: Event) {
+      e.preventDefault();
+      contextIsLost = true;
+      pausedRef.current = true;
+      setContextLost(true);
+    }
+    function onContextRestored() {
+      contextIsLost = false;
+      setContextLost(false);
+      resume();
+    }
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
 
     let ended = false;
     let lastTime = performance.now();
@@ -1768,11 +2651,12 @@ export default function HorrorScene({
     let smoothFrames = 0;
     let batteryUiTimer = 0;
 
-    function tick() {
+    function step() {
       const now = performance.now();
       const rawFrameMs = now - lastTime;
       const delta = Math.min(rawFrameMs / 1000, 0.1);
       lastTime = now;
+      if (contextIsLost) return;
       if (ended || pausedRef.current) {
         renderer.render(scene, camera);
         return;
@@ -1868,16 +2752,43 @@ export default function HorrorScene({
         if (keys.has(leftKey) || keys.has("arrowleft") || heldRef.current.left) strafe -= 1;
         if (keys.has("d") || keys.has("arrowright") || heldRef.current.right) strafe += 1;
       }
+
+      // Course et endurance. On ne court ni accroupi, ni cache, ni epuise.
+      const wantsSprint = keys.has("shift") || heldRef.current.sprint;
+      sprinting =
+        wantsSprint && (fwd !== 0 || strafe !== 0) && !crouching && !exhausted && !devRef.current.fly;
+      if (sprinting) {
+        staminaLevel = Math.max(0, staminaLevel - STAMINA_DRAIN_PER_SEC * delta);
+        if (staminaLevel <= 0) {
+          exhausted = true;
+          sprinting = false;
+          // A bout de souffle : on halete, et ca s'entend loin.
+          playGasp(audio.ctx, audio.master);
+          emitNoise("haletement");
+          showHint("À bout de souffle… elle t'a peut-être entendue.", 2.6);
+        }
+      } else {
+        const still = fwd === 0 && strafe === 0;
+        staminaLevel = Math.min(100, staminaLevel + STAMINA_REGEN_PER_SEC * (still ? 1.6 : 1) * delta);
+        if (exhausted && staminaLevel >= STAMINA_RECOVER_AT) exhausted = false;
+      }
+      if (Math.abs(staminaLevel - lastSyncedStamina) >= 2 || (staminaLevel === 100 && lastSyncedStamina !== 100)) {
+        lastSyncedStamina = staminaLevel;
+        setStamina(Math.round(staminaLevel));
+      }
+      crouchLevel += ((crouching ? 1 : 0) - crouchLevel) * Math.min(1, delta * 9);
+
       if (fwd !== 0 || strafe !== 0) {
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
         const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
         const move = new THREE.Vector3().addScaledVector(forward, fwd).addScaledVector(right, strafe);
         if (move.lengthSq() > 0) {
           const dev = devRef.current;
+          const gait = crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : MOVE_SPEED;
           move
             .normalize()
             .multiplyScalar(
-              MOVE_SPEED * (dollBlessing ? DOLL_SPEED_BONUS : 1) * (dev.fast ? 3 : 1) * delta,
+              gait * (dollBlessing ? DOLL_SPEED_BONUS : 1) * (dev.fast ? 3 : 1) * delta,
             );
           if (dev.noclip || dev.fly) {
             // Sans collision, mais on reste dans les limites du manoir.
@@ -1909,11 +2820,18 @@ export default function HorrorScene({
         fog.far = high ? 260 : FOG_FAR;
         hemi.intensity = (high ? 6.5 : 1.3) * brightness;
         // La main et la lampe masquaient la carte vue d'en haut.
-        handGroup.visible = !dev.fly;
+        // Cache sous un lit, la main traverserait le plancher : on la range.
+        handGroup.visible = !dev.fly && !(isHiding && currentHideout?.kind === "bed");
       }
+      // Hauteur des yeux : debout, accroupi, ou a plat ventre sous un lit.
+      const eye = isHiding
+        ? currentHideout?.kind === "bed"
+          ? BED_EYE
+          : EYE_HEIGHT - 0.08
+        : THREE.MathUtils.lerp(EYE_HEIGHT, CROUCH_EYE, crouchLevel);
       camera.position.set(
         player.x * CELL_SIZE,
-        playerFloor + EYE_HEIGHT + devFlyHeight,
+        playerFloor + eye + devFlyHeight,
         player.z * CELL_SIZE,
       );
       camera.rotation.y = player.yaw;
@@ -1955,19 +2873,39 @@ export default function HorrorScene({
             ? hasLineOfSight(player.x, player.z, monster.x, monster.z)
             : false;
       }
+      // Ce qu'ELLE voit : la portee depend de la lampe, de la posture, et de
+      // ce que tu sois devant ou derriere elle.
+      {
+        const torchNow = flashlightState.on && flashlightState.battery > 0 && elapsed >= lightsOutUntil;
+        const fwdX = Math.sin(bodyYaw);
+        const fwdZ = Math.cos(bodyYaw);
+        const behind =
+          ((player.x - monster.x) * fwdX + (player.z - monster.z) * fwdZ) / (distToMonster || 1) < -0.25;
+        const range = sightRange({ flashlightOn: torchNow, crouched: crouching, behind });
+        monsterCanSee =
+          monster.active &&
+          !isHiding &&
+          dyingSince < 0 &&
+          !devRef.current.fly &&
+          (distToMonster < 1.1 || (distToMonster < range && losToMonster));
+      }
 
-      // Pas + grincements de marches.
-      if (moving && elapsed >= nextFootstepAt) {
-        playFootstep(audio.ctx, audio.master);
-        nextFootstepAt = elapsed + 0.44;
+      // Pas + grincements de marches. Chaque pas est un bruit qu'elle peut
+      // entendre : accroupi presque rien, en courant a l'autre bout du couloir.
+      if (moving && !devRef.current.fly && elapsed >= nextFootstepAt) {
+        const gait = crouching ? "accroupi" : sprinting ? "course" : "pas";
+        playPlayerStep(audio.ctx, audio.master, gait);
+        emitNoise(gait);
+        nextFootstepAt = elapsed + (crouching ? 0.62 : sprinting ? 0.3 : 0.44);
         const onStairs = player.z > STAIR_ROW_FIRST && player.z < STAIR_ROW_LAST + 1;
-        if (onStairs && elapsed >= nextCreakAt) {
+        if (onStairs && !crouching && elapsed >= nextCreakAt) {
           playStairCreak(audio.ctx, audio.master);
+          emitNoise("pas", player.x, player.z, 1.2);
           nextCreakAt = elapsed + 0.9 + Math.random();
         }
       }
 
-      walkPhase += moving ? delta * 8.5 : 0;
+      walkPhase += moving ? delta * (crouching ? 5.5 : sprinting ? 11.5 : 8.5) : 0;
       handGroup.position.set(
         HAND_BASE.x + (moving ? Math.sin(walkPhase) * 0.014 : 0),
         HAND_BASE.y + (moving ? Math.abs(Math.cos(walkPhase)) * 0.016 : 0),
@@ -2071,16 +3009,24 @@ export default function HorrorScene({
       } else {
         torchFlicker = 1;
       }
-      const torchOn = flashlightState.on && flashlightState.battery > 0;
+      // Screamer « la lampe meurt » : elle se coupe toute seule quelques secondes.
+      const blackout = elapsed < lightsOutUntil;
+      const torchOn = flashlightState.on && flashlightState.battery > 0 && !blackout;
       // La poussiere n'existe que dans le faisceau. Laissee visible lampe
       // eteinte, elle remplissait le noir de points blancs et noyait la
       // seule chose qu'on doit y voir : ses yeux.
       dustMat.opacity = torchOn ? 0.34 * torchFlicker : 0.04;
       // Eteinte = intensite nulle, la lumiere reste dans la scene : sinon
       // chaque F recompilait les shaders et faisait sauter une image.
-      flashlight.intensity = torchOn ? 6.5 * brightness * torchFlicker : 0;
+      // Cache, on garde la lampe contre soi : sinon elle eblouit l'interieur
+      // des battants a quelques centimetres.
+      flashlight.intensity = torchOn ? 6.5 * brightness * torchFlicker * (isHiding ? 0.1 : 1) : 0;
       torchLens.visible = torchOn && torchFlicker > 0.5;
-      playerGlow.intensity = (torchOn ? glowOnIntensity : glowOffIntensity) * (0.4 + torchFlicker * 0.6);
+      playerGlow.intensity =
+        (torchOn ? glowOnIntensity : glowOffIntensity) *
+        (0.4 + torchFlicker * 0.6) *
+        (blackout ? 0.35 : 1) *
+        (isHiding ? 0.06 : 1);
       if (flashlightState.on) {
         flashlightState.battery = Math.max(0, flashlightState.battery - FLASHLIGHT_DRAIN_PER_SEC * delta);
         if (flashlightState.battery <= 0) {
@@ -2107,6 +3053,98 @@ export default function HorrorScene({
         doorHinges[0].rotation.y = -doorSwing * 1.5;
         doorHinges[1].rotation.y = doorSwing * 1.5;
       }
+      for (const door of keyDoors) {
+        if (!door.open || door.swing >= 1) continue;
+        door.swing = Math.min(1, door.swing + delta * 0.9);
+        door.hinges[0].rotation.y = -door.swing * 1.5;
+        door.hinges[1].rotation.y = door.swing * 1.5;
+      }
+
+      // Objets au sol : ils tournent doucement sur eux-memes.
+      for (const p of pickups) if (!p.taken) writePickup(p);
+      for (const mesh of Object.values(pickupMeshes)) mesh.instanceMatrix.needsUpdate = true;
+
+      // Pieces lancees : une parabole, puis le bruit la ou elles tombent.
+      for (let i = thrownCoins.length - 1; i >= 0; i--) {
+        const c = thrownCoins[i];
+        const t = Math.min(1, (elapsed - c.at) / c.duration);
+        if (!c.landed) {
+          const x = THREE.MathUtils.lerp(c.fromX, c.toX, t);
+          const z = THREE.MathUtils.lerp(c.fromZ, c.toZ, t);
+          const ground = floorHeightAt(z) + 0.02;
+          const y = THREE.MathUtils.lerp(c.fromY, ground, t) + Math.sin(t * Math.PI) * 0.7;
+          c.mesh.position.set(x * CELL_SIZE, y, z * CELL_SIZE);
+          c.mesh.rotation.x += delta * 18;
+          if (t >= 1) {
+            c.landed = true;
+            c.mesh.rotation.set(-Math.PI / 2, 0, Math.random() * 3);
+            emitNoise("piece", c.toX, c.toZ);
+            playCoinLand(audio.ctx, audio.master, spatialFor(c.toX, c.toZ, 22, 1));
+          }
+        } else if (elapsed - c.at > 30) {
+          scene.remove(c.mesh);
+          thrownCoins.splice(i, 1);
+        }
+      }
+
+      // Boites a musique posees : elles appellent la chose tant qu'elles jouent.
+      for (let i = musicBoxes.length - 1; i >= 0; i--) {
+        const box = musicBoxes[i];
+        if (elapsed < box.until) {
+          if (elapsed >= box.nextNoiseAt) {
+            box.nextNoiseAt = elapsed + 0.6;
+            emitNoise("boite-a-musique", box.x, box.z);
+          }
+          const place = spatialFor(box.x, box.z, 24, 1);
+          box.sound.place(place.pan, place.gain);
+          box.mesh.rotation.y += delta * 0.6;
+        } else if (elapsed - box.until > 20) {
+          scene.remove(box.mesh);
+          musicBoxes.splice(i, 1);
+        } else {
+          box.sound.stop();
+        }
+      }
+
+      // Le bruit que fait le joueur, pour la jauge : il retombe tout seul.
+      noiseLevel = Math.max(0, noiseLevel - delta * 0.9);
+      if (Math.abs(noiseLevel - lastSyncedNoise) > 0.04 || (noiseLevel === 0 && lastSyncedNoise !== 0)) {
+        lastSyncedNoise = noiseLevel;
+        setNoiseMeter(noiseLevel);
+      }
+
+      // Cache : on retient son souffle (Espace), ou elle t'entend respirer.
+      if (isHiding) {
+        const holding = (keys.has(" ") || heldRef.current.breath) && !breathLocked;
+        if (holding) {
+          if (!wasHoldingBreath) playBreathHold(audio.ctx, audio.master);
+          breathLeft = Math.max(0, breathLeft - delta / BREATH_HOLD_SECONDS);
+          if (breathLeft <= 0) {
+            // On ne tient plus : le souffle repart d'un coup.
+            breathLocked = true;
+            playGasp(audio.ctx, audio.master);
+            emitNoise("haletement");
+            flashLevel = Math.max(flashLevel, 0.25);
+          }
+        } else {
+          breathLeft = Math.min(1, breathLeft + delta / (BREATH_HOLD_SECONDS * 0.7));
+          if (breathLocked && breathLeft >= 0.5) breathLocked = false;
+          // Elle rode : ta respiration s'emballe et s'entend a travers la porte.
+          if (monster.active && distToMonster < 4 && elapsed >= nextPlayerBreathAt) {
+            nextPlayerBreathAt = elapsed + 1.4 + Math.random() * 0.4;
+            playPlayerBreath(audio.ctx, audio.master);
+            emitNoise("respiration");
+          }
+        }
+        if (holding !== wasHoldingBreath) {
+          wasHoldingBreath = holding;
+          setHoldingBreath(holding);
+        }
+        if (Math.abs(breathLeft - lastSyncedBreath) > 0.03 || (breathLeft === 1 && lastSyncedBreath !== 1)) {
+          lastSyncedBreath = breathLeft;
+          setBreath(breathLeft);
+        }
+      }
 
       // Piece actuelle.
       const room = roomAt(data.rooms, Math.floor(player.x), Math.floor(player.z));
@@ -2125,6 +3163,11 @@ export default function HorrorScene({
             fallFromZ = scarePainting.position.z;
             flashLevel = Math.max(flashLevel, 0.8);
             playCrash(audio.ctx, audio.master);
+          }
+          // Premiere fois dans la chambre murée : elle etait la, juste une image.
+          if (roomName === "Chambre condamnée" && !scaredRooms.has(roomName) && phase === "none") {
+            scaredRooms.add(roomName);
+            triggerFaceScare();
           }
         }
       }
@@ -2185,7 +3228,11 @@ export default function HorrorScene({
             // Avec les 5 objets elle court plus vite que toi lampe allumee :
             // sans cet avertissement, la mecanique reste invisible.
             window.setTimeout(
-              () => showHint("Elle est plus rapide que toi. Éteins ta lampe (F) pour la semer.", 6),
+              () =>
+                showHint(
+                  "Elle est plus rapide que toi. Coupe ta lampe, casse sa ligne de vue et cache-toi pour la semer.",
+                  6,
+                ),
               1400,
             );
           }
@@ -2234,18 +3281,7 @@ export default function HorrorScene({
         }
       }
 
-      // Piles de rechange.
-      for (const b of batteries) {
-        if (b.taken) continue;
-        b.mesh.rotation.y += delta * 2;
-        if (Math.hypot(player.x - b.x, player.z - b.z) < 0.45) {
-          b.taken = true;
-          flyToHand(b.mesh);
-          flashlightState.battery = Math.min(100, flashlightState.battery + BATTERY_RESTORE);
-          playPickup(audio.ctx, audio.master);
-          showHint("🔋 Pile de rechange (+45 %)", 2.6);
-        }
-      }
+      updateScares(delta);
 
       // Objectif courant. Un changement d'etape declenche le carton d'acte ;
       // un simple changement de detail (une plaque trouvee) ne le rejoue pas.
@@ -2284,6 +3320,17 @@ export default function HorrorScene({
               found: pl.found,
             })),
             seals: phase === "seals" ? seals.map((sl) => ({ x: sl.x, z: sl.z, broken: sl.broken })) : [],
+            pickups: pickups
+              .filter((p) => !p.taken)
+              .map((p) => ({ x: p.x, z: p.z, kind: p.visual })),
+            keyDoors: keyDoors.map((d) => ({
+              x0: d.def.x0,
+              y0: d.def.y0,
+              x1: d.def.x1,
+              y1: d.def.y1,
+              open: d.open,
+            })),
+            monsterState: monster.active ? monsterState : "endormie",
             phase,
             code: codeRef.current.join(""),
             doorLocked,
@@ -2343,17 +3390,26 @@ export default function HorrorScene({
 
       // Invite d'interaction.
       let promptText: string | null = null;
+      const pickupHere = isHiding ? null : nearestPickup();
+      const keyDoorHere = isHiding || pickupHere ? null : nearestKeyDoor();
       if (isHiding) {
         promptText = "E — Sortir de la cachette";
+      } else if (pickupHere) {
+        promptText = `E — Ramasser ${pickupLabel(pickupHere.spot.kind)}`;
       } else if (doorLocked && distanceToDoor() < DOOR_REACH) {
         promptText = "E — Examiner la serrure";
+      } else if (keyDoorHere) {
+        promptText = inv.keys.includes(keyDoorHere.def.key)
+          ? `E — Ouvrir : ${keyDoorHere.def.label} (${KEY_NAMES[keyDoorHere.def.key].emoji})`
+          : `🔒 ${keyDoorHere.def.label} — fermée à clé`;
       } else if (canOfferAtAltar()) {
         promptText = "E — Déposer les 5 objets";
       } else if (phase === "none" && !doorLocked && distanceToAltar() < ALTAR_REACH) {
         const missing = ITEM_COUNT - collectedCount;
         promptText = `Il manque ${missing} objet${missing > 1 ? "s" : ""} sur l'autel`;
-      } else if ((phase === "none" || phase === "seals") && nearestHideout()) {
-        promptText = "E — Se cacher";
+      } else if (phase === "none" || phase === "seals") {
+        const spot = nearestHideout();
+        if (spot) promptText = spot.kind === "bed" ? "E — Se glisser sous le lit" : "E — Se cacher dans l'armoire";
       }
       if (promptText !== lastPromptText) {
         lastPromptText = promptText;
@@ -2432,32 +3488,84 @@ export default function HorrorScene({
           phase === "ritual" ||
           (phase === "seals" && elapsed - chaseStartedAt < CHASE_RELEASE_SECONDS) ||
           (phase === "escape" && elapsed - escapeStartedAt < 0.5);
-        // Cache depuis assez longtemps : elle perd ta trace et part fouiller
-        // ailleurs. C'est ce qui rend l'armoire vraiment utile.
-        const lostYou = isHiding && elapsed - hidingSince > HIDE_LOSE_SECONDS;
+        const stunned = elapsed < monsterStunUntil;
         let moved = false;
-        monster.repathTimer -= delta;
-        if (monster.repathTimer <= 0) {
-          monster.repathTimer = REPATH_INTERVAL;
-          const from: [number, number] = [Math.floor(monster.x), Math.floor(monster.z)];
-          let target: [number, number] = [Math.floor(player.x), Math.floor(player.z)];
-          if (lostYou) {
-            const wander = openCells[Math.floor(Math.random() * openCells.length)];
-            target = [wander[0], wander[1]];
-          } else if (isHiding) {
-            // Elle se dirige vers l'endroit ou tu etais avant de te cacher.
-            target = [Math.floor(beforeHide.x), Math.floor(beforeHide.z)];
+
+        // --- Le cerveau : elle ne sait plus ou tu es, elle voit et elle entend. ---
+        thinkTimer -= delta;
+        if (thinkTimer <= 0) {
+          thinkTimer = THINK_INTERVAL;
+          noises = pruneNoises(noises, elapsed);
+          // Le final reste une vraie poursuite : elle sait. Sauf si tu t'es
+          // cache pendant les sceaux, ou la ruse redevient possible.
+          const forceChase = phase === "survive" || phase === "escape" || (phase === "seals" && !isHiding);
+          const decision = thinkMonster(
+            brain,
+            {
+              now: elapsed,
+              monster: { x: monster.x, z: monster.z },
+              player: { x: player.x, z: player.z, hidden: isHiding },
+              canSee: monsterCanSee,
+              noises,
+              noiseWalls: noises.map((n) => wallsBetween(n.x, n.z, monster.x, monster.z, isSolid)),
+              forceChase,
+              pressure: collectedCount / ITEM_COUNT,
+            },
+            mapQuery,
+            Math.random,
+          );
+          monsterMode = decision.speed;
+          monsterState = decision.state;
+          if (decision.noticed && !forceChase && !held) {
+            playShriek(audio.ctx, audio.master, monsterSpatial(18, 1.2));
+            flashLevel = Math.max(flashLevel, 0.45);
+          } else if (decision.alerted && distToMonster < 16 && elapsed >= nextGrowlAt) {
+            nextGrowlAt = elapsed + 5;
+            playGrowl(audio.ctx, audio.master, monsterSpatial(16, 1));
           }
-          monster.path = bfsPath(from, target, isSolid, data.width, data.height);
-          monster.pathIndex = 0;
+
+          // Cache, mais elle t'entend respirer tout contre la porte : elle sait.
+          if (isHiding && currentHideout && brain.state !== "debusquer") {
+            for (const n of noises) {
+              if (n.kind !== "respiration" && n.kind !== "haletement") continue;
+              const walls = wallsBetween(n.x, n.z, monster.x, monster.z, isSolid);
+              const level = audibility(n, monster.x, monster.z, elapsed, walls);
+              if (level >= (n.kind === "haletement" ? 0.12 : 0.35)) {
+                noteHidingSeen(brain, approachCell(currentHideout), elapsed);
+                monsterState = "debusquer";
+                playShriek(audio.ctx, audio.master, monsterSpatial(12, 1.2));
+                break;
+              }
+            }
+          }
+
+          const goal = decision.goal ? nearestOpenCell(decision.goal[0], decision.goal[1]) : null;
+          const goalKey = goal ? cellKey(goal[0], goal[1]) : "";
+          monster.repathTimer -= THINK_INTERVAL;
+          if (
+            goal &&
+            (goalKey !== monster.goalKey ||
+              monster.repathTimer <= 0 ||
+              !monster.path ||
+              monster.pathIndex >= monster.path.length)
+          ) {
+            monster.goalKey = goalKey;
+            monster.repathTimer = REPATH_INTERVAL;
+            monster.path = bfsPath(
+              [Math.floor(monster.x), Math.floor(monster.z)],
+              goal,
+              isSolid,
+              data.width,
+              data.height,
+            );
+            monster.pathIndex = 0;
+          }
         }
-        const distToPlayerCells = Math.abs(monster.x - player.x) + Math.abs(monster.z - player.z);
-        const hunting = flashlightState.on && distToPlayerCells < MONSTER_HUNT_RADIUS;
-        // Chaque objet vole la rend plus rapide ; pendant la fuite finale,
-        // elle est plus rapide que toi.
-        // Pendant les sceaux et la survie elle est un peu plus lente que toi :
-        // fuir marche, s'arreter non. Lampe eteinte, elle perd encore du
-        // terrain — c'est le seul levier qui te reste dans le final.
+
+        const itemBonus = collectedCount * SPEED_PER_ITEM;
+        // Chaque objet vole la rend plus rapide. Pendant les sceaux et la
+        // survie elle est un peu plus lente que toi : fuir marche, s'arreter
+        // non. Lampe eteinte, elle perd encore du terrain.
         const finaleBase =
           phase === "escape"
             ? MONSTER_SPEED_FINALE
@@ -2466,15 +3574,19 @@ export default function HorrorScene({
               : phase === "seals"
                 ? MONSTER_SPEED_SEALS
                 : 0;
+        const torchLit = flashlightState.on && flashlightState.battery > 0;
         const speed =
-          finaleBase > 0
-            ? finaleBase - (flashlightState.on || phase === "escape" ? 0 : DARK_SPEED_BONUS)
-            : (hunting ? MONSTER_SPEED_HUNTING : MONSTER_SPEED_BASE) +
-              collectedCount * SPEED_PER_ITEM;
+          monsterMode === "fuite" && finaleBase > 0
+            ? finaleBase - (torchLit || phase === "escape" ? 0 : DARK_SPEED_BONUS)
+            : monsterMode === "chasse"
+              ? Math.max(MONSTER_SPEED_HUNTING + itemBonus, finaleBase)
+              : monsterMode === "marche"
+                ? MONSTER_SPEED_BASE + itemBonus * 0.6
+                : MONSTER_SPEED_WANDER + itemBonus * 0.4;
 
         // Ses pas, sa respiration, ses chuchotements : tous places dans
         // l'espace. C'est ce qui rend la traque insupportable.
-        if (elapsed >= nextMonsterStepAt && distToMonster < 13) {
+        if (elapsed >= nextMonsterStepAt && distToMonster < 13 && !stunned) {
           nextMonsterStepAt = elapsed + 0.52 / Math.max(0.6, speed / MONSTER_SPEED_BASE);
           playFootstep(audio.ctx, audio.master, monsterSpatial(13, 1.6));
         }
@@ -2486,7 +3598,34 @@ export default function HorrorScene({
           nextBreathAt = elapsed + 2.2 + Math.random() * 1.6;
           playBreath(audio.ctx, audio.master, monsterSpatial(5, 1.3));
         }
-        if (!held && !devRef.current.freeze && monster.path && monster.pathIndex < monster.path.length) {
+
+        const canMove = !held && !stunned && !devRef.current.freeze;
+        // Dernier metre : elle vient droit sur toi, meme si tu t'es colle a un
+        // meuble dont la case est pleine pour son chemin.
+        const lunging =
+          canMove &&
+          monsterState === "poursuivre" &&
+          (monsterCanSee || monsterMode === "fuite") &&
+          !isHiding &&
+          distToMonster < 1.6;
+        if (lunging) {
+          const dx = player.x - monster.x;
+          const dz = player.z - monster.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 0.2) {
+            const stepLen = Math.min(speed * delta, d - 0.2);
+            const nx = monster.x + (dx / d) * stepLen;
+            const nz = monster.z + (dz / d) * stepLen;
+            if (!circleBlocked(nx, monster.z, 0.2)) monster.x = nx;
+            if (!circleBlocked(monster.x, nz, 0.2)) monster.z = nz;
+            let turn = Math.atan2(dx, dz) - bodyYaw;
+            while (turn > Math.PI) turn -= Math.PI * 2;
+            while (turn < -Math.PI) turn += Math.PI * 2;
+            bodyYaw += turn * Math.min(1, delta * 6);
+            monsterWalk += (speed / 1.2) * delta * Math.PI;
+            moved = true;
+          }
+        } else if (canMove && monster.path && monster.pathIndex < monster.path.length) {
           const [tx, ty] = monster.path[monster.pathIndex];
           const targetX = tx + 0.5;
           const targetZ = ty + 0.5;
@@ -2496,10 +3635,9 @@ export default function HorrorScene({
           if (dist < 0.08) {
             monster.pathIndex++;
           } else {
-            const stepX = (dx / dist) * speed * delta;
-            const stepZ = (dz / dist) * speed * delta;
-            monster.x += stepX;
-            monster.z += stepZ;
+            const stepLen = Math.min(speed * delta, dist);
+            monster.x += (dx / dist) * stepLen;
+            monster.z += (dz / dist) * stepLen;
             // Le corps regarde LA OU IL VA, pas le joueur : c'est ce qui
             // permet a la tete de rester braquee sur toi de travers.
             const wantBody = Math.atan2(dx, dz);
@@ -2519,44 +3657,64 @@ export default function HorrorScene({
         // Orientation calculee a la main plutot que lookAt() : lookAt renvoie
         // des angles d'Euler en blocage de cardan quand la cible est a la meme
         // hauteur, et ecraser rotation.z ensuite couchait le monstre au sol.
-        monsterGroup.rotation.set(0, bodyYaw, 0);
+        // Brulee par le sel, elle se tord sur place.
+        monsterGroup.rotation.set(0, bodyYaw + (stunned ? Math.sin(elapsed * 22) * 0.12 : 0), 0);
 
         // Elle se ramasse quand elle est SUR toi, pas des qu'elle approche :
         // reservee au dernier metre et demi, la pose de saisie garde sa force.
-        const lungeTarget = distToMonster < 1.5 && !held ? 1 - distToMonster / 1.5 : 0;
+        const lungeTarget = distToMonster < 1.5 && !held && !stunned && !isHiding ? 1 - distToMonster / 1.5 : 0;
         lungeLevel += (lungeTarget - lungeLevel) * Math.min(1, delta * 5);
 
         // Lacet vers le joueur, exprime dans le repere du corps.
         let headYaw = Math.atan2(player.x - monster.x, player.z - monster.z) - bodyYaw;
         while (headYaw > Math.PI) headYaw -= Math.PI * 2;
         while (headYaw < -Math.PI) headYaw += Math.PI * 2;
+        // Elle ne te fixe que si elle te voit (ou te sait la). Sinon elle
+        // cherche : la tete balaie la piece, ou se tourne vers le bruit.
+        const knows = monsterCanSee || monsterState === "debusquer" || monsterMode === "fuite";
+        let lookYaw = knows ? headYaw : Math.sin(elapsed * 1.3) * (monsterState === "errer" ? 0.8 : 1.5);
+        if (!knows && monsterState === "enqueter" && brain.goal) {
+          let toGoal = Math.atan2(brain.goal[0] + 0.5 - monster.x, brain.goal[1] + 0.5 - monster.z) - bodyYaw;
+          while (toGoal > Math.PI) toGoal -= Math.PI * 2;
+          while (toGoal < -Math.PI) toGoal += Math.PI * 2;
+          lookYaw = THREE.MathUtils.clamp(toGoal, -1.3, 1.3);
+        }
         poseMonster(beast, {
           time: elapsed,
           walk: monsterWalk,
           speed: moved ? speed : 0,
-          // Elle t'a perdu : la tete balaie la piece au lieu de te suivre.
-          headYaw: lostYou ? Math.sin(elapsed * 1.3) * 1.5 : headYaw,
-          headPitch: THREE.MathUtils.clamp((EYE_HEIGHT - 2.1) / Math.max(1, distToMonster), -0.5, 0.7),
+          headYaw: lookYaw,
+          headPitch: stunned
+            ? 0.65
+            : THREE.MathUtils.clamp((EYE_HEIGHT - 2.1) / Math.max(1, distToMonster), -0.5, 0.7),
           lunge: lungeLevel,
         });
+
+        // Elle t'a vue entrer, ou entendue respirer : elle ouvre la cachette.
+        const debusked =
+          isHiding &&
+          currentHideout !== null &&
+          monsterState === "debusquer" &&
+          !held &&
+          !stunned &&
+          distToFootprint(monster.x, monster.z, currentHideout.fp) < DEBUSK_REACH;
 
         const capDx = monster.x - player.x;
         const capDz = monster.z - player.z;
         const touched =
-          !held &&
-          !isHiding &&
-          !devRef.current.god &&
-          capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS;
-        if (touched && elapsed < shieldGraceUntil) {
-          // Juste protege : on ne meurt pas une seconde plus tard.
+          debusked ||
+          (!held && !stunned && !isHiding && capDx * capDx + capDz * capDz < CAPTURE_RADIUS * CAPTURE_RADIUS);
+        if (touched && (devRef.current.god || elapsed < shieldGraceUntil)) {
+          // Invincible, ou juste protege : on ne meurt pas une seconde plus tard.
         } else if (touched && shieldReady) {
           // Les poupees hurlent, elle est rejetee a l'autre bout du manoir.
+          if (isHiding) toggleHide();
           shieldReady = false;
           setDollShield(false);
           shieldGraceUntil = elapsed + SHIELD_GRACE_SECONDS;
           let far: [number, number] = monsterStart;
           let farD = -1;
-          for (const [cx, cy] of openCells) {
+          for (const [cx, cy] of reachableCells) {
             const dd = Math.abs(cx - player.x) + Math.abs(cy - player.z);
             if (dd > farD) {
               farD = dd;
@@ -2568,29 +3726,39 @@ export default function HorrorScene({
           monster.path = null;
           monster.pathIndex = 0;
           monster.repathTimer = 1.2;
+          brain.state = "errer";
+          brain.goal = null;
+          brain.hideout = null;
           flashLevel = 1;
           setScareFlash(1);
           playDeathScream(audio.ctx, audio.master);
           showHint("Les poupées hurlent. Elle est rejetée — tu ne seras plus protégé.", 5);
         } else if (touched) {
+          // Tiree de la cachette : on ressort face a elle pour le screamer.
+          if (isHiding) toggleHide();
           dyingSince = elapsed;
           endedRef.current = true;
           flashLevel = 1;
           setScareFlash(1);
           setKeypadOpen(false);
+          setBagOpen(false);
+          setReadingNote(null);
+          setScreamer(null);
+          ghost.setOpacity(0);
+          ghostMode = "none";
           playDeathScream(audio.ctx, audio.master);
           try {
             document.exitPointerLock?.();
           } catch {
             // ignore
           }
-        } else if (distToPlayerCells < NEAR_MISS_RADIUS && elapsed >= nextNearMissAllowedAt) {
+        } else if (distToMonster < NEAR_MISS_RADIUS && !isHiding && elapsed >= nextNearMissAllowedAt) {
           nextNearMissAllowedAt = elapsed + NEAR_MISS_COOLDOWN;
           flashLevel = Math.max(flashLevel, 0.7);
           playNearMiss(audio.ctx, audio.master);
         }
 
-        const proximity = THREE.MathUtils.clamp(1 - distToPlayerCells / 14, 0, 1);
+        const proximity = THREE.MathUtils.clamp(1 - distToMonster / 14, 0, 1);
         const interval = THREE.MathUtils.lerp(1.1, 0.26, proximity);
         if (elapsed >= nextHeartbeatAt) {
           playHeartbeat(audio.ctx, audio.master, { gain: 0.7 + proximity * 0.9 });
@@ -2770,6 +3938,31 @@ export default function HorrorScene({
 
       renderer.render(scene, camera);
     }
+
+    // Une erreur dans une image ne doit jamais geler la partie : on la
+    // signale une fois, on redessine quand meme, et on continue.
+    let tickErrors = 0;
+    function tick() {
+      try {
+        step();
+        tickErrors = 0;
+      } catch (err) {
+        tickErrors++;
+        if (tickErrors === 1) console.error("[Manoir Maudit] image ignorée :", err);
+        // Une erreur qui se repete pendant le screamer de mort bloquerait
+        // l'ecran de fin : on termine la sequence de force.
+        if (dyingSince >= 0 && tickErrors > 30 && !ended) {
+          ended = true;
+          endedRef.current = true;
+          onCaught();
+        }
+        try {
+          if (!contextIsLost) renderer.render(scene, camera);
+        } catch {
+          // contexte graphique indisponible : l'ecran « image perdue » s'en charge
+        }
+      }
+    }
     const intervalId = window.setInterval(tick, 16);
     tick();
 
@@ -2783,10 +3976,13 @@ export default function HorrorScene({
 
     return () => {
       window.clearInterval(intervalId);
+      window.clearTimeout(initialVisibility);
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onReturn);
+      window.removeEventListener("pageshow", onReturn);
       document.removeEventListener("visibilitychange", onVisibility);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
@@ -2794,17 +3990,35 @@ export default function HorrorScene({
       renderer.domElement.removeEventListener("pointercancel", onPointerUp);
       renderer.domElement.removeEventListener("contextmenu", onContextMenu);
       renderer.domElement.removeEventListener("click", onCanvasClick);
+      renderer.domElement.removeEventListener("wheel", onWheel);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
       document.removeEventListener("mousemove", onMouseMove);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
       apiRef.current = null;
+      for (const box of musicBoxes) box.sound.stop();
       audio.stop();
       audio.ctx.close().catch(() => {});
       beast.dispose();
       dolls.dispose();
+      ghost.dispose();
       shardGeo.dispose();
       shardMat.dispose();
+      saltMat.dispose();
       dustGeo.dispose();
       dustMat.dispose();
+      doorLeafGeoX.dispose();
+      padlockGeo.dispose();
+      padlockMat.dispose();
+      for (const look of Object.values(pickupLooks)) {
+        look.geo.dispose();
+        look.mat.dispose();
+      }
+      // Rendre la carte graphique TOUT DE SUITE. Sans ca, chaque aller-retour
+      // sur la page laissait un contexte WebGL vivant ; au bout de quelques-uns
+      // le navigateur tuait le plus vieux… parfois celui qu'on regardait :
+      // ecran noir.
+      renderer.forceContextLoss();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
@@ -2878,9 +4092,19 @@ export default function HorrorScene({
   /** Au-dela de ce seuil, le carnet lui-meme se met a trembler. */
   const tense = dread > 0.55 || quest.mood === "danger";
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const selectedSlot = inventory.slots[inventory.selected];
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black select-none">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden bg-black select-none"
+      // « overflow-hidden » n'empeche pas un defilement force par le focus
+      // d'un bouton : l'image remontait et laissait une bande noire en bas.
+      onScroll={(e) => {
+        e.currentTarget.scrollTop = 0;
+        e.currentTarget.scrollLeft = 0;
+      }}
+    >
       {/* Vignette d'angoisse : le champ de vision se referme quand elle approche. */}
       <div
         className="pointer-events-none absolute inset-0"
@@ -2914,6 +4138,7 @@ export default function HorrorScene({
           height={devManor.height}
           onTeleport={(x, z) => apiRef.current?.devTeleport(x, z)}
           onAdvance={() => apiRef.current?.devAdvance()}
+          onGiveAll={() => apiRef.current?.devGiveAll()}
           onClose={() => setDevOpen(false)}
         />
       )}
@@ -2967,7 +4192,7 @@ export default function HorrorScene({
       )}
 
       <Game3DSettings
-        className="top-14"
+        className="top-28"
         onLayout={(l) => {
           layoutRef.current = l;
         }}
@@ -3189,6 +4414,47 @@ export default function HorrorScene({
             }}
           />
         </div>
+        {/* Endurance : n'apparait que quand on l'entame. */}
+        <span
+          className="mt-1 text-[0.6rem] font-bold uppercase tracking-[0.2em] text-zinc-500 transition-opacity"
+          style={{ opacity: stamina < 100 ? 1 : 0 }}
+        >
+          Souffle
+        </span>
+        <div
+          className="h-1 w-24 overflow-hidden transition-opacity"
+          style={{
+            background: "rgba(0,0,0,0.7)",
+            border: "1px solid #2a2522",
+            opacity: stamina < 100 ? 1 : 0,
+          }}
+        >
+          <div
+            className="h-full"
+            style={{ width: `${stamina}%`, background: stamina < 35 ? "#b91c1c" : "#a8a29e" }}
+          />
+        </div>
+        {/* Le bruit que tu fais : ce qu'ELLE entend. */}
+        <span className="mt-1 flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.2em] text-zinc-500">
+          {crouched && <span className="text-zinc-300">Accroupie ·</span>}
+          Bruit
+        </span>
+        <div className="flex h-3 items-end gap-[3px]">
+          {Array.from({ length: 8 }, (_, i) => {
+            const lit = noiseMeter * 8 > i;
+            return (
+              <span
+                key={i}
+                className="w-[7px]"
+                style={{
+                  height: `${30 + i * 10}%`,
+                  background: lit ? (i >= 5 ? "#dc2626" : i >= 3 ? "#d97706" : "#a8a29e") : "rgba(255,255,255,0.08)",
+                  boxShadow: lit && i >= 5 ? "0 0 6px rgba(220,38,38,0.8)" : undefined,
+                }}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {/* Vue depuis l'armoire. Les battants restent montes : ils se referment
@@ -3200,28 +4466,63 @@ export default function HorrorScene({
             key={side}
             className={`absolute inset-y-0 ${side === "left" ? "left-0" : "right-0"} bg-[#050302]`}
             style={{
-              width: hidden ? "34%" : "0%",
-              transition: hidden ? undefined : "width 0.42s ease-in",
-              animation: hidden ? "horror-door-close 0.5s cubic-bezier(.2,.9,.3,1)" : undefined,
+              width: hideKind === "wardrobe" ? "34%" : "0%",
+              transition: hideKind === "wardrobe" ? undefined : "width 0.42s ease-in",
+              animation: hideKind === "wardrobe" ? "horror-door-close 0.5s cubic-bezier(.2,.9,.3,1)" : undefined,
               // Liseré de lumiere sur le bord des planches.
-              boxShadow: hidden
-                ? `inset ${side === "left" ? "-" : ""}14px 0 22px rgba(90,60,30,0.28)`
-                : "none",
+              boxShadow:
+                hideKind === "wardrobe"
+                  ? `inset ${side === "left" ? "-" : ""}14px 0 22px rgba(90,60,30,0.28)`
+                  : "none",
             }}
           />
         ))}
+        {/* Sous un lit : le sommier ecrase le haut de l'image, on voit a ras du sol. */}
         <div
-          className="absolute inset-x-0 top-0 bg-[#050302]"
-          style={{ height: hidden ? "12%" : "0%", transition: "height 0.35s ease-out" }}
+          className="absolute inset-x-0 top-0"
+          style={{
+            height: hideKind === "bed" ? "58%" : hideKind === "wardrobe" ? "12%" : "0%",
+            transition: "height 0.35s ease-out",
+            background:
+              hideKind === "bed"
+                ? "linear-gradient(180deg, #050302 0%, #050302 82%, rgba(40,28,18,0.85) 92%, transparent 100%)"
+                : "#050302",
+          }}
         />
         <div
           className="absolute inset-x-0 bottom-0 bg-[#050302]"
-          style={{ height: hidden ? "12%" : "0%", transition: "height 0.35s ease-out" }}
+          style={{ height: hideKind === "wardrobe" ? "12%" : hideKind === "bed" ? "6%" : "0%", transition: "height 0.35s ease-out" }}
         />
         {hidden && (
-          <span className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/80 px-3 py-1 text-xs font-semibold text-zinc-300">
-            🚪 Cachée
-          </span>
+          <div className="absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1.5">
+            <span className="rounded-full bg-black/80 px-3 py-1 text-xs font-semibold text-zinc-300">
+              {hideKind === "bed" ? "🛏️ Sous le lit" : "🚪 Dans l'armoire"}
+            </span>
+            <div className="flex items-center gap-2 rounded-full bg-black/80 px-3 py-1">
+              <span className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                {holdingBreath ? "Apnée" : "Espace — retenir ton souffle"}
+              </span>
+              <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                <span
+                  className="block h-full"
+                  style={{
+                    width: `${Math.round(breath * 100)}%`,
+                    background: breath < 0.3 ? "#dc2626" : holdingBreath ? "#7dd3fc" : "#a8a29e",
+                  }}
+                />
+              </span>
+            </div>
+          </div>
+        )}
+        {/* Screamer de la cachette : une main sort de l'ombre, a cote de toi. */}
+        {screamer === "hand" && scareImages && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={scareImages.hand}
+            alt=""
+            className="absolute bottom-0 left-[26%] h-[85%] w-auto"
+            style={{ animation: "horror-hand 1.15s cubic-bezier(.15,.9,.3,1) forwards" }}
+          />
         )}
       </div>
 
@@ -3411,6 +4712,204 @@ export default function HorrorScene({
         <div className="h-1 w-1 rounded-full bg-white/50" />
       </div>
 
+      {/* --- Barre d'objets : cinq emplacements, les cles a cote --- */}
+      {!hidden && (
+        <div className="pointer-events-none absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 sm:bottom-7">
+          {selectedSlot && (
+            <span
+              className="text-[0.62rem] font-semibold tracking-wide text-zinc-400"
+              style={{ textShadow: "0 0 8px #000" }}
+            >
+              {ITEM_DEFS[selectedSlot.item].name} ·{" "}
+              <span style={{ color: mood.ink }}>
+                {isTouch ? "✋" : "Clic ou G"} — {ITEM_DEFS[selectedSlot.item].verb}
+              </span>
+            </span>
+          )}
+          <div className="flex items-end gap-1.5">
+            {inventory.slots.map((slot, i) => {
+              const active = i === inventory.selected;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => apiRef.current?.selectSlot(i)}
+                  className="pointer-events-auto relative flex size-11 items-center justify-center text-xl sm:size-12"
+                  style={{
+                    background: active ? "rgba(20,14,10,0.92)" : "rgba(0,0,0,0.62)",
+                    border: `1px solid ${active ? mood.accent : "rgba(255,255,255,0.12)"}`,
+                    boxShadow: active ? `0 0 14px ${mood.halo}, inset 0 0 12px rgba(0,0,0,0.9)` : undefined,
+                    transform: active ? "translateY(-3px)" : undefined,
+                    transition: "transform 0.12s, border-color 0.12s",
+                  }}
+                  aria-label={slot ? ITEM_DEFS[slot.item].name : `Emplacement ${i + 1} vide`}
+                >
+                  {!isTouch && (
+                    <span className="absolute left-1 top-0.5 font-mono text-[0.55rem] text-zinc-600">{i + 1}</span>
+                  )}
+                  {slot ? (
+                    <>
+                      <span>{ITEM_DEFS[slot.item].emoji}</span>
+                      {slot.count > 1 && (
+                        <span className="absolute bottom-0.5 right-1 font-mono text-[0.6rem] font-bold text-zinc-300">
+                          {slot.count}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-xs text-zinc-700">·</span>
+                  )}
+                </button>
+              );
+            })}
+            {inventory.keys.length > 0 && (
+              <div
+                className="ml-1 flex h-11 items-center gap-0.5 px-2 sm:h-12"
+                style={{ background: "rgba(0,0,0,0.62)", border: "1px solid rgba(255,255,255,0.12)" }}
+                title={inventory.keys.map((k) => KEY_NAMES[k].name).join(", ")}
+              >
+                {inventory.keys.map((k) => (
+                  <span key={k} className="text-base">
+                    {KEY_NAMES[k].emoji}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- Le carnet complet (Tab) --- */}
+      {bagOpen && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div
+            className="max-h-full w-[26rem] max-w-full overflow-y-auto p-4"
+            style={{
+              background: "linear-gradient(155deg, rgba(18,13,10,0.97), rgba(6,4,3,0.97))",
+              borderLeft: `2px solid ${mood.accent}`,
+              boxShadow: `inset 0 0 50px rgba(0,0,0,0.9), 0 0 30px ${mood.halo}`,
+            }}
+          >
+            <div className="flex items-baseline justify-between">
+              <p className="font-serif text-lg" style={{ color: mood.ink }}>
+                Tes poches
+              </p>
+              <button
+                type="button"
+                onClick={() => setBagOpen(false)}
+                className="text-xs text-zinc-500 hover:text-zinc-300"
+              >
+                Fermer (Tab)
+              </button>
+            </div>
+            <p className="mt-0.5 text-[0.65rem] italic text-zinc-500">Le temps ne s&apos;arrête pas pendant que tu fouilles.</p>
+
+            <div className="mt-3 flex flex-col gap-1.5">
+              {inventory.slots.map((slot, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => apiRef.current?.selectSlot(i)}
+                  className="flex items-center gap-3 px-2 py-1.5 text-left"
+                  style={{
+                    background: i === inventory.selected ? "rgba(255,255,255,0.06)" : "transparent",
+                    border: `1px solid ${i === inventory.selected ? mood.accent : "rgba(255,255,255,0.06)"}`,
+                  }}
+                >
+                  <span className="w-6 text-center text-lg">{slot ? ITEM_DEFS[slot.item].emoji : "·"}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-zinc-200">
+                      {slot ? `${ITEM_DEFS[slot.item].name}${slot.count > 1 ? ` ×${slot.count}` : ""}` : "Vide"}
+                    </span>
+                    {slot && (
+                      <span className="block text-[0.65rem] leading-snug text-zinc-500">
+                        {ITEM_DEFS[slot.item].description}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <p className="mt-4 text-[0.55rem] font-bold uppercase tracking-[0.25em] text-zinc-600">Clés</p>
+            {inventory.keys.length === 0 ? (
+              <p className="mt-1 text-xs italic text-zinc-600">Aucune. Certaines portes ne s&apos;ouvrent qu&apos;avec elles.</p>
+            ) : (
+              <ul className="mt-1 flex flex-col gap-1">
+                {inventory.keys.map((k) => (
+                  <li key={k} className="text-xs text-zinc-300">
+                    {KEY_NAMES[k].emoji} {KEY_NAMES[k].name}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <p className="mt-4 text-[0.55rem] font-bold uppercase tracking-[0.25em] text-zinc-600">
+              Pages trouvées {inventory.notes.length}/{MANOR_NOTES.length}
+            </p>
+            {inventory.notes.length === 0 ? (
+              <p className="mt-1 text-xs italic text-zinc-600">Des pages traînent dans le manoir. Lis-les.</p>
+            ) : (
+              <ul className="mt-1 flex flex-col gap-1">
+                {inventory.notes.map((id) => {
+                  const note = MANOR_NOTES.find((n) => n.id === id);
+                  if (!note) return null;
+                  return (
+                    <li key={id}>
+                      <button
+                        type="button"
+                        onClick={() => apiRef.current?.readNote(id)}
+                        className="text-left text-xs text-zinc-300 underline decoration-zinc-700 underline-offset-2 hover:text-white"
+                      >
+                        📜 {note.title}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- Une page lue : papier jauni, encre qui bave --- */}
+      {readingNote && (
+        <div className="absolute inset-0 z-[25] flex items-center justify-center bg-black/55 p-4">
+          <div
+            className="relative w-[24rem] max-w-full px-6 py-5"
+            style={{
+              background: "linear-gradient(170deg, #d9c9a3, #b9a57a 70%, #8f7c55)",
+              boxShadow: "inset 0 0 60px rgba(60,35,10,0.55), 0 20px 60px rgba(0,0,0,0.8)",
+              transform: "rotate(-1.2deg)",
+              animation: "horror-quest-in 0.35s ease-out",
+            }}
+          >
+            <p className="font-serif text-base font-bold text-[#2a1a0c]">{readingNote.title}</p>
+            <p className="mt-3 font-serif text-sm italic leading-relaxed text-[#3b2812]">{readingNote.text}</p>
+            <button
+              type="button"
+              onClick={() => setReadingNote(null)}
+              className="mt-4 text-xs font-semibold text-[#5a4020] underline underline-offset-2"
+            >
+              {isTouch ? "Fermer" : "Fermer (E ou Échap)"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- Screamer : le visage, une fraction de seconde --- */}
+      {screamer === "face" && scareImages && (
+        <div className="pointer-events-none absolute inset-0 z-[35] flex items-center justify-center bg-black">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={scareImages.face}
+            alt=""
+            className="h-[115%] w-auto max-w-none"
+            style={{ animation: "horror-face 0.2s steps(3) forwards", filter: "contrast(1.4)" }}
+          />
+        </div>
+      )}
+
       {keypadOpen && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <div className="w-[19rem] rounded-2xl border border-amber-900/50 bg-zinc-950 p-5 text-center">
@@ -3487,32 +4986,72 @@ export default function HorrorScene({
             <HoldButton label="➡" onHold={(v) => (heldRef.current.right = v)} />
           </div>
           <div className="absolute bottom-32 right-3 flex flex-col items-end gap-2 sm:bottom-16">
-            <TapButton
-              label="🔦"
-              accent={mood.accent}
-              onTap={() => apiRef.current?.toggleFlashlight()}
-            />
-            <TapButton
-              label="E"
-              accent={mood.accent}
-              highlight={Boolean(prompt)}
-              onTap={() => apiRef.current?.interact()}
-            />
+            <div className="flex gap-2">
+              <TapButton label="🎒" accent={mood.accent} onTap={() => setBagOpen((o) => !o)} />
+              <TapButton label="🔦" accent={mood.accent} onTap={() => apiRef.current?.toggleFlashlight()} />
+            </div>
+            <div className="flex gap-2">
+              {hidden ? (
+                <HoldButton label="🤐" onHold={(v) => (heldRef.current.breath = v)} />
+              ) : (
+                <>
+                  <HoldButton label="🏃" onHold={(v) => (heldRef.current.sprint = v)} />
+                  <TapButton
+                    label="🧎"
+                    accent={mood.accent}
+                    highlight={crouched}
+                    onTap={() => apiRef.current?.toggleCrouch()}
+                  />
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <TapButton label="✋" accent={mood.accent} onTap={() => apiRef.current?.applyHeldItem()} />
+              <TapButton
+                label="E"
+                accent={mood.accent}
+                highlight={Boolean(prompt)}
+                onTap={() => apiRef.current?.interact()}
+              />
+            </div>
           </div>
         </>
       )}
 
       {!isTouch && (
-        <p className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-600">
-          ZQSD · souris pour regarder · F lampe · E interagir et se cacher · ramasse les piles 🔋
+        <p className="pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-600">
+          ZQSD · Maj courir · C s&apos;accroupir · F lampe · E interagir · 1-5 objets · clic utiliser · Tab poches
         </p>
       )}
 
-      {/* Onglet en arriere-plan : la partie est gelee, pas perdue. */}
-      {paused && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-black/90">
+      {/* Onglet en arriere-plan : la partie est gelee, pas perdue. On peut
+          aussi reprendre d'un clic si le navigateur a rate le retour. */}
+      {paused && !contextLost && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/90">
           <span className="font-serif text-2xl text-zinc-300">Le manoir attend</span>
-          <span className="text-xs text-zinc-500">Reviens sur l&apos;onglet pour reprendre.</span>
+          <button
+            type="button"
+            onClick={() => apiRef.current?.resume()}
+            className="border border-zinc-600 px-5 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-400 hover:text-white"
+          >
+            Reprendre
+          </button>
+        </div>
+      )}
+      {contextLost && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+          <span className="font-serif text-2xl text-zinc-300">L&apos;image s&apos;est éteinte</span>
+          <span className="max-w-sm text-xs text-zinc-500">
+            Le navigateur a repris la carte graphique (veille, trop d&apos;onglets 3D ouverts…). Elle revient
+            d&apos;habitude toute seule en quelques secondes.
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="border border-zinc-600 px-5 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-400 hover:text-white"
+          >
+            Recharger la page
+          </button>
         </div>
       )}
     </div>
