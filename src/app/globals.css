@@ -35,6 +35,12 @@ html[data-game-fullscreen] body {
 html[data-game-fullscreen] body > footer {
   display: none;
 }
+/* Le jeu prend toute la page : plus d'en-tete, de radio ni de mascotte par
+   dessus. La musique de la radio continue si elle jouait : masquer un
+   parent n'arrete pas un element <audio>. */
+html[data-game-fullscreen] [data-site-chrome] {
+  display: none !important;
+}
 
 /* Ambiance du lobby du Manoir Maudit (Mode 3D). */
 @keyframes horror-flicker {
@@ -88,6 +94,13 @@ html[data-game-fullscreen] body > footer {
 @keyframes horror-scanline {
   0% { transform: translateY(-120%); }
   100% { transform: translateY(520%); }
+}
+/* Battants de l'armoire : ils claquent jusqu'au milieu puis se rouvrent sur
+   une fente, comme une porte qu'on referme trop fort sur soi. */
+@keyframes horror-door-close {
+  0% { width: 0%; }
+  55% { width: 51%; }
+  100% { width: 34%; }
 }
 @keyframes horror-breathe {
   0%, 100% { opacity: 0.45; }

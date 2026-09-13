@@ -16,6 +16,12 @@ export interface Game3D {
   highlights: string[];
   /** Mis en avant en grand en haut de la galerie. */
   featured?: boolean;
+  /**
+   * Annonce mais pas encore jouable : visible dans la galerie avec un badge
+   * "Bientot", jamais cliquable, et sa page renvoie une 404. Le jeu n'existe
+   * pas encore — l'entree sert juste a reserver sa place.
+   */
+  locked?: boolean;
 }
 
 // Jeux 3D geres par l'equipe Pixolud (pas de creation par les joueurs pour
@@ -55,19 +61,34 @@ export const GAMES_3D: Game3D[] = [
     slug: "manoir-maudit",
     title: "Le Manoir Maudit",
     description:
-      "Seize pièces sur deux étages, un code gravé dans les murs, cinq reliques à rassembler — et une présence qui se réveille dès que tu touches à la première. Le rituel n'ouvre pas la sortie : il révèle trois sceaux, puis quarante-cinq secondes de fuite.",
+      "Vingt pièces sur deux étages, un code gravé dans les murs, cinq reliques à rassembler et cinq poupées cachées — et une présence qui se réveille dès que tu touches à la première. Le rituel n'ouvre pas la sortie : il révèle trois sceaux, puis quarante-cinq secondes de fuite.",
     emoji: "🕯️",
     gradient: "from-red-950 to-black",
     genre: "Horreur",
     players: "Solo",
     duration: "20 à 35 min",
     highlights: [
-      "16 pièces, 2 étages",
-      "Narration parlée",
+      "20 pièces, 2 étages",
+      "Quête des 5 poupées",
       "Rituel et 3 sceaux",
       "Fuite de 45 secondes",
     ],
     featured: true,
+  },
+  {
+    // Reserve : le jeu n'est pas construit. On le fera plus tard, sur
+    // accord du proprietaire.
+    slug: "backrooms",
+    title: "Backrooms",
+    description:
+      "Des couloirs jaunes à perte de vue, le bourdonnement des néons, et rien derrière les murs. Bientôt.",
+    emoji: "🟨",
+    gradient: "from-yellow-600 to-stone-900",
+    genre: "Horreur",
+    players: "Solo",
+    duration: "Bientôt",
+    highlights: ["En préparation"],
+    locked: true,
   },
 ];
 
@@ -208,4 +229,9 @@ export function generateMaze(roomsW: number, roomsH: number, seed: number): Maze
 
 export function getGame3D(slug: string): Game3D | undefined {
   return GAMES_3D.find((g) => g.slug === slug);
+}
+
+/** Les jeux reellement jouables, sans les annonces verrouillees. */
+export function playableGames3D(): Game3D[] {
+  return GAMES_3D.filter((g) => !g.locked);
 }

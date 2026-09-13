@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GAMES_3D, type Game3D } from "@/lib/games3d";
+import { GAMES_3D, playableGames3D, type Game3D } from "@/lib/games3d";
 
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "accent" }) {
   return (
@@ -16,19 +16,27 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
 }
 
 function GameCard({ game, big }: { game: Game3D; big: boolean }) {
-  return (
-    <Link
-      href={`/mode-3d/${game.slug}`}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 transition hover:-translate-y-1 hover:border-violet-500/60 hover:shadow-xl hover:shadow-violet-950/40 ${
-        big ? "sm:col-span-2" : ""
-      }`}
-    >
+  // Un jeu annonce mais pas construit n'est pas un lien : on ne doit pas
+  // pouvoir y entrer, meme par erreur.
+  const shellClass = `group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 transition ${
+        game.locked
+          ? "cursor-not-allowed opacity-60 grayscale-[35%]"
+          : "hover:-translate-y-1 hover:border-violet-500/60 hover:shadow-xl hover:shadow-violet-950/40"
+  } ${big ? "sm:col-span-2" : ""}`;
+
+  const body = (
+    <>
       <div
         className={`relative flex items-center justify-center bg-gradient-to-br ${game.gradient} ${
           big ? "h-44" : "h-32"
         }`}
       >
         <span className={big ? "text-7xl" : "text-5xl"}>{game.emoji}</span>
+        {game.locked && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-black uppercase tracking-[0.3em] text-white">
+            🔒 Bientôt
+          </span>
+        )}
         <span className="absolute left-3 top-3">
           <Badge tone="accent">{game.genre}</Badge>
         </span>
@@ -56,10 +64,29 @@ function GameCard({ game, big }: { game: Game3D; big: boolean }) {
             <Badge key={h}>{h}</Badge>
           ))}
         </div>
-        <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-violet-600 px-4 py-2 text-xs font-bold text-white transition group-hover:bg-violet-500">
-          ▶ Jouer
-        </span>
+        {game.locked ? (
+          <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-400">
+            🔒 En préparation
+          </span>
+        ) : (
+          <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-violet-600 px-4 py-2 text-xs font-bold text-white transition group-hover:bg-violet-500">
+            ▶ Jouer
+          </span>
+        )}
       </div>
+    </>
+  );
+
+  if (game.locked) {
+    return (
+      <div aria-disabled className={shellClass}>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <Link href={`/mode-3d/${game.slug}`} className={shellClass}>
+      {body}
     </Link>
   );
 }
@@ -79,7 +106,7 @@ export default function Mode3DPage() {
             par l&apos;équipe Pixolud, avec de nouveaux jeux ajoutés régulièrement.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Badge>{GAMES_3D.length} jeux</Badge>
+            <Badge>{playableGames3D().length} jeux</Badge>
             <Badge>Aucune installation</Badge>
             <Badge>Manette de jeu non requise</Badge>
           </div>

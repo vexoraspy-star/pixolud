@@ -3,24 +3,44 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { makeDawnSkyTexture, makeFacadeTexture } from "@/lib/manorTextures";
-import { createAudio, playHatch, playWhisper, playStinger } from "@/lib/manorAudio";
+import { createAudio, playHatch, playWhisper, playStinger, playVoiceBed } from "@/lib/manorAudio";
 import { createNarrator } from "@/lib/voice";
 import { loadVoice3D } from "@/lib/settings3d";
 
 interface Beat {
   at: number;
+  /** Carton affiche a l'ecran. */
   text: string;
+  /**
+   * Ce que dit la voix. Plus court que le carton : la voix d'horreur est si
+   * lente qu'elle mettrait huit secondes a relire une phrase, alors que les
+   * cartons changent toutes les quatre. Elle ponctue au lieu de lire.
+   */
+  voice: string;
 }
 
 // Epilogue : on sort par la trappe a l'aube, et la derniere image explique
 // enfin ce que racontaient les cinq objets.
 const BEATS: Beat[] = [
-  { at: 0, text: "Tu pousses la trappe. L'air froid te brûle les poumons." },
-  { at: 4.4, text: "Le jour se lève. Derrière toi, le manoir se tait enfin." },
-  { at: 9.2, text: "À la fenêtre de l'étage, quelqu'un te regarde partir." },
+  {
+    at: 0,
+    text: "Tu pousses la trappe. L'air froid te brûle les poumons.",
+    voice: "L'air. Enfin.",
+  },
+  {
+    at: 4.4,
+    text: "Le jour se lève. Derrière toi, le manoir se tait enfin.",
+    voice: "Le manoir se tait.",
+  },
+  {
+    at: 9.2,
+    text: "À la fenêtre de l'étage, quelqu'un te regarde partir.",
+    voice: "Quelqu'un te regarde partir.",
+  },
   {
     at: 14.2,
     text: "Sur la photo de famille déchirée, le visage rayé... c'était le tien.",
+    voice: "Le visage rayé. C'était le tien.",
   },
 ];
 const DURATION = 19.5;
@@ -147,7 +167,7 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
 
     const audio = createAudio();
     // La revelation finale est lue a voix haute : c'est la qu'elle porte.
-    const narrator = createNarrator(loadVoice3D());
+    const narrator = createNarrator(loadVoice3D(), "horreur");
     audio.setTension(0.15);
     let elapsed = 0;
     let lastTime = performance.now();
@@ -166,7 +186,10 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
       if (idx !== beatIndex) {
         beatIndex = idx;
         setCaption(BEATS[idx].text);
-        narrator.say(BEATS[idx].text);
+        narrator.say(BEATS[idx].voice, {
+          urgent: true,
+          onStart: (seconds) => playVoiceBed(audio.ctx, audio.master, seconds),
+        });
       }
 
       // Ouverture : on emerge du trou. Fermeture : fondu au noir.

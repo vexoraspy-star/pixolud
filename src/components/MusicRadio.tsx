@@ -117,7 +117,7 @@ export default function MusicRadio() {
   );
 
   return (
-    <div className="fixed bottom-20 start-4 z-40 flex flex-col items-start gap-2 sm:bottom-4 sm:start-20">
+    <div data-site-chrome className="fixed bottom-20 start-4 z-40 flex flex-col items-start gap-2 sm:bottom-4 sm:start-20">
       <audio ref={audioElRef} onEnded={stop} />
 
       {open && (

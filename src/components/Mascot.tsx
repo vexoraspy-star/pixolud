@@ -112,7 +112,7 @@ export default function Mascot() {
   }
 
   return (
-    <div className="fixed bottom-4 end-4 z-40 flex flex-col items-end gap-2">
+    <div data-site-chrome className="fixed bottom-4 end-4 z-40 flex flex-col items-end gap-2">
       {message && !menuOpen && (
         <div className="max-w-[220px] rounded-2xl rounded-br-sm bg-white px-3 py-2 text-xs text-zinc-700 shadow-lg dark:bg-zinc-800 dark:text-zinc-200">
           {message}

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getPublishedGames } from "@/lib/games";
-import { GAMES_3D } from "@/lib/games3d";
+import { playableGames3D } from "@/lib/games3d";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -27,7 +27,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Les jeux 3D sont edites par l'equipe : leurs URL sont connues a
   // l'avance, il n'y a aucune raison de les laisser hors du sitemap.
-  const routes3d: MetadataRoute.Sitemap = GAMES_3D.map((g) => ({
+  const routes3d: MetadataRoute.Sitemap = playableGames3D().map((g) => ({
     url: `${SITE_URL}/mode-3d/${g.slug}`,
     changeFrequency: "monthly",
     priority: 0.8,

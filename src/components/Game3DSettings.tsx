@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   BRIGHTNESS_MAX,
   BRIGHTNESS_MIN,
@@ -137,7 +138,7 @@ export default function Game3DSettings({
 
           {onVoice && (
             <div className="mt-3 flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-zinc-300">Voix du narrateur</p>
+              <p className="text-xs font-semibold text-zinc-300">Voix des cinématiques</p>
               <button
                 type="button"
                 onClick={() => changeVoice(!voice)}
@@ -151,7 +152,31 @@ export default function Game3DSettings({
             </div>
           )}
 
-          <p className="mt-3 border-t border-white/10 pt-2 text-[11px] leading-relaxed text-zinc-500">
+          <div className="mt-3 flex gap-2 border-t border-white/10 pt-3">
+            <button
+              type="button"
+              onClick={() => {
+                // Le vrai plein ecran du navigateur, qui cache aussi la barre
+                // d'adresse. Il demande un geste utilisateur : d'ou le bouton.
+                if (document.fullscreenElement) {
+                  document.exitFullscreen?.().catch(() => {});
+                } else {
+                  document.documentElement.requestFullscreen?.().catch(() => {});
+                }
+              }}
+              className="flex-1 rounded-lg bg-white/5 px-2 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/10"
+            >
+              ⛶ Plein écran
+            </button>
+            <Link
+              href="/mode-3d"
+              className="flex-1 rounded-lg bg-red-950/60 px-2 py-1.5 text-center text-xs font-semibold text-red-200 transition hover:bg-red-900/70"
+            >
+              Quitter
+            </Link>
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
             Les réglages sont conservés sur cet appareil et partagés par tous les jeux du Mode 3D.
           </p>
         </div>

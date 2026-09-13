@@ -17,7 +17,7 @@ import {
   type Layout3D,
 } from "@/lib/settings3d";
 
-export type HorrorMode = "histoire" | "rapide";
+export type HorrorMode = "histoire" | "rapide" | "developpeur";
 
 type Tab = "jouer" | "carte" | "skins" | "amis" | "parametres";
 
@@ -122,6 +122,11 @@ function FloorPlan({ rooms, label }: { rooms: ManorRoom[]; label: string }) {
                 textAnchor="middle"
                 fill="#cfc9d6"
                 style={{ fontSize: 0.92, fontWeight: 600 }}
+                // Les noms longs (« Chambre de la gouvernante ») debordaient sur
+                // les pieces voisines : on les resserre pour tenir dans la case.
+                {...(r.name.length * 0.5 > r.x1 - r.x0 + 1 - 0.6
+                  ? { textLength: r.x1 - r.x0 + 1 - 0.6, lengthAdjust: "spacingAndGlyphs" as const }
+                  : {})}
               >
                 {r.name}
               </text>
@@ -136,9 +141,12 @@ function FloorPlan({ rooms, label }: { rooms: ManorRoom[]; label: string }) {
 export default function HorrorLobby({
   title,
   onPlay,
+  devAllowed = false,
 }: {
   title: string;
   onPlay: (mode: HorrorMode) => void;
+  /** Admin : affiche la carte du mode developpeur. */
+  devAllowed?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("jouer");
   const [layout, setLayout] = useState<Layout3D>("azerty");
@@ -277,6 +285,27 @@ export default function HorrorLobby({
                   Le plan des deux étages, à étudier avant d&apos;entrer.
                 </p>
               </button>
+              {devAllowed && (
+                <button
+                  type="button"
+                  onClick={() => onPlay("developpeur")}
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/[0.07] p-4 text-left transition hover:bg-amber-500/[0.14] sm:col-span-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-lg font-black uppercase tracking-wide text-amber-200">
+                      🛠️ Mode développeur
+                    </p>
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                      Admin
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-amber-100/70">
+                    Vol, invincibilité, traversée des murs, carte en direct et téléportation vers
+                    chaque objectif. Pour voir le manoir en entier et comprendre comment le finir.
+                    Le panneau s&apos;ouvre aussi en partie avec la touche F2.
+                  </p>
+                </button>
+              )}
             </div>
           </div>
         )}

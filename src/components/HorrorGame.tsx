@@ -9,12 +9,24 @@ import HorrorEnding from "./HorrorEnding";
 
 type Phase = "lobby" | "cutscene" | "playing" | "caught" | "ending" | "escaped";
 
-export default function HorrorGame({ title }: { title: string }) {
+export default function HorrorGame({
+  title,
+  devAllowed = false,
+}: {
+  title: string;
+  /** Compte admin : acces au mode developpeur. Decide cote serveur. */
+  devAllowed?: boolean;
+}) {
   const [phase, setPhase] = useState<Phase>("lobby");
   const [seed, setSeed] = useState(0);
+  /** Partie lancee depuis la carte « Mode developpeur » : panneau deja ouvert. */
+  const [devLaunch, setDevLaunch] = useState(false);
 
   function launch(mode: HorrorMode) {
     setSeed(Date.now());
+    // Ceinture et bretelles : meme si la carte etait forcee cote client, le
+    // mode dev ne s'ouvre que si le serveur a reconnu un admin.
+    setDevLaunch(mode === "developpeur" && devAllowed);
     setPhase(mode === "histoire" ? "cutscene" : "playing");
   }
   function replay() {
@@ -23,7 +35,7 @@ export default function HorrorGame({ title }: { title: string }) {
   }
 
   if (phase === "lobby") {
-    return <HorrorLobby title={title} onPlay={launch} />;
+    return <HorrorLobby title={title} onPlay={launch} devAllowed={devAllowed} />;
   }
 
   if (phase === "cutscene") {
@@ -112,6 +124,8 @@ export default function HorrorGame({ title }: { title: string }) {
       seed={seed}
       onCaught={() => setPhase("caught")}
       onEscape={() => setPhase("ending")}
+      devAllowed={devAllowed}
+      devOpenAtStart={devLaunch}
     />
   );
 }

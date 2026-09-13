@@ -5,11 +5,13 @@ import { useEffect, type ReactNode } from "react";
 /**
  * Cadre plein ecran des jeux 3D.
  *
- * Sans lui, le pied de page depasse sous la zone de jeu : la page devient
- * defilante, l'en-tete colle en haut vient recouvrir le haut de l'interface
- * (le carnet de quete, le chrono) et les commandes du bas sortent de l'ecran.
- * L'attribut pose ici declenche la regle `html[data-game-fullscreen]` de
- * globals.css, qui masque le pied de page et bloque le defilement.
+ * Le jeu occupe TOUTE la page : l'en-tete, la radio et la mascotte sont
+ * masques (regle `html[data-game-fullscreen]` de globals.css). Avant, le jeu
+ * vivait sous l'en-tete du site et la mascotte venait parler par-dessus
+ * l'ecran en pleine partie d'horreur.
+ *
+ * Chaque jeu garde sa propre sortie : un lien retour dans son lobby, et un
+ * bouton « Quitter » dans le panneau de reglages en jeu.
  */
 export default function Game3DFrame({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -18,10 +20,12 @@ export default function Game3DFrame({ children }: { children: ReactNode }) {
     window.scrollTo(0, 0);
     return () => {
       root.removeAttribute("data-game-fullscreen");
+      // Quitter la page doit aussi quitter le plein ecran du navigateur.
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     };
   }, []);
 
   // 100dvh plutot que 100vh : sur mobile, la barre d'adresse ne mange plus le
-  // bas du jeu. Le -1px compense la bordure basse de l'en-tete.
-  return <div className="h-[calc(100dvh-4rem-1px)] bg-black">{children}</div>;
+  // bas du jeu.
+  return <div className="fixed inset-0 z-[70] h-[100dvh] w-full bg-black">{children}</div>;
 }

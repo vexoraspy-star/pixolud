@@ -352,3 +352,46 @@ export function playHatchOpen(ctx: AudioContext, master: GainNode) {
   });
   tone(ctx, master, "sine", 58, 180, 2.2, 0.4, 0.4);
 }
+
+/**
+ * Nappe posee SOUS une replique du narrateur.
+ *
+ * La voix du navigateur ne peut pas etre traitee (elle ne passe pas par le
+ * graphe Web Audio) : on ne peut ni la reverberer ni la saturer. On
+ * l'entoure donc de ce qu'on sait synthetiser — un grondement tres grave
+ * qui monte avec la phrase, et des chuchotements qui passent d'une oreille
+ * a l'autre, comme si d'autres voix repetaient les mots autour de toi.
+ */
+export function playVoiceBed(ctx: AudioContext, master: GainNode, seconds: number) {
+  const now = ctx.currentTime;
+  const length = Math.max(1.5, Math.min(12, seconds));
+
+  // Grondement : deux sinus graves legerement desaccordes, qui battent.
+  for (const [freq, peak] of [
+    [41, 0.24],
+    [43.5, 0.16],
+    [82, 0.05],
+  ] as const) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(peak, now + length * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + length + 1.2);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(now);
+    osc.stop(now + length + 1.3);
+  }
+
+  // Chuchotements repartis sur la duree de la phrase, panoramiques au hasard.
+  const whispers = Math.max(3, Math.round(length * 1.3));
+  for (let i = 0; i < whispers; i++) {
+    const at = (i / whispers) * length * 1000 + Math.random() * 350;
+    window.setTimeout(() => {
+      if (ctx.state === "closed") return;
+      playWhisper(ctx, master, { pan: Math.random() * 2 - 1, gain: 0.35 + Math.random() * 0.35 });
+    }, at);
+  }
+}

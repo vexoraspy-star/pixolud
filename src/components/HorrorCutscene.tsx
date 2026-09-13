@@ -5,20 +5,43 @@ import { createNarrator } from "@/lib/voice";
 import { loadVoice3D } from "@/lib/settings3d";
 import * as THREE from "three";
 import { makeNightSkyTexture, makeFacadeTexture } from "@/lib/manorTextures";
-import { createAudio, playCrash, playStinger } from "@/lib/manorAudio";
+import { createAudio, playCrash, playStinger, playVoiceBed } from "@/lib/manorAudio";
 
 interface Beat {
   at: number;
+  /** Carton affiche a l'ecran. */
   text: string;
+  /**
+   * Ce que dit la voix. Plus court que le carton : la voix d'horreur est si
+   * lente qu'elle mettrait huit secondes a relire une phrase, alors que les
+   * cartons changent toutes les quatre. Elle ponctue au lieu de lire.
+   */
+  voice: string;
 }
 
 // Cinematique d'ouverture entierement en 3D : la camera quitte la voiture en
 // panne, remonte l'allee jusqu'au manoir, et la porte s'ouvre toute seule.
 const BEATS: Beat[] = [
-  { at: 0, text: "Ta voiture vient de lâcher en pleine nuit, sur une route de campagne perdue." },
-  { at: 4.2, text: "Pas de réseau. Une seule lumière à des kilomètres : un vieux manoir." },
-  { at: 9.4, text: "Tu frappes. Personne ne répond... mais la porte s'entrouvre toute seule." },
-  { at: 13.4, text: "Une odeur de poussière et de cire brûlée. Tu n'es pas seul ici." },
+  {
+    at: 0,
+    text: "Ta voiture vient de lâcher en pleine nuit, sur une route de campagne perdue.",
+    voice: "En pleine nuit. Seul.",
+  },
+  {
+    at: 4.2,
+    text: "Pas de réseau. Une seule lumière à des kilomètres : un vieux manoir.",
+    voice: "Une seule lumière. Le manoir.",
+  },
+  {
+    at: 9.4,
+    text: "Tu frappes. Personne ne répond... mais la porte s'entrouvre toute seule.",
+    voice: "La porte s'ouvre. Toute seule.",
+  },
+  {
+    at: 13.4,
+    text: "Une odeur de poussière et de cire brûlée. Tu n'es pas seul ici.",
+    voice: "Tu n'es pas seul.",
+  },
 ];
 const DURATION = 17.2;
 
@@ -195,7 +218,9 @@ export default function HorrorCutscene({ onDone }: { onDone: () => void }) {
 
     const audio = createAudio();
     // Le narrateur lit les cartons : la cinematique n'est plus muette.
-    const narrator = createNarrator(loadVoice3D());
+    // Voix d'horreur : la plus grave possible, tres lente, entrecoupee de
+    // silences, et posee sur une nappe de grondements et de chuchotements.
+    const narrator = createNarrator(loadVoice3D(), "horreur");
     let elapsed = 0;
     let lastTime = performance.now();
     let beatIndex = -1;
@@ -220,7 +245,10 @@ export default function HorrorCutscene({ onDone }: { onDone: () => void }) {
       if (idx !== beatIndex) {
         beatIndex = idx;
         setCaption(BEATS[idx].text);
-        narrator.say(BEATS[idx].text);
+        narrator.say(BEATS[idx].voice, {
+          urgent: true,
+          onStart: (seconds) => playVoiceBed(audio.ctx, audio.master, seconds),
+        });
       }
 
       // Fondu d'ouverture puis fondu au noir final.

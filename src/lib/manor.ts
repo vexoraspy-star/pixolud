@@ -35,10 +35,15 @@ const ROOMS: ManorRoom[] = [
   { name: "Serre", x0: 25, y0: 1, x1: 31, y1: 6, floor: 0 },
   { name: "Galerie des portraits", x0: 25, y0: 8, x1: 31, y1: 13, floor: 0 },
   { name: "Chapelle", x0: 25, y0: 15, x1: 31, y1: 20, floor: 0 },
+  // --- Aile du fond, ajoutee pour allonger encore l'exploration ---
+  { name: "Salle de bal", x0: 33, y0: 1, x1: 39, y1: 6, floor: 0 },
+  { name: "Salle des trophées", x0: 33, y0: 8, x1: 39, y1: 13, floor: 0 },
+  { name: "Crypte", x0: 33, y0: 15, x1: 39, y1: 20, floor: 0 },
   { name: "Palier", x0: 10, y0: 27, x1: 16, y1: 32, floor: 1 },
   { name: "Chambre d'enfant", x0: 2, y0: 27, x1: 8, y1: 32, floor: 1 },
   { name: "Grenier", x0: 18, y0: 27, x1: 24, y1: 32, floor: 1 },
   { name: "Atelier", x0: 26, y0: 27, x1: 31, y1: 32, floor: 1 },
+  { name: "Chambre de la gouvernante", x0: 33, y0: 27, x1: 39, y1: 32, floor: 1 },
 ];
 
 const DOORS: [number, number, number, number][] = [
@@ -57,12 +62,20 @@ const DOORS: [number, number, number, number][] = [
   [24, 10, 24, 11],
   [27, 7, 28, 7],
   [27, 14, 28, 14],
+  // Aile du fond : on y entre par la Serre, la Galerie et la Chapelle, ce qui
+  // cree une boucle complete — indispensable pour semer la chose.
+  [32, 4, 32, 5],
+  [32, 9, 32, 10],
+  [32, 15, 32, 16],
+  [35, 7, 36, 7],
+  [35, 14, 36, 14],
   // Escalier : couloir montant qui relie l'Entree au Palier de l'etage.
   [STAIR_X0, STAIR_ROW_FIRST, STAIR_X1, STAIR_ROW_LAST],
   // Portes de l'etage.
   [9, 29, 9, 30],
   [17, 29, 17, 30],
   [25, 29, 25, 30],
+  [32, 29, 32, 30],
 ];
 
 // La seule entree de la cave, verrouillee par un code a 3 chiffres : c'est
@@ -74,7 +87,7 @@ export const CAVE_DOOR: { x0: number; y0: number; x1: number; y1: number } = {
   y1: 18,
 };
 
-export const MANOR_WIDTH = 33;
+export const MANOR_WIDTH = 41;
 export const MANOR_HEIGHT = 34;
 
 // Hauteur du sol pour une position continue en z (en cases).
@@ -205,6 +218,28 @@ const PROPS: ManorProp[] = [
   { kind: "crate", x0: 30, y0: 27, x1: 31, y1: 28 },
   { kind: "table", x0: 26, y0: 32, x1: 27, y1: 32 },
   { kind: "shelf", x0: 31, y0: 31, x1: 31, y1: 32 },
+
+  // --- Salle de bal (entrees en x33 lignes 4-5, et y6 colonnes 35-36) ---
+  { kind: "piano", x0: 37, y0: 1, x1: 38, y1: 2 },
+  { kind: "seat", x0: 33, y0: 1, x1: 34, y1: 1 },
+  { kind: "seat", x0: 39, y0: 5, x1: 39, y1: 6 },
+
+  // --- Salle des trophees (entrees en x33 lignes 9-10, y8 et y13) ---
+  { kind: "shelf", x0: 38, y0: 8, x1: 39, y1: 8 },
+  { kind: "shelf", x0: 39, y0: 11, x1: 39, y1: 12 },
+  { kind: "table", x0: 38, y0: 10, x1: 38, y1: 10 },
+  { kind: "crate", x0: 33, y0: 13, x1: 33, y1: 13 },
+
+  // --- Crypte : des cercueils le long des murs ---
+  { kind: "crate", x0: 38, y0: 16, x1: 39, y1: 16 },
+  { kind: "crate", x0: 38, y0: 19, x1: 39, y1: 19 },
+  { kind: "crate", x0: 33, y0: 19, x1: 34, y1: 20 },
+
+  // --- Chambre de la gouvernante (entree en x33 lignes 29-30) ---
+  { kind: "bed", x0: 37, y0: 27, x1: 39, y1: 29 },
+  { kind: "table", x0: 33, y0: 27, x1: 33, y1: 27 },
+  { kind: "seat", x0: 34, y0: 32, x1: 34, y1: 32 },
+  { kind: "shelf", x0: 39, y0: 32, x1: 39, y1: 32 },
 ];
 
 export interface ManorData extends MazeData {
@@ -287,6 +322,19 @@ export const CLUE_SPOTS: { room: string; x: number; wallRow: number }[] = [
   { room: "Chambre principale", x: 22, wallRow: 0 },
   { room: "Chapelle", x: 29, wallRow: 14 },
   { room: "Grenier", x: 20, wallRow: 26 },
+];
+
+/**
+ * Quete secondaire : cinq poupees cachees aux quatre coins du manoir, dont
+ * deux a l'etage. Facultatives. Les trouver toutes accorde un avantage pour
+ * le final — voir DOLL_SPEED_BONUS dans HorrorScene.
+ */
+export const DOLL_SPOTS: { room: string; x: number; y: number }[] = [
+  { room: "Chambre d'enfant", x: 6, y: 30 },
+  { room: "Salon", x: 3, y: 12 },
+  { room: "Salle de bal", x: 36, y: 3 },
+  { room: "Crypte", x: 36, y: 18 },
+  { room: "Chambre de la gouvernante", x: 35, y: 31 },
 ];
 
 /** Longueur du code de la cave : une plaque = un chiffre. */
