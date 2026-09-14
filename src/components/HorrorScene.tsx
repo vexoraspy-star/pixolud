@@ -62,6 +62,7 @@ import {
 } from "@/lib/manorInventory";
 import { buildGhost, makeScareFaceUrl, makeScareHandUrl } from "@/lib/manorScares";
 import HorrorDevPanel, { DEV_OFF, type DevFlags, type DevSnapshot } from "./HorrorDevPanel";
+import HorrorGuide from "./HorrorGuide";
 import Game3DSettings from "./Game3DSettings";
 import {
   loadBrightness3D,
@@ -495,6 +496,12 @@ export default function HorrorScene({
   const [inventory, setInventory] = useState<Inventory>(emptyInventory);
   /** Le carnet complet (Tab) : objets, cles et pages lues. */
   const [bagOpen, setBagOpen] = useState(false);
+  /** Guide du manoir (H ou « ? ») : il met la partie en pause. */
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideOpenRef = useRef(false);
+  useEffect(() => {
+    guideOpenRef.current = guideOpen;
+  }, [guideOpen]);
   const [readingNote, setReadingNote] = useState<ManorNote | null>(null);
   /** Image plein ecran d'un screamer, le temps d'un battement de coeur. */
   const [screamer, setScreamer] = useState<"face" | "hand" | null>(null);
@@ -581,7 +588,7 @@ export default function HorrorScene({
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!endedRef.current && !pausedRef.current) setSeconds((s) => s + 1);
+      if (!endedRef.current && !pausedRef.current && !guideOpenRef.current) setSeconds((s) => s + 1);
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -2540,6 +2547,21 @@ export default function HorrorScene({
 
     const keys = new Set<string>();
     function onKeyDown(e: KeyboardEvent) {
+      // Guide ouvert : la partie est en pause, seules H et Echap le referment.
+      if (guideOpenRef.current) {
+        if (e.key === "Escape" || e.key.toLowerCase() === "h") setGuideOpen(false);
+        return;
+      }
+      if (e.key.toLowerCase() === "h" && !keypadOpenRef.current) {
+        releaseEverything();
+        try {
+          document.exitPointerLock?.();
+        } catch {
+          // ignore
+        }
+        setGuideOpen(true);
+        return;
+      }
       if (keypadOpenRef.current) {
         if (e.key === "Escape") setKeypadOpen(false);
         return;
@@ -2657,7 +2679,7 @@ export default function HorrorScene({
       const delta = Math.min(rawFrameMs / 1000, 0.1);
       lastTime = now;
       if (contextIsLost) return;
-      if (ended || pausedRef.current) {
+      if (ended || pausedRef.current || guideOpenRef.current) {
         renderer.render(scene, camera);
         return;
       }
@@ -3772,10 +3794,13 @@ export default function HorrorScene({
         ? THREE.MathUtils.clamp(1 - distToMonster / 11, 0, 1) * (losToMonster ? 1 : 0.55)
         : 0;
       const progressDread = collectedCount / (ITEM_COUNT * 2);
-      const target = Math.min(
-        1,
-        Math.max(proximityDread, progressDread, phase === "none" || phase === "ritual" ? 0 : 1),
-      );
+      // Le final gardait l'angoisse bloquee a 1 : vignette fermee, voile rouge
+      // et grain au maximum pendant plusieurs minutes, on ne voyait plus rien
+      // (juste apres l'autel, toutes les bougies etant deja mortes). Le final
+      // pose maintenant un fond de tension ; c'est SA proximite qui fait le reste.
+      const finaleDread = phase === "none" || phase === "ritual" ? 0 : 0.42;
+      const flyingHigh = devRef.current.fly && devFlyHeight > 2;
+      const target = flyingHigh ? 0 : Math.min(1, Math.max(proximityDread, progressDread, finaleDread));
       dreadLevel += (target - dreadLevel) * Math.min(1, delta * 3.2);
       audio.setTension(dreadLevel);
       // Elle te voit vraiment : l'image decroche. On ne le synchronise que
@@ -4191,6 +4216,23 @@ export default function HorrorScene({
         </>
       )}
 
+      <button
+        type="button"
+        onClick={() => {
+          try {
+            document.exitPointerLock?.();
+          } catch {
+            // ignore
+          }
+          setGuideOpen(true);
+        }}
+        aria-label="Ouvrir le guide du manoir"
+        title="Guide (H)"
+        className="absolute right-14 top-28 z-30 flex size-9 items-center justify-center rounded-full bg-black/70 font-serif text-lg font-bold text-amber-200 backdrop-blur transition hover:bg-black/90"
+      >
+        ?
+      </button>
+      {guideOpen && <HorrorGuide inGame onClose={() => setGuideOpen(false)} />}
       <Game3DSettings
         className="top-28"
         onLayout={(l) => {

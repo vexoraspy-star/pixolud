@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import HorrorGuide from "./HorrorGuide";
 import { buildManor, CODE_LENGTH, type ManorRoom } from "@/lib/manor";
 import {
   BRIGHTNESS_MAX,
@@ -149,6 +150,8 @@ export default function HorrorLobby({
   devAllowed?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("jouer");
+  /** Le guide du manoir, ouvert depuis le coin de l'en-tete. */
+  const [guideOpen, setGuideOpen] = useState(false);
   const [layout, setLayout] = useState<Layout3D>("azerty");
   const [brightness, setBrightness] = useState(1);
   const [sensitivity, setSensitivity] = useState(1.5);
@@ -180,7 +183,7 @@ export default function HorrorLobby({
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-gradient-to-br from-[#0b0509] via-[#0d0a12] to-[#050406] text-white">
+    <div className="relative flex h-full w-full flex-col bg-gradient-to-br from-[#0b0509] via-[#0d0a12] to-[#050406] text-white">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-3">
           <Link href="/mode-3d" className="text-sm text-zinc-400 transition hover:text-violet-300">
@@ -190,11 +193,23 @@ export default function HorrorLobby({
             Pixolud
           </span>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setGuideOpen(true)}
+          className="flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 py-1 pl-1 pr-3 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/20"
+        >
+          <span className="flex size-7 items-center justify-center rounded-full bg-black/60 font-serif text-base font-bold">
+            ?
+          </span>
+          Guide
+        </button>
         <div className="flex items-center gap-2 rounded-full bg-white/5 py-1 pl-1 pr-3 ring-1 ring-white/10">
           <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 text-sm">
             🎮
           </span>
           <span className="text-xs font-semibold text-zinc-300">Joueur</span>
+        </div>
         </div>
       </header>
 
@@ -486,6 +501,7 @@ export default function HorrorLobby({
           </div>
         )}
       </div>
+      {guideOpen && <HorrorGuide onClose={() => setGuideOpen(false)} />}
     </div>
   );
 }
