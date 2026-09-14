@@ -76,19 +76,17 @@ export const GAMES_3D: Game3D[] = [
     featured: true,
   },
   {
-    // Reserve : le jeu n'est pas construit. On le fera plus tard, sur
-    // accord du proprietaire.
     slug: "backrooms",
     title: "Backrooms",
     description:
-      "Des couloirs jaunes à perte de vue, le bourdonnement des néons, et rien derrière les murs. Bientôt.",
+      "Tu as traversé le sol par accident. Des couloirs jaunes à perte de vue, le bourdonnement des néons, et quatre niveaux dont il faut trouver la sortie : le Hall, la Zone habitable, la Tuyauterie… et un couloir où il ne reste qu'à courir.",
     emoji: "🟨",
     gradient: "from-yellow-600 to-stone-900",
     genre: "Horreur",
     players: "Solo",
-    duration: "Bientôt",
-    highlights: ["En préparation"],
-    locked: true,
+    duration: "25 à 45 min",
+    highlights: ["4 niveaux", "Style caméscope VHS", "Lucidité et eau d'amande", "Entités qui écoutent"],
+    featured: true,
   },
 ];
 

@@ -3,6 +3,7 @@ import { getGame3D } from "@/lib/games3d";
 import LabyrintheGame from "@/components/LabyrintheGame";
 import HorrorGame from "@/components/HorrorGame";
 import DuelGame from "@/components/DuelGame";
+import BackroomsGame from "@/components/BackroomsGame";
 import Game3DFrame from "@/components/Game3DFrame";
 import { createClient } from "@/lib/supabase/server";
 
@@ -43,6 +44,7 @@ export default async function Play3DPage({
       {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
       {slug === "manoir-maudit" && <HorrorGame title={title} devAllowed={devAllowed} />}
       {slug === "duel-1v1" && <DuelGame title={title} />}
+      {slug === "backrooms" && <BackroomsGame title={title} />}
     </Game3DFrame>
   );
 }
