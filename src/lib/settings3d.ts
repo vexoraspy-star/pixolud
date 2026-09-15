@@ -1,9 +1,12 @@
 export type Layout3D = "azerty" | "qwerty";
+/** "eleve" = tout le detail ; "performance" = plus d'images par seconde. */
+export type Quality3D = "eleve" | "performance";
 
 const LAYOUT_KEY = "pixolud-3d-layout";
 const BRIGHTNESS_KEY = "pixolud-3d-brightness";
 const SENSITIVITY_KEY = "pixolud-3d-sensitivity";
 const VOICE_KEY = "pixolud-3d-voice";
+const QUALITY_KEY = "pixolud-3d-quality";
 
 export const BRIGHTNESS_MIN = 0.5;
 export const BRIGHTNESS_MAX = 1.8;
@@ -55,6 +58,23 @@ export function loadSensitivity3D(): number {
 export function saveSensitivity3D(value: number) {
   try {
     localStorage.setItem(SENSITIVITY_KEY, String(value));
+  } catch {
+    // ignore
+  }
+}
+
+/** Qualite graphique : "eleve" par defaut, "performance" pour gagner des images/s. */
+export function loadQuality3D(): Quality3D {
+  try {
+    return localStorage.getItem(QUALITY_KEY) === "performance" ? "performance" : "eleve";
+  } catch {
+    return "eleve";
+  }
+}
+
+export function saveQuality3D(value: Quality3D) {
+  try {
+    localStorage.setItem(QUALITY_KEY, value);
   } catch {
     // ignore
   }

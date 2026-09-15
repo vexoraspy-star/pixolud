@@ -14,8 +14,11 @@ export async function requestPasswordReset(formData: FormData) {
   const origin = (await headers()).get("origin");
   const supabase = await createClient();
 
+  // Sans ce "next", le lien de l'e-mail ramenait droit a l'accueil (avec une
+  // session ouverte mais sans jamais proposer de choisir un nouveau mot de
+  // passe) au lieu du formulaire de reinitialisation.
   await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/confirm`,
+    redirectTo: `${origin}/auth/confirm?next=/reinitialiser-mot-de-passe`,
   });
 
   // On répond pareil que l'email existe ou non, pour ne pas révéler

@@ -16,7 +16,36 @@ import type { WeaponId } from "./duelWeapons";
  *                  le terrain se referme. Le dernier debout gagne.
  */
 
-export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone";
+export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone" | "economie";
+
+/**
+ * Economie facon Counter-Strike / Valorant : des manches, et entre chaque
+ * manche une phase d'achat ou l'on depense l'argent gagne. Mourir fait
+ * perdre son arme (retour au pistolet) : l'argent devient une vraie
+ * decision — acheter maintenant, ou garder de quoi s'equiper la suivante.
+ */
+export interface DuelEconomy {
+  startMoney: number;
+  /** Plafond du portefeuille. */
+  maxMoney: number;
+  killReward: number;
+  winReward: number;
+  /** Prime de defaite : sans elle, le perdant ne peut plus jamais remonter. */
+  lossReward: number;
+  /** Duree de la phase d'achat, joueurs figes. */
+  buySeconds: number;
+  /** Pause apres la manche, avant la phase d'achat suivante. */
+  roundEndSeconds: number;
+}
+
+/** Prix de chaque arme en mode Economie. Le pistolet est toujours gratuit. */
+export const WEAPON_PRICES: Record<WeaponId, number> = {
+  pistolet: 0,
+  mitraillette: 1200,
+  pompe: 1800,
+  fusil: 2700,
+  sniper: 4700,
+};
 
 export interface DuelMode {
   id: DuelModeId;
@@ -41,6 +70,8 @@ export interface DuelMode {
   loot: boolean;
   /** Accessible en ligne avec un code de salon. */
   online: boolean;
+  /** Manches et phase d'achat. Absent : pas d'argent dans ce mode. */
+  economy?: DuelEconomy;
 }
 
 export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
@@ -108,9 +139,35 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     loot: true,
     online: false,
   },
+  economie: {
+    id: "economie",
+    name: "Économie",
+    tagline: "Achats et manches",
+    detail:
+      "Comme Counter-Strike ou Valorant : 1 contre 1 en manches, 7 manches pour gagner. Avant chaque manche, achète tes armes avec l'argent gagné. Mourir fait perdre son arme.",
+    arena: "duel",
+    bots: 1,
+    // Ici, le score compte les MANCHES gagnees.
+    scoreToWin: 7,
+    respawn: true,
+    startWeapon: "pistolet",
+    gunGame: false,
+    shrinkingZone: false,
+    loot: false,
+    online: false,
+    economy: {
+      startMoney: 800,
+      maxMoney: 9000,
+      killReward: 300,
+      winReward: 2500,
+      lossReward: 1500,
+      buySeconds: 10,
+      roundEndSeconds: 2.4,
+    },
+  },
 };
 
-export const DUEL_MODE_ORDER: DuelModeId[] = ["duel", "deathmatch", "armement", "zone"];
+export const DUEL_MODE_ORDER: DuelModeId[] = ["duel", "deathmatch", "armement", "economie", "zone"];
 
 /**
  * Le terrain de la Zone : 31x31, quatre fois l'arene du duel.

@@ -15,6 +15,7 @@ import {
   DUEL_HEAD_Y,
   DUEL_HEAD_RADIUS,
   DUEL_NET_HZ,
+  type DuelMapId,
   type DuelSide,
 } from "@/lib/duel";
 import {
@@ -24,6 +25,7 @@ import {
   ZONE_GRACE_SECONDS,
   ZONE_DAMAGE_PER_SECOND,
   ZONE_FINAL_RADIUS,
+  WEAPON_PRICES,
   type DuelModeId,
 } from "@/lib/duelModes";
 import {
@@ -55,7 +57,7 @@ import {
   playRespawn,
   playMatchEnd,
 } from "@/lib/duelAudio";
-import { loadLayout3D, loadSensitivity3D } from "@/lib/settings3d";
+import { loadLayout3D, loadQuality3D, loadSensitivity3D, type Quality3D } from "@/lib/settings3d";
 import Game3DSettings from "./Game3DSettings";
 
 /** Boite aux lettres partagee avec le parent : aucune mise a jour React par paquet recu. */
@@ -124,6 +126,7 @@ export default function DuelScene({
   opponentName,
   bot,
   mode: modeId,
+  mapId = "arene",
   link,
   onMatchEnd,
 }: {
@@ -131,6 +134,8 @@ export default function DuelScene({
   opponentName: string;
   bot: boolean;
   mode: DuelModeId;
+  /** Carte de l'arene (ignoree en Zone, qui a son propre terrain). */
+  mapId?: DuelMapId;
   /** Ref vers la boite aux lettres reseau : on ne la lit que dans l'effet. */
   link: RefObject<DuelLink>;
   onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number) => void;
@@ -164,12 +169,23 @@ export default function DuelScene({
   });
 
   const [touchDevice, setTouchDevice] = useState(false);
+  /** Mode Economie : argent, manche en cours, phase d'achat et boutique. */
+  const [money, setMoney] = useState(mode.economy?.startMoney ?? 0);
+  const [round, setRound] = useState(1);
+  const [buyLeft, setBuyLeft] = useState(mode.economy?.buySeconds ?? 0);
+  const [shopOpen, setShopOpen] = useState(Boolean(mode.economy));
+  const [roundBanner, setRoundBanner] = useState<string | null>(null);
 
   const onMatchEndRef = useRef(onMatchEnd);
   const sensitivityRef = useRef(1.5);
   const layoutRef = useRef<{ current: "azerty" | "qwerty" } | null>(null);
   const touchRef = useRef({ moveX: 0, moveZ: 0, firing: false });
-  const sceneApiRef = useRef<{ reload: () => void; zoom: () => void } | null>(null);
+  const sceneApiRef = useRef<{
+    reload: () => void;
+    zoom: () => void;
+    applyQuality: (value: Quality3D) => void;
+    buy: (id: WeaponId) => void;
+  } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
 
@@ -198,7 +214,7 @@ export default function DuelScene({
     // ------------------------------------------------------------ la carte
     const useZone = mode.arena === "zone";
     const zoneMap = useZone ? buildZoneMap() : null;
-    const duelMap = useZone ? null : buildDuelMap();
+    const duelMap = useZone ? null : buildDuelMap(mapId);
     const mapW = zoneMap?.width ?? duelMap!.width;
     const mapH = zoneMap?.height ?? duelMap!.height;
     const mapWalls = zoneMap?.walls ?? duelMap!.walls;
@@ -286,9 +302,14 @@ export default function DuelScene({
     );
     camera.rotation.order = "YXZ";
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Qualite graphique : "performance" coupe l'anticrenelage (fixe a la
+    // creation, donc valable au prochain match) et plafonne plus bas la
+    // resolution reelle (modifiable en pleine partie, elle).
+    let quality: Quality3D = loadQuality3D();
+    const pixelRatioCap = () => Math.min(window.devicePixelRatio, quality === "performance" ? 1 : 2);
+    const renderer = new THREE.WebGLRenderer({ antialias: quality !== "performance" });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(pixelRatioCap());
     container.appendChild(renderer.domElement);
     scene.add(camera);
 
@@ -644,6 +665,26 @@ export default function DuelScene({
 
     const audio = createDuelAudio();
 
+    // ------------------------------------------------ economie et manches
+    const eco = mode.economy ?? null;
+    let myMoney = eco?.startMoney ?? 0;
+    let botMoney = eco?.startMoney ?? 0;
+    /** Fin de la phase d'achat : personne ne bouge ni ne tire avant. */
+    let buyUntil = eco ? eco.buySeconds : 0;
+    /** Debut de la manche suivante, -1 tant que la manche est en cours. */
+    let roundResetAt = -1;
+    let roundNumber = 1;
+    /** Qui est mort a la manche precedente : il repart au pistolet. */
+    let iDiedLastRound = false;
+    let botDiedLastRound = false;
+    if (eco) {
+      me.safeUntil = buyUntil;
+      for (const f of fighters) {
+        f.safeUntil = buyUntil;
+        f.nextShotAt = buyUntil + BOT_REACTION;
+      }
+    }
+
     let elapsed = 0;
     let lastTime = performance.now();
     let muzzleUntil = 0;
@@ -785,6 +826,104 @@ export default function DuelScene({
       if (blips.length > 12) blips.shift();
     }
 
+    // ------------------------------------------------ achats et manches
+    function buying() {
+      return Boolean(eco) && elapsed < buyUntil && !ended;
+    }
+
+    function buyWeapon(id: WeaponId) {
+      if (!eco || !buying() || me.dead) return;
+      const price = WEAPON_PRICES[id];
+      if (id === me.weapon) return;
+      if (price > myMoney) {
+        playDryFire(audio.ctx, audio.master);
+        return;
+      }
+      myMoney -= price;
+      setMoney(myMoney);
+      setMyWeapon(id);
+      playReload(audio.ctx, audio.master);
+    }
+
+    /** La Sentinelle depense comme un joueur prudent : elle garde de quoi rebondir. */
+    function botBuy(f: Fighter) {
+      if (!eco) return;
+      const wishes: WeaponId[] = botMoney >= 6500 ? ["sniper", "fusil"] : ["fusil", "pompe", "mitraillette"];
+      for (const w of wishes) {
+        if (f.weapon === w) return;
+        if (WEAPON_PRICES[w] <= botMoney) {
+          botMoney -= WEAPON_PRICES[w];
+          f.weapon = w;
+          f.mag = WEAPONS[w].magSize;
+          return;
+        }
+      }
+    }
+
+    function giveMoney(toMe: boolean, amount: number) {
+      if (!eco) return;
+      if (toMe) {
+        myMoney = Math.min(eco.maxMoney, myMoney + amount);
+        setMoney(myMoney);
+      } else {
+        botMoney = Math.min(eco.maxMoney, botMoney + amount);
+      }
+    }
+
+    /** Une elimination met fin a la manche (1 contre 1). */
+    function endRound(iWon: boolean) {
+      if (!eco || roundResetAt > 0 || ended) return;
+      giveMoney(iWon, eco.killReward + eco.winReward);
+      giveMoney(!iWon, eco.lossReward);
+      iDiedLastRound = !iWon;
+      botDiedLastRound = iWon;
+      setRoundBanner(iWon ? "Manche gagnée" : "Manche perdue");
+      if (!ended) roundResetAt = elapsed + eco.roundEndSeconds;
+    }
+
+    function startRound() {
+      if (!eco) return;
+      roundResetAt = -1;
+      roundNumber += 1;
+      buyUntil = elapsed + eco.buySeconds;
+      // Retour aux apparitions de depart, vie pleine, chargeur plein.
+      const mine = mySpawnPool[0];
+      me.x = mine[0] + 0.5;
+      me.z = mine[1] + 0.5;
+      me.yaw = side === "a" ? -Math.PI * 0.75 : Math.PI * 0.25;
+      me.pitch = 0;
+      me.hp = DUEL_MAX_HP;
+      me.dead = false;
+      me.safeUntil = buyUntil;
+      if (iDiedLastRound) setMyWeapon("pistolet", false);
+      else {
+        me.mag = WEAPONS[me.weapon].magSize;
+        me.reloadUntil = 0;
+        setAmmo(me.mag);
+        setReloading(false);
+      }
+      fighters.forEach((f, i) => {
+        const spawn = enemySpawnPool[i % enemySpawnPool.length];
+        f.x = spawn[0] + 0.5;
+        f.z = spawn[1] + 0.5;
+        f.hp = DUEL_MAX_HP;
+        f.dead = false;
+        f.deathT = 0;
+        f.path = null;
+        f.safeUntil = buyUntil;
+        f.nextShotAt = buyUntil + BOT_REACTION;
+        if (botDiedLastRound) f.weapon = "pistolet";
+        f.mag = WEAPONS[f.weapon].magSize;
+        botBuy(f);
+      });
+      setHp(DUEL_MAX_HP);
+      setRound(roundNumber);
+      setRoundBanner(null);
+      setShopOpen(true);
+      playRespawn(audio.ctx, audio.master);
+      if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
+    }
+
     // ---------------------------------------------------- fin de partie
     function livingCount() {
       return (me.alive ? 1 : 0) + fighters.filter((f) => f.alive).length;
@@ -858,6 +997,7 @@ export default function DuelScene({
         setAlive(livingCount());
       }
       checkVictory();
+      endRound(false);
     }
 
     /** Elimination d'un bot. `byMe` distingue mes frags de ceux des bots. */
@@ -885,6 +1025,7 @@ export default function DuelScene({
         setAlive(livingCount());
       }
       checkVictory();
+      if (byMe) endRound(true);
     }
 
     function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter) {
@@ -974,7 +1115,7 @@ export default function DuelScene({
     }
 
     function fire() {
-      if (me.dead || ended || !me.alive) return;
+      if (me.dead || ended || !me.alive || buying() || roundResetAt > 0) return;
       const spec = WEAPONS[me.weapon];
       if (elapsed < me.nextShotAt) return;
       if (me.reloadUntil > 0) return;
@@ -1086,9 +1227,15 @@ export default function DuelScene({
       if (e.button === 2) toggleZoom(false);
       else firing = false;
     }
+    const SHOP_KEYS: WeaponId[] = ["pistolet", "mitraillette", "pompe", "fusil", "sniper"];
     function onKeyDown(e: KeyboardEvent) {
       keys.add(e.key.toLowerCase());
       if (e.key.toLowerCase() === "r") startReload();
+      if (eco && buying()) {
+        const n = Number(e.key);
+        if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
+        if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
@@ -1134,7 +1281,15 @@ export default function DuelScene({
     renderer.domElement.addEventListener("pointerup", onTouchPointerUp);
     renderer.domElement.addEventListener("pointercancel", onTouchPointerUp);
 
-    sceneApiRef.current = { reload: () => startReload(), zoom: () => toggleZoom() };
+    sceneApiRef.current = {
+      reload: () => startReload(),
+      zoom: () => toggleZoom(),
+      applyQuality: (value) => {
+        quality = value;
+        renderer.setPixelRatio(pixelRatioCap());
+      },
+      buy: (id) => buyWeapon(id),
+    };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
@@ -1234,7 +1389,7 @@ export default function DuelScene({
       if (!f.alive) return;
       if (f.dead) {
         f.deathT = Math.min(1, f.deathT + delta * 2.6);
-        if (mode.respawn && elapsed >= f.respawnAt) {
+        if (mode.respawn && !eco && elapsed >= f.respawnAt) {
           const s = safestSpawn(allSpawns, [{ x: me.x, z: me.z }]);
           f.x = s[0] + 0.5;
           f.z = s[1] + 0.5;
@@ -1419,14 +1574,15 @@ export default function DuelScene({
         setAmmo(spec.magSize);
         setReloading(false);
       }
-      if (me.dead && me.alive && mode.respawn && elapsed >= me.respawnAt) myRespawn();
+      if (me.dead && me.alive && mode.respawn && !eco && elapsed >= me.respawnAt) myRespawn();
+      if (eco && roundResetAt > 0 && elapsed >= roundResetAt && !ended) startRound();
 
       // ------------------------------------------------------- deplacement
       const forwardKey = layout.current === "azerty" ? "z" : "w";
       const leftKey = layout.current === "azerty" ? "q" : "a";
       let fwd = 0;
       let strafe = 0;
-      const canAct = !me.dead && !ended && me.alive;
+      const canAct = !me.dead && !ended && me.alive && !buying() && roundResetAt < 0;
       if (canAct) {
         if (keys.has(forwardKey) || keys.has("arrowup")) fwd += 1;
         if (keys.has("s") || keys.has("arrowdown")) fwd -= 1;
@@ -1545,8 +1701,11 @@ export default function DuelScene({
           updateBot(f, delta, goal);
         }
       } else {
-        for (const f of fighters) {
-          if (f.isBot) updateBot(f, delta);
+        // En Economie, tout le monde est fige pendant les achats et la fin de manche.
+        if (!buying() && roundResetAt < 0) {
+          for (const f of fighters) {
+            if (f.isBot) updateBot(f, delta);
+          }
         }
       }
 
@@ -1647,7 +1806,12 @@ export default function DuelScene({
         uiTimer = 0;
         setHitMarker(hitMarkerLevel);
         setDamageFlash(damageLevel);
-        setRespawnIn(me.dead && me.alive && mode.respawn ? Math.max(0, me.respawnAt - elapsed) : 0);
+        setRespawnIn(me.dead && me.alive && mode.respawn && !eco ? Math.max(0, me.respawnAt - elapsed) : 0);
+        if (eco) {
+          const left = buying() ? Math.max(0, buyUntil - elapsed) : 0;
+          setBuyLeft(Math.ceil(left * 10) / 10);
+          if (left <= 0) setShopOpen(false);
+        }
         setBestRival(
           mode.gunGame
             ? fighters.reduce((m, f) => Math.max(m, f.rank), 0)
@@ -1763,6 +1927,7 @@ export default function DuelScene({
         onSensitivity={(s) => {
           sensitivityRef.current = s;
         }}
+        onQuality={(q) => sceneApiRef.current?.applyQuality(q)}
         className="top-14"
       />
 
@@ -1781,11 +1946,21 @@ export default function DuelScene({
           </>
         ) : (
           <>
+            {mode.economy && (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                Manche {round}
+              </span>
+            )}
             <span className="text-lg font-black text-cyan-300">
               {mode.gunGame ? `${myScore}` : myScore}
             </span>
             <span className="text-xs text-zinc-500">— {scoreGoal} —</span>
             <span className="text-lg font-black text-red-400">{bestRival}</span>
+            {mode.economy && (
+              <span className="ml-1 rounded-full bg-emerald-950/80 px-2 py-0.5 font-mono text-sm font-black text-emerald-300">
+                ${money}
+              </span>
+            )}
           </>
         )}
       </div>
@@ -1923,6 +2098,70 @@ export default function DuelScene({
           </span>
         ))}
       </div>
+
+      {/* Economie : fin de manche */}
+      {mode.economy && roundBanner && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 flex justify-center">
+          <p
+            className={`rounded-xl bg-black/70 px-6 py-3 text-2xl font-black uppercase tracking-wider ${
+              roundBanner === "Manche gagnée" ? "text-emerald-300" : "text-red-400"
+            }`}
+          >
+            {roundBanner}
+          </p>
+        </div>
+      )}
+
+      {/* Economie : phase d'achat */}
+      {mode.economy && buyLeft > 0 && (
+        <div className="absolute inset-x-0 top-14 flex flex-col items-center gap-2 px-3">
+          <div className="pointer-events-none flex items-center gap-3 rounded-full bg-black/75 px-4 py-1.5 backdrop-blur">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Phase d&apos;achat</span>
+            <span className="font-mono text-sm font-black text-white">{buyLeft.toFixed(1)}s</span>
+            <span className="text-[11px] text-zinc-400">1-5 acheter · B boutique</span>
+          </div>
+          {shopOpen && (
+            <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-zinc-950/92 p-3 shadow-2xl backdrop-blur">
+              <div className="mb-2 flex items-baseline justify-between">
+                <p className="text-sm font-black uppercase tracking-wider text-white">Boutique</p>
+                <p className="font-mono text-lg font-black text-emerald-300">${money}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {(["pistolet", "mitraillette", "pompe", "fusil", "sniper"] as WeaponId[]).map((id, i) => {
+                  const w = WEAPONS[id];
+                  const price = WEAPON_PRICES[id];
+                  const owned = weaponName === w.short;
+                  const affordable = price <= money;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => sceneApiRef.current?.buy(id)}
+                      disabled={owned || !affordable}
+                      className={`flex flex-col items-start rounded-lg px-2.5 py-2 text-left ring-1 transition ${
+                        owned
+                          ? "bg-cyan-900/50 ring-cyan-500"
+                          : affordable
+                            ? "bg-white/5 ring-white/10 hover:bg-white/10"
+                            : "cursor-not-allowed bg-white/[0.02] opacity-40 ring-white/5"
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold text-zinc-500">{i + 1}</span>
+                      <span className="text-xs font-bold text-white">{w.name}</span>
+                      <span className={`font-mono text-xs font-bold ${price === 0 ? "text-zinc-400" : "text-emerald-300"}`}>
+                        {owned ? "Équipée" : price === 0 ? "Gratuit" : `$${price}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                Manche gagnée : +$2800 · perdue : +$1500. Si tu meurs, tu repars au pistolet.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Écran de mort */}
       {respawnIn > 0 && (

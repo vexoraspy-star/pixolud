@@ -8,12 +8,15 @@ import {
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
   loadLayout3D,
+  loadQuality3D,
   loadSensitivity3D,
   loadVoice3D,
   saveLayout3D,
+  saveQuality3D,
   saveSensitivity3D,
   saveVoice3D,
   type Layout3D,
+  type Quality3D,
 } from "@/lib/settings3d";
 
 /**
@@ -27,6 +30,7 @@ export default function Game3DSettings({
   onBrightness,
   brightness,
   onVoice,
+  onQuality,
   className = "",
 }: {
   onLayout?: (value: Layout3D) => void;
@@ -36,6 +40,8 @@ export default function Game3DSettings({
   brightness?: number;
   /** Omettre pour masquer le reglage (un jeu sans narration n'en a pas besoin). */
   onVoice?: (value: boolean) => void;
+  /** Omettre pour masquer le reglage (les jeux qui ajustent deja tout seuls n'en ont pas besoin). */
+  onQuality?: (value: Quality3D) => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -43,12 +49,14 @@ export default function Game3DSettings({
   const [sensitivity, setSensitivity] = useState(1.5);
   const [localBrightness, setLocalBrightness] = useState(brightness ?? 1);
   const [voice, setVoice] = useState(true);
+  const [quality, setQuality] = useState<Quality3D>("eleve");
 
   useEffect(() => {
     const t = setTimeout(() => {
       setLayout(loadLayout3D());
       setSensitivity(loadSensitivity3D());
       setVoice(loadVoice3D());
+      setQuality(loadQuality3D());
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -71,6 +79,11 @@ export default function Game3DSettings({
     setVoice(value);
     saveVoice3D(value);
     onVoice?.(value);
+  }
+  function changeQuality(value: Quality3D) {
+    setQuality(value);
+    saveQuality3D(value);
+    onQuality?.(value);
   }
 
   return (
@@ -149,6 +162,31 @@ export default function Game3DSettings({
               >
                 {voice ? "Activée" : "Coupée"}
               </button>
+            </div>
+          )}
+
+          {onQuality && (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <p className="mb-1.5 text-xs font-semibold text-zinc-300">Graphismes</p>
+              <div className="flex gap-2">
+                {(["eleve", "performance"] as Quality3D[]).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => changeQuality(q)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-bold transition ${
+                      quality === q ? "bg-violet-600 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                    }`}
+                  >
+                    {q === "eleve" ? "Élevés" : "Performance"}
+                  </button>
+                ))}
+              </div>
+              {quality === "performance" && (
+                <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+                  Moins de détail, plus d&apos;images par seconde. Change tout de suite.
+                </p>
+              )}
             </div>
           )}
 

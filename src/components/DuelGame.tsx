@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { generateDuelCode, type DuelSide } from "@/lib/duel";
+import { buildDuelMap, DUEL_MAP_INFO, DUEL_MAP_ORDER, generateDuelCode, type DuelMapId, type DuelSide } from "@/lib/duel";
 import { DUEL_MODES, DUEL_MODE_ORDER, type DuelModeId } from "@/lib/duelModes";
 import { WEAPONS, GUN_GAME_ORDER } from "@/lib/duelWeapons";
 import DuelScene, { type DuelLink } from "./DuelScene";
@@ -16,11 +16,32 @@ const MODE_STYLE: Record<DuelModeId, { ring: string; text: string; bg: string }>
   deathmatch: { ring: "ring-orange-600", text: "text-orange-300", bg: "from-orange-800 to-orange-700" },
   armement: { ring: "ring-violet-600", text: "text-violet-300", bg: "from-violet-800 to-violet-700" },
   zone: { ring: "ring-emerald-600", text: "text-emerald-300", bg: "from-emerald-800 to-emerald-700" },
+  economie: { ring: "ring-amber-500", text: "text-amber-300", bg: "from-amber-800 to-amber-700" },
 };
+
+/** Mini-plan de chaque carte, dessine a partir de la vraie grille. */
+function MapThumb({ id }: { id: DuelMapId }) {
+  const map = buildDuelMap(id);
+  return (
+    <svg viewBox={`0 0 ${map.width} ${map.height}`} className="h-16 w-full rounded bg-zinc-800/80" aria-hidden="true">
+      {map.walls.map(([x, y]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={1.02} height={1.02} fill="#0b0f14" />
+      ))}
+      {map.spawns.a.map(([x, y]) => (
+        <circle key={`a${x}-${y}`} cx={x + 0.5} cy={y + 0.5} r={0.55} fill="#22d3ee" />
+      ))}
+      {map.spawns.b.map(([x, y]) => (
+        <circle key={`b${x}-${y}`} cx={x + 0.5} cy={y + 0.5} r={0.55} fill="#f87171" />
+      ))}
+    </svg>
+  );
+}
 
 export default function DuelGame({ title }: { title: string }) {
   const [phase, setPhase] = useState<Phase>("menu");
   const [modeId, setModeId] = useState<DuelModeId>("duel");
+  /** Carte choisie pour les modes solo en arene (en ligne : toujours l'Arene). */
+  const [mapId, setMapId] = useState<DuelMapId>("arene");
   const [joinInput, setJoinInput] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [side, setSide] = useState<DuelSide>("a");
@@ -163,6 +184,7 @@ export default function DuelGame({ title }: { title: string }) {
         side={side}
         bot={bot}
         mode={modeId}
+        mapId={bot ? mapId : "arene"}
         opponentName={opponentName}
         link={link}
         onMatchEnd={(win, mine, theirs, rank) => {
@@ -285,8 +307,36 @@ export default function DuelGame({ title }: { title: string }) {
             </span>
             <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{title}</h1>
             <p className="mx-auto mt-2 max-w-lg text-sm text-zinc-400">
-              Quatre modes, cinq armes. Choisis ton terrain.
+              Cinq modes, cinq armes, trois cartes. Choisis ton terrain.
             </p>
+          </div>
+
+          {/* --- La carte --- */}
+          <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+              Carte <span className="normal-case tracking-normal text-zinc-600">· pour les modes en arène</span>
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {DUEL_MAP_ORDER.map((id) => {
+                const info = DUEL_MAP_INFO[id];
+                const active = mapId === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setMapId(id)}
+                    aria-pressed={active}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg p-2 text-center ring-1 transition ${
+                      active ? "bg-cyan-900/40 ring-cyan-400" : "bg-black/30 ring-white/10 hover:bg-white/5"
+                    }`}
+                  >
+                    <MapThumb id={id} />
+                    <span className="text-sm font-black text-white">{info.name}</span>
+                    <span className="text-[10px] leading-tight text-zinc-400">{info.tagline}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* --- Les modes solo --- */}
@@ -313,8 +363,13 @@ export default function DuelGame({ title }: { title: string }) {
                       {m.bots} adversaire{m.bots > 1 ? "s" : ""}
                     </span>
                     <span className="rounded bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">
-                      {m.arena === "zone" ? "Grand terrain" : "Arène"}
+                      {m.arena === "zone" ? "Grand terrain" : DUEL_MAP_INFO[mapId].name}
                     </span>
+                    {m.economy && (
+                      <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                        Achat d&apos;armes · manches
+                      </span>
+                    )}
                     {!m.respawn && (
                       <span className="rounded bg-red-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-red-300">
                         Une seule vie
@@ -402,6 +457,10 @@ export default function DuelGame({ title }: { title: string }) {
             </p>
             <p>
               <span className="font-semibold text-zinc-300">Recharger</span> — touche R
+            </p>
+            <p>
+              <span className="font-semibold text-zinc-300">Économie</span> — 1 à 5 pour acheter pendant la
+              phase d&apos;achat, B pour la boutique
             </p>
           </div>
         </div>

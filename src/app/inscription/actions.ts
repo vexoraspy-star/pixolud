@@ -85,7 +85,15 @@ export async function resendConfirmationEmail(formData: FormData) {
 
   const query = new URLSearchParams({ email });
   if (error) {
-    query.set("resendError", error.message);
+    // Supabase renvoie ce message brut en anglais quand on redemande un
+    // e-mail trop vite ; on le rend lisible plutot que de l'afficher tel quel.
+    const wait = error.message.match(/after (\d+) seconds?/i)?.[1];
+    query.set(
+      "resendError",
+      wait
+        ? `Attends encore ${wait} seconde${wait === "1" ? "" : "s"} avant de redemander un e-mail.`
+        : error.message,
+    );
   } else {
     query.set("resent", "1");
   }

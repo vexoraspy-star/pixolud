@@ -1,31 +1,90 @@
-// Duel 1v1 : arene symetrique en vue a la premiere personne.
-// La carte est ecrite en ASCII pour rester lisible et modifiable a la main.
-// '#' = mur plein, '.' = sol, 'A'/'B' = points d'apparition des deux joueurs.
+// Duel 1v1 : arene(s) symetrique(s) en vue a la premiere personne.
+// Chaque carte est ecrite en ASCII pour rester lisible et modifiable a la
+// main : '#' = mur plein, '.' = sol, 'A'/'B' = points d'apparition. Toutes
+// sont a symetrie centrale (tourner la carte a 180 degres la laisse
+// identique) : aucun cote n'a un avantage de position sur l'autre.
 
-const MAP_ROWS = [
-  "###################",
-  "#A...............B#",
-  "#..##.........##..#",
-  "#..##.........##..#",
-  "#.......###.......#",
-  "#..#....#.#....#..#",
-  "#..#....#.#....#..#",
-  "#.................#",
-  "#.###.........###.#",
-  "#.................#",
-  "#.###.........###.#",
-  "#.................#",
-  "#..#....#.#....#..#",
-  "#..#....#.#....#..#",
-  "#.......###.......#",
-  "#..##.........##..#",
-  "#..##.........##..#",
-  "#B...............A#",
-  "###################",
-];
+export type DuelMapId = "arene" | "entrepot" | "gouffre";
 
-export const DUEL_WIDTH = MAP_ROWS[0].length;
-export const DUEL_HEIGHT = MAP_ROWS.length;
+const MAPS: Record<DuelMapId, string[]> = {
+  arene: [
+    "###################",
+    "#A...............B#",
+    "#..##.........##..#",
+    "#..##.........##..#",
+    "#.......###.......#",
+    "#..#....#.#....#..#",
+    "#..#....#.#....#..#",
+    "#.................#",
+    "#.###.........###.#",
+    "#.................#",
+    "#.###.........###.#",
+    "#.................#",
+    "#..#....#.#....#..#",
+    "#..#....#.#....#..#",
+    "#.......###.......#",
+    "#..##.........##..#",
+    "#..##.........##..#",
+    "#B...............A#",
+    "###################",
+  ],
+  // Grande et ouverte, des ilots de caisses pour casser les lignes de vue :
+  // le fusil de precision y trouve de vrais couloirs, mais jamais degages
+  // de bout en bout.
+  entrepot: [
+    "#######################",
+    "#A....................#",
+    "#.......###...........#",
+    "#..####.###...........#",
+    "#..####........##.....#",
+    "#..######......##.....#",
+    "#.....###.............#",
+    "#.....................#",
+    "#..###...#####........#",
+    "#..###...#####...###..#",
+    "#........#####...###..#",
+    "#.....................#",
+    "#.............###.....#",
+    "#.....##......######..#",
+    "#.....##........####..#",
+    "#...........###.####..#",
+    "#...........###.......#",
+    "#....................B#",
+    "#######################",
+  ],
+  // Serree, des couloirs coudes : le corps a corps et la mitraillette y
+  // dominent, le sniper n'y a presque aucune ligne droite.
+  gouffre: [
+    "###################",
+    "#A....#...........#",
+    "#.....#...........#",
+    "#.#####...........#",
+    "#.....#.##....##..#",
+    "#.......##..#.##..#",
+    "#...........#.....#",
+    "#..#######..#.....#",
+    "#.....#.....#.....#",
+    "#.....#..#######..#",
+    "#.....#...........#",
+    "#..##.#..##.......#",
+    "#..##....##.#.....#",
+    "#...........#####.#",
+    "#...........#.....#",
+    "#...........#....B#",
+    "###################",
+  ],
+};
+
+export const DUEL_MAP_ORDER: DuelMapId[] = ["arene", "entrepot", "gouffre"];
+
+export const DUEL_MAP_INFO: Record<DuelMapId, { name: string; tagline: string }> = {
+  arene: { name: "Arène", tagline: "Symétrique, corridors serrés" },
+  entrepot: { name: "Entrepôt", tagline: "Grande, caisses en îlots" },
+  gouffre: { name: "Gouffre", tagline: "Couloirs coudés, corps à corps" },
+};
+
+export const DUEL_WIDTH = MAPS.arene[0].length;
+export const DUEL_HEIGHT = MAPS.arene.length;
 export const DUEL_CELL = 1.9;
 export const DUEL_WALL_HEIGHT = 3.4;
 
@@ -39,10 +98,11 @@ export interface DuelMap {
   spawns: Record<DuelSide, [number, number][]>;
 }
 
-export function buildDuelMap(): DuelMap {
+export function buildDuelMap(mapId: DuelMapId = "arene"): DuelMap {
+  const rows = MAPS[mapId];
   const walls: [number, number][] = [];
   const spawns: Record<DuelSide, [number, number][]> = { a: [], b: [] };
-  MAP_ROWS.forEach((row, y) => {
+  rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       const c = row[x];
       if (c === "#") walls.push([x, y]);
@@ -50,7 +110,7 @@ export function buildDuelMap(): DuelMap {
       else if (c === "B") spawns.b.push([x, y]);
     }
   });
-  return { width: DUEL_WIDTH, height: DUEL_HEIGHT, walls, spawns };
+  return { width: rows[0].length, height: rows.length, walls, spawns };
 }
 
 // --- Reglages de jeu ---
