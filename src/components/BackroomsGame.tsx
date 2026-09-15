@@ -16,6 +16,7 @@ import {
 } from "@/lib/backroomsNet";
 import { VoiceHub, type MicState, type VoiceSignal } from "@/lib/backroomsVoice";
 import BackroomsScene, { type DeathCause, type LevelStats } from "./BackroomsScene";
+import BackroomsLobbyStage from "./BackroomsLobbyStage";
 
 // Deroule des Backrooms : menu, niveaux enchaines, mort, fin.
 // Le niveau le plus loin atteint est garde dans le navigateur, pour pouvoir
@@ -503,7 +504,15 @@ export default function BackroomsGame({
           </div>
           <p className="mt-2 text-[12px] opacity-70">Donne ce code à tes amis : ils le tapent dans « Rejoindre un groupe ».</p>
 
-          <p className="mt-8 text-[11px] tracking-[0.4em] opacity-60">
+          {/* Les personnages du groupe : chaque nouveau entre par la porte. */}
+          <div className="mt-6">
+            <BackroomsLobbyStage
+              members={members.map((m, i) => ({ id: m.id, name: m.id === selfId ? `${m.name} (toi)` : m.name, color: i }))}
+              speaking={speaking}
+            />
+          </div>
+
+          <p className="mt-6 text-[11px] tracking-[0.4em] opacity-60">
             SURVIVANTS {members.length}/{MAX_PARTY}
           </p>
           <ul className="mt-3 flex flex-col gap-2">
@@ -531,7 +540,8 @@ export default function BackroomsGame({
             <p className="text-[11px] tracking-[0.4em] opacity-60">SALON VOCAL</p>
             <p className="mt-2 text-[12px] leading-relaxed opacity-80">
               Parlez-vous au salon et en jeu. En jeu, la voix de chacun sort de son personnage : plus il est loin,
-              moins tu l&apos;entends, et un mur l&apos;étouffe. <span className="text-red-400">La créature entend aussi quand vous parlez.</span>
+              moins tu l&apos;entends, et un mur l&apos;étouffe.{" "}
+              <span className="text-red-400">Si vous parlez trop fort, la créature vous entend.</span>
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               {micState !== "actif" ? (
@@ -781,7 +791,8 @@ export default function BackroomsGame({
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed opacity-85">
             Tu as traversé le sol par accident. Derrière : de la moquette humide, des néons qui bourdonnent, et des
-            couloirs jaunes qui ne mènent nulle part. Trouve la sortie de chaque niveau. Ne reste pas dans le noir.
+            couloirs jaunes sur plusieurs étages qui ne mènent nulle part. Trouve la sortie de chaque niveau — souvent
+            en haut des escaliers. Ne reste pas dans le noir.
           </p>
 
           <div className="mt-8 flex flex-col items-start gap-3">
@@ -813,7 +824,7 @@ export default function BackroomsGame({
               <span>
                 <span className="block font-bold">{talkSolo ? "PARLER EN JEU : ACTIVÉ" : "PARLER EN JEU"}</span>
                 <span className="block text-[10px] normal-case tracking-normal opacity-75">
-                  {talkSolo ? "Ton micro est ouvert : si tu parles, elle t'entend." : "Active ton micro : parler ou crier fait du bruit, et elle l'entend."}
+                  {talkSolo ? "Micro ouvert : parle bas, si tu parles trop fort elle t'entend." : "Active ton micro : si tu parles trop fort ou si tu cries, elle t'entend."}
                 </span>
               </span>
             </button>
@@ -827,7 +838,7 @@ export default function BackroomsGame({
           <p className="text-[11px] tracking-[0.4em] opacity-60">JOUER EN GROUPE · VOCAL</p>
           <p className="mt-2 max-w-xl text-[12px] leading-relaxed opacity-80">
             Jusqu&apos;à {MAX_PARTY} survivants avec un code. Vous vous parlez au micro, en jeu la voix vient du personnage — et la
-            créature entend chaque mot.
+            créature entend ceux qui parlent trop fort.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button

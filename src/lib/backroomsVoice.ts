@@ -16,6 +16,12 @@ export type VoiceSignal =
 
 export type MicState = "off" | "demande" | "actif" | "refuse" | "indisponible";
 
+/**
+ * Volume du micro (0 a 1) au-dela duquel la creature entend. Parler
+ * normalement reste en dessous ; hausser le ton ou crier passe au-dessus.
+ */
+export const VOICE_LOUD = 0.55;
+
 interface Peer {
   pc: RTCPeerConnection;
   polite: boolean;

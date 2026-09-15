@@ -47,7 +47,15 @@ export interface LevelDef {
   batteryCount: number;
   /** Fusibles ou vannes a trouver. */
   goalCount: number;
+  /**
+   * Etage superieur, relie au rez par des escaliers. `height` est alors le
+   * nombre de lignes du rez, et `rows` celui de l'etage.
+   */
+  upper?: { rows: number; stairs: number };
 }
+
+/** Longueur d'une cage d'escalier, en cases : la rampe monte d'une hauteur de mur. */
+export const STAIR_ROWS = 8;
 
 export const LEVELS: LevelDef[] = [
   {
@@ -61,7 +69,8 @@ export const LEVELS: LevelDef[] = [
     cellSize: 2,
     wallHeight: 2.8,
     width: 70,
-    height: 70,
+    height: 56,
+    upper: { rows: 40, stairs: 2 },
     walk: 3.1,
     sprint: 5.4,
     crouch: 1.6,
@@ -89,7 +98,8 @@ export const LEVELS: LevelDef[] = [
     cellSize: 2.5,
     wallHeight: 4.2,
     width: 60,
-    height: 60,
+    height: 48,
+    upper: { rows: 34, stairs: 2 },
     walk: 3.1,
     sprint: 5.4,
     crouch: 1.6,
@@ -117,7 +127,8 @@ export const LEVELS: LevelDef[] = [
     cellSize: 1.9,
     wallHeight: 2.5,
     width: 51,
-    height: 51,
+    height: 41,
+    upper: { rows: 31, stairs: 2 },
     walk: 3,
     sprint: 5.2,
     crouch: 1.5,
@@ -196,6 +207,92 @@ export interface LightSpot {
 
 export type PickupKind = "eau" | "pile" | "fusible";
 
+/**
+ * Decor sans collision : plaque contre un mur, pose a plat au sol, ou accroche
+ * au plafond. Rien de ce qui est ici ne bloque le passage — seuls les
+ * obstacles du niveau « ! » (des cases pleines) sont dessines comme des objets.
+ */
+export type DecorKind =
+  | "extincteur"
+  | "affiche"
+  | "gyrophare"
+  | "boitier"
+  | "ventilation"
+  | "manometre"
+  | "griffures"
+  | "flaque"
+  | "papiers"
+  | "grille"
+  | "palette"
+  | "dalle"
+  | "cables";
+
+export type DecorPlace = "mur" | "sol" | "plafond";
+
+export interface DecorItem {
+  kind: DecorKind;
+  x: number;
+  y: number;
+  /** Pour un objet au mur (ou une palette) : le mur vers lequel il est tourne. */
+  dir: Dir;
+  /** 0 a 3 : texte d'affiche, taille de flaque, orientation... */
+  variant: number;
+}
+
+export const DECOR_PLACE: Record<DecorKind, DecorPlace> = {
+  extincteur: "mur",
+  affiche: "mur",
+  gyrophare: "mur",
+  boitier: "mur",
+  ventilation: "mur",
+  manometre: "mur",
+  griffures: "mur",
+  flaque: "sol",
+  papiers: "sol",
+  grille: "sol",
+  palette: "sol",
+  dalle: "plafond",
+  cables: "plafond",
+};
+
+/** Densite de chaque decor, en « un pour N cases libres », niveau par niveau. */
+const DECOR_PLAN: Record<LevelId, [DecorKind, number][]> = {
+  // Le Hall reste vide, c'est son horreur : juste des traces de vie.
+  "niveau-0": [
+    ["ventilation", 80],
+    ["flaque", 110],
+    ["papiers", 150],
+    ["dalle", 120],
+    ["affiche", 380],
+  ],
+  "niveau-1": [
+    ["palette", 70],
+    ["boitier", 130],
+    ["extincteur", 160],
+    ["flaque", 110],
+    ["cables", 100],
+    ["affiche", 300],
+  ],
+  "niveau-2": [
+    ["manometre", 60],
+    ["grille", 55],
+    ["griffures", 85],
+    ["boitier", 170],
+    ["affiche", 260],
+  ],
+  // Le couloir de la course : panneaux de fuite, extincteurs, et les traces
+  // de ceux qui sont passes avant.
+  "niveau-run": [
+    ["papiers", 11],
+    ["griffures", 16],
+    ["flaque", 18],
+    ["affiche", 20],
+    ["extincteur", 26],
+    ["cables", 24],
+    ["grille", 30],
+  ],
+};
+
 export interface ArrowDecal extends WallSpot {
   /** Sens de la fleche, vu face au mur. */
   arrow: "gauche" | "droite";
@@ -221,6 +318,25 @@ export interface LevelData {
   entityStart: { x: number; y: number } | null;
   /** Distance BFS depuis le depart, -1 si inaccessible. */
   distance: Int32Array;
+  /** Lignes du rez-de-chaussee. Toute la carte si le niveau n'a pas d'etage. */
+  groundRows: number;
+  /** Lignes de la cage d'escalier (0 sans etage) ; l'etage commence juste apres. */
+  stairRows: number;
+  /** Colonnes de chaque escalier (trois cases de large). */
+  stairs: { x0: number; x1: number }[];
+  decor: DecorItem[];
+}
+
+/**
+ * Hauteur du sol sous une position (en cases). Comme au Manoir, la grille
+ * reste plate : l'etage est « plus loin » vers le sud, et la cage d'escalier
+ * fait monter le sol d'une hauteur de mur. On ne voit jamais les deux zones
+ * cote a cote : un bandeau de murs pleins les separe.
+ */
+export function floorYAt(data: Pick<LevelData, "groundRows" | "stairRows"> & { def: Pick<LevelDef, "wallHeight"> }, z: number): number {
+  if (data.stairRows <= 0 || z <= data.groundRows) return 0;
+  if (z >= data.groundRows + data.stairRows) return data.def.wallHeight;
+  return ((z - data.groundRows) / data.stairRows) * data.def.wallHeight;
 }
 
 /** Generateur pseudo-aleatoire a graine : une meme graine redonne le meme niveau. */
@@ -555,10 +671,16 @@ function spreadCells(
 export function generateLevel(def: LevelDef, seed: number): LevelData {
   const rng = mulberry32(seed ^ (def.width * 7919));
   const w = def.width;
-  const h = def.height;
+  const h = def.height + (def.upper ? STAIR_ROWS + def.upper.rows : 0);
   let cells: Uint8Array;
   let start = { x: Math.floor(w / 2), y: Math.floor(h / 2) };
   let runEnd: { x: number; y: number } | null = null;
+
+  const groundRows = def.height;
+  const stairRows = def.upper ? STAIR_ROWS : 0;
+  const stairs: { x0: number; x1: number }[] = [];
+  const genFloor = (fw: number, fh: number) =>
+    def.id === "niveau-1" ? genWarehouse(fw, fh, rng) : def.id === "niveau-2" ? genPipes(fw, fh, rng) : genHall(fw, fh, rng);
 
   if (def.id === "niveau-run") {
     const run = genRun(w, h, rng);
@@ -566,22 +688,55 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     start = { x: 2, y: 2 };
     runEnd = run.end;
   } else {
-    cells = def.id === "niveau-1" ? genWarehouse(w, h, rng) : def.id === "niveau-2" ? genPipes(w, h, rng) : genHall(w, h, rng);
-    // Le depart est la case libre la plus proche du centre.
+    const ground = genFloor(w, groundRows);
+    // Le depart est la case libre du rez la plus proche de son centre.
     let best = -1;
     let bestD = Infinity;
-    for (let i = 0; i < cells.length; i++) {
-      if (cells[i] !== CELL_OPEN) continue;
+    for (let i = 0; i < ground.length; i++) {
+      if (ground[i] !== CELL_OPEN) continue;
       const x = i % w;
       const y = (i - x) / w;
-      const d = Math.abs(x - w / 2) + Math.abs(y - h / 2);
-      if (d < bestD && surroundedByOpen(cells, w, h, x, y, def.id === "niveau-2" ? 0 : 1)) {
+      const d = Math.abs(x - w / 2) + Math.abs(y - groundRows / 2);
+      if (d < bestD && surroundedByOpen(ground, w, groundRows, x, y, def.id === "niveau-2" ? 0 : 1)) {
         bestD = d;
         best = i;
       }
     }
-    if (best < 0) best = cells.indexOf(CELL_OPEN);
+    if (best < 0) best = ground.indexOf(CELL_OPEN);
     start = { x: best % w, y: Math.floor(best / w) };
+
+    if (!def.upper) {
+      cells = ground;
+    } else {
+      // Escaliers repartis sur la largeur, jamais colles au bord.
+      for (let k = 0; k < def.upper.stairs; k++) {
+        const center = Math.round(((k + 1) / (def.upper.stairs + 1)) * w) + randInt(rng, -3, 3);
+        const xc = Math.max(3, Math.min(w - 4, center));
+        stairs.push({ x0: xc - 1, x1: xc + 1 });
+      }
+      const upper = genFloor(w, def.upper.rows);
+      // Paliers : trois lignes degagees de chaque cote de la cage, bords compris.
+      for (const st of stairs) {
+        for (let x = st.x0; x <= st.x1; x++) {
+          for (let y = groundRows - 3; y < groundRows; y++) ground[y * w + x] = CELL_OPEN;
+          for (let y = 0; y < 3; y++) upper[y * w + x] = CELL_OPEN;
+        }
+      }
+      // Chaque etage est relie en interne AVANT l'assemblage : un couloir de
+      // secours ne doit jamais traverser le bandeau entre les deux etages.
+      ground[start.y * w + start.x] = CELL_OPEN;
+      ensureConnected(ground, w, groundRows, start.x, start.y);
+      ensureConnected(upper, w, def.upper.rows, stairs[0].x0 + 1, 1);
+
+      cells = new Uint8Array(w * h).fill(CELL_WALL);
+      cells.set(ground, 0);
+      cells.set(upper, (groundRows + stairRows) * w);
+      for (const st of stairs) {
+        for (let y = groundRows; y < groundRows + stairRows; y++) {
+          for (let x = st.x0; x <= st.x1; x++) cells[y * w + x] = CELL_OPEN;
+        }
+      }
+    }
   }
   cells[start.y * w + start.x] = CELL_OPEN;
   ensureConnected(cells, w, h, start.x, start.y);
@@ -602,7 +757,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     exit = { x: runEnd.x, y: runEnd.y, dir: runEnd.x === 1 ? "W" : "E" };
   } else {
     const far = reachable
-      .filter((i) => distance[i] >= maxDist * 0.82)
+      .filter((i) => distance[i] >= maxDist * 0.82 && !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows))
       .map((i) => ({ x: i % w, y: Math.floor(i / w) }))
       .map((c) => ({ ...c, dirs: wallDirs(cells, w, h, c.x, c.y) }))
       .filter((c) => c.dirs.length > 0);
@@ -612,6 +767,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
 
   // --- Lumieres ---
   const lights: LightSpot[] = [];
+  const inStairwell = (y: number) => stairRows > 0 && y >= groundRows && y < groundRows + stairRows;
   const lightState = (deadChance: number, flickerChance: number): 0 | 1 | 2 => {
     const r = rng();
     return r < deadChance ? 1 : r < deadChance + flickerChance ? 2 : 0;
@@ -619,13 +775,13 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   if (def.lighting === "neons") {
     for (let y = 1; y < h - 1; y += 3) {
       for (let x = 1; x < w - 1; x += 2) {
-        if (cells[y * w + x] === CELL_OPEN) lights.push({ x, y, state: lightState(0.07, 0.06) });
+        if (cells[y * w + x] === CELL_OPEN && !inStairwell(y)) lights.push({ x, y, state: lightState(0.07, 0.06) });
       }
     }
   } else if (def.lighting === "entrepot") {
     for (let y = 2; y < h - 1; y += 4) {
       for (let x = 2; x < w - 1; x += 4) {
-        if (cells[y * w + x] === CELL_OPEN) lights.push({ x, y, state: lightState(0.22, 0.1) });
+        if (cells[y * w + x] === CELL_OPEN && !inStairwell(y)) lights.push({ x, y, state: lightState(0.22, 0.1) });
       }
     }
   } else if (def.lighting === "secours") {
@@ -633,7 +789,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     for (const i of reachable) {
       const x = i % w;
       const y = (i - x) / w;
-      if ((x * 7 + y * 13) % 9 !== 0) continue;
+      if ((x * 7 + y * 13) % 9 !== 0 || inStairwell(y)) continue;
       const dirs = wallDirs(cells, w, h, x, y);
       if (dirs.length === 0 || rng() < 0.35) continue;
       lights.push({ x, y, state: lightState(0.15, 0.2), wall: dirs[0] });
@@ -650,7 +806,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   const openReachable = reachable.filter((i) => {
     const x = i % w;
     const y = (i - x) / w;
-    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y);
+    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y) && !inStairwell(y);
   });
   const pickups: LevelData["pickups"] = [];
   const valves: WallSpot[] = [];
@@ -734,6 +890,67 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     entityStart = { x: i % w, y: Math.floor(i / w) };
   }
 
+  // --- Decor ---
+  // Generateur a part : ajouter du decor ne deplace ni la sortie ni les objets
+  // d'une graine donnee, et tout le groupe voit exactement le meme niveau.
+  const decor: DecorItem[] = [];
+  {
+    const drng = mulberry32((seed ^ 0x5eed1e) + def.width * 31);
+    const faceKey = (x: number, y: number, d: Dir) => `${x},${y},${d}`;
+    const usedFaces = new Set<string>([faceKey(exit.x, exit.y, exit.dir)]);
+    for (const v of valves) usedFaces.add(faceKey(v.x, v.y, v.dir));
+    for (const a of arrows) usedFaces.add(faceKey(a.x, a.y, a.dir));
+    for (const l of lights) if (l.wall) usedFaces.add(faceKey(l.x, l.y, l.wall));
+    const usedFloor = new Set<number>([start.y * w + start.x, exit.y * w + exit.x]);
+    for (const pk of pickups) usedFloor.add(pk.y * w + pk.x);
+    for (const v of valves) usedFloor.add(v.y * w + v.x);
+    const usedCeiling = new Set<number>();
+    const pool = reachable.filter((i) => !inStairwell(Math.floor(i / w)));
+
+    // Gyrophares du couloir de la course : reguliers, un tous les huit metres.
+    if (def.id === "niveau-run") {
+      for (const i of pool) {
+        const x = i % w;
+        const y = (i - x) / w;
+        if (x % 5 !== 2) continue;
+        for (const d of ["N", "S"] as Dir[]) {
+          const [dx, dy] = DIRS[d];
+          if (cells[(y + dy) * w + (x + dx)] !== CELL_WALL) continue;
+          if (usedFaces.has(faceKey(x, y, d))) continue;
+          usedFaces.add(faceKey(x, y, d));
+          decor.push({ kind: "gyrophare", x, y, dir: d, variant: randInt(drng, 0, 3) });
+        }
+      }
+    }
+
+    for (const [kind, every] of DECOR_PLAN[def.id]) {
+      const count = Math.round(pool.length / every);
+      const place = DECOR_PLACE[kind];
+      for (let n = 0; n < count; n++) {
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const i = pool[Math.floor(drng() * pool.length)];
+          const x = i % w;
+          const y = (i - x) / w;
+          const dirs = wallDirs(cells, w, h, x, y).filter((d) => !usedFaces.has(faceKey(x, y, d)));
+          if (place === "mur" || kind === "palette") {
+            if (dirs.length === 0) continue;
+            if (kind === "palette" && usedFloor.has(i)) continue;
+            const dir = dirs[Math.floor(drng() * dirs.length)];
+            usedFaces.add(faceKey(x, y, dir));
+            if (kind === "palette") usedFloor.add(i);
+            decor.push({ kind, x, y, dir, variant: randInt(drng, 0, 3) });
+            break;
+          }
+          const used = place === "sol" ? usedFloor : usedCeiling;
+          if (used.has(i)) continue;
+          used.add(i);
+          decor.push({ kind, x, y, dir: "N", variant: randInt(drng, 0, 3) });
+          break;
+        }
+      }
+    }
+  }
+
   // Regard de depart : vers la plus longue ligne droite libre.
   let startYaw = 0;
   let longest = -1;
@@ -747,5 +964,23 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     }
   }
 
-  return { def, width: w, height: h, cells, start, startYaw, exit, lights, pickups, valves, arrows, entityStart, distance };
+  return {
+    def,
+    width: w,
+    height: h,
+    cells,
+    start,
+    startYaw,
+    exit,
+    lights,
+    pickups,
+    valves,
+    arrows,
+    entityStart,
+    distance,
+    groundRows: stairRows > 0 ? groundRows : h,
+    stairRows,
+    stairs,
+    decor,
+  };
 }

@@ -8,6 +8,7 @@ import {
   CELL_RACK,
   CELL_WALL,
   DIRS,
+  floorYAt,
   generateLevel,
   isSolidCell,
   mulberry32,
@@ -49,9 +50,15 @@ import {
   playFlicker,
   playFuse,
   playGasp,
+  playGrab,
+  playGripValve,
+  playHandle,
   playHeartbeat,
   playNoclip,
   playPowerOn,
+  playRunBreath,
+  playRunStart,
+  playRunStride,
   playSmilerGiggle,
   playSmilerRush,
   playStep,
@@ -69,8 +76,9 @@ import {
   poseSmiler,
 } from "@/lib/backroomsEntities";
 import { buildHandRig, buildSurvivor, makeGlowTexture, SURVIVOR_COLORS, type Survivor } from "@/lib/backroomsCharacters";
+import { buildDecor } from "@/lib/backroomsDecor";
 import type { NetEvent, PartyLink } from "@/lib/backroomsNet";
-import type { VoiceHub } from "@/lib/backroomsVoice";
+import { VOICE_LOUD, type VoiceHub } from "@/lib/backroomsVoice";
 import { NOISE_RADIUS, pruneNoises, wallsBetween, type Noise, type NoiseKind } from "@/lib/manorNoise";
 import { createBrain, thinkMonster, type BrainState, type MapQuery, type SpeedMode } from "@/lib/manorAI";
 import Game3DSettings from "./Game3DSettings";
@@ -116,6 +124,7 @@ const INTRO_SECONDS = 4.2;
 const NOCLIP_SECONDS = 1.6;
 /** Metres par case du Manoir : les rayons de bruit y ont ete regles. */
 const MANOR_CELL = 1.7;
+
 
 type HudObjective = { title: string; detail: string };
 
@@ -432,22 +441,49 @@ export default function BackroomsScene({
     const floorMat = own(new THREE.MeshLambertMaterial({ map: floorTex }));
     const ceilMat = own(new THREE.MeshLambertMaterial({ map: ceilTex }));
 
+    // --- Etages ---
+    // Hauteur du sol sous une ligne de la grille. Le rez va jusqu'a
+    // `GROUND`, la cage d'escalier jusqu'a `UPPER`, puis l'etage.
+    const floorY = (z: number) => floorYAt(data, z);
+    const multiFloor = data.stairRows > 0;
+    const GROUND = data.groundRows;
+    const UPPER = data.groundRows + data.stairRows;
+    const inStairwell = (row: number) => multiFloor && row >= GROUND && row < UPPER;
+
     // --- Sol et plafond ---
-    const planeGeo = own(new THREE.PlaneGeometry(W * CS, H * CS));
-    const floor = new THREE.Mesh(planeGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set((W * CS) / 2, 0, (H * CS) / 2);
-    scene.add(floor);
-    const ceiling = new THREE.Mesh(planeGeo, ceilMat);
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set((W * CS) / 2, WH, (H * CS) / 2);
-    scene.add(ceiling);
+    function slab(mat: THREE.MeshLambertMaterial, z0: number, z1: number, y: number, up: boolean) {
+      const rows = z1 - z0;
+      if (rows <= 0) return;
+      let material = mat;
+      if (rows !== H && mat.map) {
+        // Meme densite de motif que sur toute la carte : on reduit la repetition.
+        const t = own(mat.map.clone());
+        t.repeat.set(mat.map.repeat.x, (mat.map.repeat.y * rows) / H);
+        t.needsUpdate = true;
+        material = own(new THREE.MeshLambertMaterial({ map: t }));
+      }
+      const mesh = new THREE.Mesh(own(new THREE.PlaneGeometry(W * CS, rows * CS)), material);
+      mesh.rotation.x = up ? -Math.PI / 2 : Math.PI / 2;
+      mesh.position.set((W * CS) / 2, y, (z0 + rows / 2) * CS);
+      scene.add(mesh);
+    }
+    if (!multiFloor) {
+      slab(floorMat, 0, H, 0, true);
+      slab(ceilMat, 0, H, WH, false);
+    } else {
+      slab(floorMat, 0, GROUND, 0, true);
+      slab(floorMat, UPPER, H, WH, true);
+      slab(ceilMat, 0, GROUND, WH, false);
+      // Au-dessus de la cage d'escalier et de l'etage, le plafond est une hauteur plus haut.
+      slab(ceilMat, GROUND, H, WH * 2, false);
+    }
 
     // --- Murs et piliers ---
     const wallCells: number[] = [];
     const rackCells: number[] = [];
     for (let i = 0; i < cells.length; i++) {
-      if (cells[i] === CELL_WALL || cells[i] === CELL_PILLAR) wallCells.push(i);
+      // Au niveau « ! », les obstacles sont dessines en objets par le decor.
+      if (cells[i] === CELL_WALL || (cells[i] === CELL_PILLAR && def.id !== "niveau-run")) wallCells.push(i);
       else if (cells[i] === CELL_RACK) rackCells.push(i);
     }
     // On ne dessine que les murs qui touchent une case libre : l'interieur
@@ -469,16 +505,65 @@ export default function BackroomsScene({
     const s4 = new THREE.Vector3(1, 1, 1);
     wallMats.forEach((mat, variant) => {
       const mine = visibleWalls.filter((i) => ((i * 2654435761) >>> 0) % 3 === variant);
-      const mesh = new THREE.InstancedMesh(wallGeo, mat, Math.max(1, mine.length));
-      mine.forEach((i, k) => {
+      const mesh = new THREE.InstancedMesh(wallGeo, mat, Math.max(1, mine.length * (multiFloor ? 2 : 1)));
+      let k = 0;
+      mine.forEach((i) => {
         const x = i % W;
         const y = (i - x) / W;
-        m4.makeTranslation((x + 0.5) * CS, WH / 2, (y + 0.5) * CS);
-        mesh.setMatrixAt(k, m4);
+        // Deux murs empiles plutot qu'un mur etire : le papier peint garde ses proportions.
+        if (!multiFloor || y < UPPER) {
+          m4.makeTranslation((x + 0.5) * CS, WH / 2, (y + 0.5) * CS);
+          mesh.setMatrixAt(k++, m4);
+        }
+        if (multiFloor && y >= GROUND) {
+          m4.makeTranslation((x + 0.5) * CS, WH + WH / 2, (y + 0.5) * CS);
+          mesh.setMatrixAt(k++, m4);
+        }
       });
-      mesh.count = mine.length;
+      mesh.count = k;
       scene.add(mesh);
     });
+
+    // --- Decor : affiches, extincteurs, flaques, gyrophares, obstacles du niveau « ! » ---
+    const decor = buildDecor({ data, cellSize: CS, wallHeight: WH, floorY });
+    scene.add(decor.group);
+
+    // --- Escaliers : de vraies marches, on monte dessus pour de bon ---
+    if (multiFloor) {
+      const stepColor = def.id === "niveau-1" ? 0x55524c : def.id === "niveau-2" ? 0x35302c : 0x8a7a42;
+      const stepMat = own(new THREE.MeshLambertMaterial({ color: stepColor }));
+      const noseMat = own(new THREE.MeshLambertMaterial({ color: def.id === "niveau-0" ? 0x5e5128 : 0x24211e }));
+      const STEPS = data.stairRows * 2;
+      const stepDepth = (data.stairRows * CS) / STEPS;
+      const railMat = own(new THREE.MeshLambertMaterial({ color: 0x2b2a26 }));
+      const railLength = Math.hypot(data.stairRows * CS, WH);
+      const railGeo = own(new THREE.BoxGeometry(0.07, 0.07, railLength));
+      for (const st of data.stairs) {
+        const stairWidth = (st.x1 - st.x0 + 1) * CS;
+        const stepGeo = own(new THREE.BoxGeometry(stairWidth, 1, stepDepth));
+        const noseGeo = own(new THREE.BoxGeometry(stairWidth, 0.04, 0.06));
+        const steps = new THREE.InstancedMesh(stepGeo, stepMat, STEPS);
+        const noses = new THREE.InstancedMesh(noseGeo, noseMat, STEPS);
+        const cx = ((st.x0 + st.x1 + 1) / 2) * CS;
+        for (let i = 0; i < STEPS; i++) {
+          const zFront = GROUND + ((i + 1) * data.stairRows) / STEPS;
+          const top = floorY(zFront);
+          const zCenter = (GROUND + ((i + 0.5) * data.stairRows) / STEPS) * CS;
+          m4.compose(v4.set(cx, top / 2, zCenter), q4.identity(), s4.set(1, Math.max(top, 0.02), 1));
+          steps.setMatrixAt(i, m4);
+          // Nez de marche plus sombre : on lit chaque marche, meme sans lampe.
+          m4.compose(v4.set(cx, top + 0.005, (GROUND + (i * data.stairRows) / STEPS) * CS + 0.03), q4.identity(), s4.set(1, 1, 1));
+          noses.setMatrixAt(i, m4);
+        }
+        scene.add(steps, noses);
+        for (const side of [st.x0, st.x1 + 1]) {
+          const rail = new THREE.Mesh(railGeo, railMat);
+          rail.position.set(side * CS + (side === st.x0 ? 0.12 : -0.12), WH / 2 + 0.95, (GROUND + data.stairRows / 2) * CS);
+          rail.rotation.x = -Math.atan2(WH, data.stairRows * CS);
+          scene.add(rail);
+        }
+      }
+    }
 
     // --- Rayonnages du niveau 1 ---
     if (rackCells.length > 0) {
@@ -498,12 +583,13 @@ export default function BackroomsScene({
       for (const i of rackCells) {
         const cx = ((i % W) + 0.5) * CS;
         const cz = (Math.floor(i / W) + 0.5) * CS;
+        const baseY = floorY(Math.floor(i / W) + 0.5);
         const half = CS * 0.46;
         for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-          put(frame, fi++, cx + ox * half, rackH / 2, cz + oz * half, 0.07, rackH, 0.07);
+          put(frame, fi++, cx + ox * half, baseY + rackH / 2, cz + oz * half, 0.07, rackH, 0.07);
         }
         for (let s = 0; s < 3; s++) {
-          const sy = 0.35 + s * ((rackH - 0.5) / 2);
+          const sy = baseY + 0.35 + s * ((rackH - 0.5) / 2);
           put(frame, fi++, cx, sy, cz, CS * 0.96, 0.05, CS * 0.96);
           for (let b = 0; b < 3 && bi < rackCells.length * 8; b++) {
             if (rng() < 0.3) continue;
@@ -524,6 +610,7 @@ export default function BackroomsScene({
       const pipeGeo = own(new THREE.CylinderGeometry(0.06, 0.06, CS, 8));
       const faces: { x: number; z: number; along: "x" | "z" }[] = [];
       for (const [x, y] of reachable) {
+        if (inStairwell(y)) continue;
         for (const [dx, dy] of Object.values(DIRS)) {
           if (!isSolid(x + dx, y + dy)) continue;
           faces.push({ x: (x + 0.5 + dx * 0.43) * CS, z: (y + 0.5 + dy * 0.43) * CS, along: dx !== 0 ? "z" : "x" });
@@ -532,7 +619,8 @@ export default function BackroomsScene({
       const pipes = new THREE.InstancedMesh(pipeGeo, pipeMat, faces.length * 2);
       let pi = 0;
       for (const f of faces) {
-        for (const py of [WH - 0.32, WH - 0.55]) {
+        const baseY = floorY(f.z / CS);
+        for (const py of [baseY + WH - 0.32, baseY + WH - 0.55]) {
           q4.setFromEuler(new THREE.Euler(f.along === "x" ? 0 : Math.PI / 2, 0, f.along === "x" ? Math.PI / 2 : 0));
           m4.compose(v4.set(f.x, py, f.z), q4, s4.set(1, 1, 1));
           pipes.setMatrixAt(pi++, m4);
@@ -555,7 +643,7 @@ export default function BackroomsScene({
       const panelGeo = own(new THREE.BoxGeometry(CS * 0.62, 0.05, CS * 0.32));
       fixtureMesh = new THREE.InstancedMesh(panelGeo, panelMat, Math.max(1, data.lights.length));
       data.lights.forEach((l, k) => {
-        const f: Fixture = { x: (l.x + 0.5) * CS, y: WH - 0.03, z: (l.y + 0.5) * CS, state: l.state, phase: rng() * 100, index: k };
+        const f: Fixture = { x: (l.x + 0.5) * CS, y: floorY(l.y + 0.5) + WH - 0.03, z: (l.y + 0.5) * CS, state: l.state, phase: rng() * 100, index: k };
         fixtures.push(f);
         m4.makeTranslation(f.x, f.y, f.z);
         fixtureMesh!.setMatrixAt(k, m4);
@@ -575,11 +663,12 @@ export default function BackroomsScene({
       data.lights.forEach((l, k) => {
         const x = (l.x + 0.5) * CS;
         const z = (l.y + 0.5) * CS;
-        const y = WH - 1.1;
+        const baseY = floorY(l.y + 0.5);
+        const y = baseY + WH - 1.1;
         fixtures.push({ x, y: y - 0.1, z, state: l.state, phase: rng() * 100, index: k });
         m4.makeTranslation(x, y + 0.08, z);
         shades.setMatrixAt(k, m4);
-        m4.makeTranslation(x, WH - 0.45, z);
+        m4.makeTranslation(x, baseY + WH - 0.45, z);
         cables.setMatrixAt(k, m4);
         m4.makeTranslation(x, y - 0.02, z);
         fixtureMesh!.setMatrixAt(k, m4);
@@ -596,7 +685,7 @@ export default function BackroomsScene({
       fixtureMesh = new THREE.InstancedMesh(bulbGeo, bulbMat, n);
       data.lights.forEach((l, k) => {
         const t = faceTransform({ x: l.x, y: l.y, dir: l.wall ?? "N" }, CS, 0.08);
-        const y = WH - 0.75;
+        const y = floorY(l.y + 0.5) + WH - 0.75;
         fixtures.push({ x: t.x - t.dx * 0.05, y, z: t.z - t.dy * 0.05, state: l.state, phase: rng() * 100, index: k });
         q4.setFromEuler(new THREE.Euler(0, t.yaw, 0));
         m4.compose(v4.set(t.x, y, t.z), q4, s4.set(1, 1, 1));
@@ -611,7 +700,7 @@ export default function BackroomsScene({
       const stripGeo = own(new THREE.BoxGeometry(CS * 0.9, 0.06, 0.16));
       fixtureMesh = new THREE.InstancedMesh(stripGeo, stripMat, Math.max(1, data.lights.length));
       data.lights.forEach((l, k) => {
-        const f: Fixture = { x: (l.x + 0.5) * CS, y: WH - 0.04, z: (l.y + 0.5) * CS, state: l.state, phase: rng() * 100, index: k };
+        const f: Fixture = { x: (l.x + 0.5) * CS, y: floorY(l.y + 0.5) + WH - 0.04, z: (l.y + 0.5) * CS, state: l.state, phase: rng() * 100, index: k };
         fixtures.push(f);
         m4.makeTranslation(f.x, f.y, f.z);
         fixtureMesh!.setMatrixAt(k, m4);
@@ -680,6 +769,8 @@ export default function BackroomsScene({
       const aoGeo = own(new THREE.PlaneGeometry(CS, depth));
       const faces: { x: number; z: number; dx: number; dz: number }[] = [];
       for (const [x, y] of reachable) {
+        // Pas dans la cage d'escalier : une bande a plat flotterait au-dessus des marches.
+        if (inStairwell(y)) continue;
         for (const [dx, dz] of Object.values(DIRS)) {
           if (isSolid(x + dx, y + dz)) faces.push({ x, z: y, dx, dz });
         }
@@ -698,43 +789,17 @@ export default function BackroomsScene({
         const cz = (f.z + 0.5 + f.dz * (0.5 - depth / 2 / CS)) * CS;
         // Sol : le bord sombre (+Y local, qui devient -Z) tourne vers le mur.
         qYaw.setFromAxisAngle(yAxis, Math.atan2(-f.dx, -f.dz));
-        mat4.compose(pos.set(cx, 0.004, cz), qYaw.clone().multiply(qFlatFloor), one);
+        const baseY = floorY(f.z + 0.5);
+        mat4.compose(pos.set(cx, baseY + 0.004, cz), qYaw.clone().multiply(qFlatFloor), one);
         floorAo.setMatrixAt(i, mat4);
         qYaw.setFromAxisAngle(yAxis, Math.atan2(f.dx, f.dz));
-        mat4.compose(pos.set(cx, WH - 0.004, cz), qYaw.clone().multiply(qFlatCeil), one);
+        mat4.compose(pos.set(cx, baseY + WH - 0.004, cz), qYaw.clone().multiply(qFlatCeil), one);
         ceilAo.setMatrixAt(i, mat4);
       });
       floorAo.count = faces.length;
       ceilAo.count = faces.length;
       scene.add(floorAo, ceilAo);
     }
-
-    // --- Poussiere en suspension autour du joueur ---
-    const DUST = 280;
-    const DUST_BOX = 9;
-    const dustPositions = new Float32Array(DUST * 3);
-    const dustDrift = new Float32Array(DUST);
-    for (let i = 0; i < DUST; i++) {
-      dustPositions[i * 3] = (data.start.x + 0.5) * CS + (Math.random() - 0.5) * DUST_BOX;
-      dustPositions[i * 3 + 1] = Math.random() * WH;
-      dustPositions[i * 3 + 2] = (data.start.y + 0.5) * CS + (Math.random() - 0.5) * DUST_BOX;
-      dustDrift[i] = 0.02 + Math.random() * 0.06;
-    }
-    const dustGeo = own(new THREE.BufferGeometry());
-    dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
-    const dustMat = own(
-      new THREE.PointsMaterial({
-        color: def.lighting === "secours" || def.lighting === "alarme" ? 0xffb0a0 : 0xfff2c8,
-        size: 0.022,
-        sizeAttenuation: true,
-        transparent: true,
-        opacity: 0.4,
-        depthWrite: false,
-      }),
-    );
-    const dust = new THREE.Points(dustGeo, dustMat);
-    dust.frustumCulled = false;
-    scene.add(dust);
 
     // Reserve de lumieres : un nombre FIXE de lampes, deplacees sur les
     // luminaires les plus proches du joueur. Des centaines de neons a
@@ -758,7 +823,7 @@ export default function BackroomsScene({
     const doorW = def.id === "niveau-1" ? Math.min(CS * 0.9, 2.2) : Math.min(CS * 0.7, 1.15);
     const doorH = def.id === "niveau-1" ? 2.6 : 2.1;
     const exitGroup = new THREE.Group();
-    exitGroup.position.set(exitT.x, 0, exitT.z);
+    exitGroup.position.set(exitT.x, floorY(data.exit.y + 0.5), exitT.z);
     exitGroup.rotation.y = exitT.yaw;
     scene.add(exitGroup);
     const doorTex = own(makeDoorTexture(doorStyle));
@@ -807,7 +872,7 @@ export default function BackroomsScene({
       for (const a of data.arrows) {
         const t = faceTransform(a, CS, 0.015);
         const mesh = new THREE.Mesh(arrowGeo, arrowMat);
-        mesh.position.set(t.x, 1.45 + (rng() - 0.5) * 0.3, t.z);
+        mesh.position.set(t.x, floorY(a.y + 0.5) + 1.45 + (rng() - 0.5) * 0.3, t.z);
         mesh.rotation.set(0, t.yaw, (rng() - 0.5) * 0.25);
         if (a.arrow === "gauche") mesh.scale.x = -1;
         scene.add(mesh);
@@ -834,7 +899,7 @@ export default function BackroomsScene({
       const group = new THREE.Group();
       const px = (p.x + 0.5 + (rng() - 0.5) * 0.4) * CS;
       const pz = (p.y + 0.5 + (rng() - 0.5) * 0.4) * CS;
-      group.position.set(px, 0, pz);
+      group.position.set(px, floorY(pz / CS), pz);
       group.rotation.y = rng() * Math.PI * 2;
       if (p.kind === "eau") {
         const body = new THREE.Mesh(bottleGeo, bottleMat);
@@ -877,7 +942,7 @@ export default function BackroomsScene({
     const valves = data.valves.map((v) => {
       const t = faceTransform(v, CS, 0);
       const group = new THREE.Group();
-      group.position.set(t.x, 1.25, t.z);
+      group.position.set(t.x, floorY(v.y + 0.5) + 1.25, t.z);
       group.rotation.y = t.yaw;
       scene.add(group);
       const stub = new THREE.Mesh(own(new THREE.CylinderGeometry(0.09, 0.09, 0.35, 10)), pipeStubMat);
@@ -933,7 +998,7 @@ export default function BackroomsScene({
       },
     };
     if (bacteria) {
-      bacteria.group.position.set(entity.x * CS, 0, entity.z * CS);
+      bacteria.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
       // Niveau ! : elle part du point de depart, mais n'apparait qu'au signal.
       if (def.id === "niveau-run") bacteria.group.visible = false;
     }
@@ -964,6 +1029,12 @@ export default function BackroomsScene({
     let walkPhase = 0;
     let bob = 0;
     let nextStepAt = 0;
+    // Course : pied d'appel, souffle, et la vanne qu'on vient d'agripper.
+    let wasSprinting = false;
+    let strideSide = 1;
+    let nextRunBreathAt = 0;
+    let runBreathExhale = false;
+    let gripping = false;
     let dyingSince = -1;
     let deathCause: DeathCause = "lucidite";
     let noclipSince = -1;
@@ -1190,6 +1261,7 @@ export default function BackroomsScene({
         p.taken = true;
         scene.remove(p.group);
         handReachAt = elapsed;
+        playGrab(audio.ctx, audio.master);
         link?.sendEvent({ type: "pickup", index: pickups.indexOf(p) });
         emitNoise("ramassage");
         if (p.kind === "eau") {
@@ -1210,11 +1282,13 @@ export default function BackroomsScene({
         return;
       }
       if (distToExit() < DOOR_REACH && def.objective !== "course") {
+        handReachAt = elapsed;
         if (exitUnlocked()) {
           if (def.id === "niveau-1") playFuse(audio.ctx, audio.master, true);
+          else playHandle(audio.ctx, audio.master, false);
           completeLevel();
         } else {
-          playClick(audio.ctx, audio.master, false);
+          playHandle(audio.ctx, audio.master, true);
           const missing = def.goalCount - (def.objective === "fusibles" ? fuses : valvesDone);
           showHint(
             def.objective === "fusibles"
@@ -1628,7 +1702,7 @@ export default function BackroomsScene({
         camera.rotation.x = player.pitch * (1 - rush) + rush * 0.25 + (Math.random() - 0.5) * shake * 3;
         camera.rotation.z = (Math.random() - 0.5) * shake * 2;
         if (deathCause === "bacterie" && bacteria) {
-          bacteria.group.position.set(camera.position.x + fx * dist, -0.2 * rush, camera.position.z + fz * dist);
+          bacteria.group.position.set(camera.position.x + fx * dist, floorY(player.z) - 0.2 * rush, camera.position.z + fz * dist);
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
         } else if (deathCause === "souriant" && smiler) {
@@ -1728,17 +1802,37 @@ export default function BackroomsScene({
           if (!blocked(player.x, player.z + mz, radiusCells)) player.z += mz;
         }
         walkPhase += delta * (sprinting ? 12 : crouching ? 5.5 : 8.5);
-        if (elapsed >= nextStepAt) {
+        if (sprinting && !wasSprinting && !dev.fly) {
+          playRunStart(audio.ctx, audio.master);
+          nextStepAt = Math.min(nextStepAt, elapsed + 0.08);
+        }
+        if (elapsed >= nextStepAt && !dev.fly) {
           nextStepAt = elapsed + (sprinting ? 0.3 : crouching ? 0.62 : 0.45);
           playStep(audio.ctx, audio.master, surface, sprinting ? 1 : crouching ? 0.3 : 0.65);
+          if (sprinting) {
+            strideSide = -strideSide;
+            playRunStride(audio.ctx, audio.master, strideSide);
+          }
           emitNoise(sprinting ? "course" : crouching ? "accroupi" : "pas");
+        }
+      }
+      wasSprinting = sprinting && moving;
+      // Souffle : il suit la course, puis se calme a mesure que l'endurance remonte.
+      {
+        const strain = 1 - staminaLevel / 100;
+        const breathing = !spectating && dyingSince < 0 && (sprinting || strain > 0.3);
+        if (breathing && elapsed >= nextRunBreathAt) {
+          runBreathExhale = !runBreathExhale;
+          playRunBreath(audio.ctx, audio.master, runBreathExhale, strain);
+          const pace = sprinting ? 0.34 - strain * 0.08 : 0.55 + (1 - strain) * 0.4;
+          nextRunBreathAt = elapsed + (runBreathExhale ? pace * 1.25 : pace);
         }
       }
       bob += ((moving ? 1 : 0) - bob) * Math.min(1, delta * 8);
 
       // Camera : balancement de marche + tremblement de camescope.
       const eye = THREE.MathUtils.lerp(EYE, CROUCH_EYE, crouchLevel);
-      camera.position.set(player.x * CS, eye + devFlyHeight + (Math.abs(Math.sin(walkPhase)) * 0.05 - 0.02) * bob, player.z * CS);
+      camera.position.set(player.x * CS, floorY(player.z) + eye + devFlyHeight + (Math.abs(Math.sin(walkPhase)) * 0.05 - 0.02) * bob, player.z * CS);
       const handheldX = Math.sin(elapsed * 0.9) * 0.004 + Math.sin(elapsed * 2.3) * 0.002;
       const handheldY = Math.sin(elapsed * 0.7 + 1) * 0.004;
       camera.rotation.y = player.yaw + handheldY;
@@ -1766,27 +1860,6 @@ export default function BackroomsScene({
           clickAt: lampClickAt,
           reachAt: handReachAt,
         });
-      }
-
-      // Poussiere : elle tombe lentement et s'enroule autour du joueur.
-      {
-        const cx = camera.position.x;
-        const cz = camera.position.z;
-        const half = DUST_BOX / 2;
-        for (let i = 0; i < DUST; i++) {
-          const k = i * 3;
-          dustPositions[k + 1] -= dustDrift[i] * delta;
-          dustPositions[k] += Math.sin(elapsed * 0.4 + i) * 0.003;
-          if (dustPositions[k + 1] < 0) dustPositions[k + 1] += WH;
-          const rx = dustPositions[k] - cx;
-          if (rx > half) dustPositions[k] -= DUST_BOX;
-          else if (rx < -half) dustPositions[k] += DUST_BOX;
-          const rz = dustPositions[k + 2] - cz;
-          if (rz > half) dustPositions[k + 2] -= DUST_BOX;
-          else if (rz < -half) dustPositions[k + 2] += DUST_BOX;
-        }
-        dustGeo.attributes.position.needsUpdate = true;
-        dustMat.opacity = lamp ? 0.42 : 0.2;
       }
 
       // --- Les amis : positions lissees, animation, voix placee sur leur tete ---
@@ -1845,7 +1918,7 @@ export default function BackroomsScene({
           av.crouch += ((st.crouch ? 1 : 0) - av.crouch) * Math.min(1, delta * 8);
           av.lamp = st.lamp;
           av.dead = st.dead || av.caught;
-          av.survivor.group.position.set(av.x * CS, 0, av.z * CS);
+          av.survivor.group.position.set(av.x * CS, floorY(av.z), av.z * CS);
           // La camera regarde vers -Z a lacet nul, le personnage vers +Z.
           av.survivor.group.rotation.y = av.yaw + Math.PI;
           av.losTimer -= delta;
@@ -1865,7 +1938,7 @@ export default function BackroomsScene({
             dead: av.dead,
             speaking,
           });
-          hub?.setPeerPosition(id, av.x * CS, 1.55 - av.crouch * 0.4, av.z * CS, !av.los);
+          hub?.setPeerPosition(id, av.x * CS, floorY(av.z) + 1.55 - av.crouch * 0.4, av.z * CS, !av.los);
         }
         for (const [id, av] of avatars) {
           if (link.players.has(id)) continue;
@@ -1916,6 +1989,8 @@ export default function BackroomsScene({
         power += (powerTarget - power) * Math.min(1, delta * (powerTarget > power ? 6 : 14));
         audio.setPower(power);
       }
+
+      decor.update(elapsed);
 
       // --- Luminaires qui clignotent ---
       if (fixtureMesh && (flickering.length > 0 || def.id === "niveau-1")) {
@@ -2168,7 +2243,7 @@ export default function BackroomsScene({
       const distCells = Math.hypot(entity.x - player.x, entity.z - player.z);
       const distM = distCells * CS;
       if (bacteria) {
-        bacteria.group.position.set(entity.x * CS, 0, entity.z * CS);
+        bacteria.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
         bacteria.group.rotation.y = entity.yaw;
         let headYaw = Math.atan2(player.x - entity.x, player.z - entity.z) - entity.yaw;
         while (headYaw > Math.PI) headYaw -= Math.PI * 2;
@@ -2199,7 +2274,7 @@ export default function BackroomsScene({
             ? Math.min(1, entity.opacity + delta * 2)
             : Math.max(0, entity.opacity - delta * 2.5);
         }
-        smiler.group.position.set(entity.x * CS, 0, entity.z * CS);
+        smiler.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
         smiler.group.rotation.y = Math.atan2(player.x - entity.x, player.z - entity.z);
         const rush = state === "poursuivre" && entity.active ? THREE.MathUtils.clamp(1 - distM / 9, 0, 1) : 0;
         poseSmiler(smiler, elapsed, rush, entity.opacity * (1 - power * 0.95));
@@ -2213,9 +2288,11 @@ export default function BackroomsScene({
       {
         const voiceOn = !!hub && (link !== null || micEnabledRef.current);
         const level = voiceOn && hub ? hub.level() : 0;
-        if (level > 0.2 && !spectating && !introHold && elapsed >= nextVoiceNoiseAt) {
+        // On parle normalement : rien. On parle trop fort : elle entend, et
+        // d'autant plus loin qu'on crie.
+        if (level > VOICE_LOUD && !spectating && !introHold && elapsed >= nextVoiceNoiseAt) {
           nextVoiceNoiseAt = elapsed + 0.35;
-          emitNoise("voix", player.x, player.z, 0.45 + level * 0.9);
+          emitNoise("voix", player.x, player.z, 0.4 + ((level - VOICE_LOUD) / (1 - VOICE_LOUD)) * 1.1);
         }
         micShown += (level - micShown) * Math.min(1, delta * 10);
       }
@@ -2257,7 +2334,7 @@ export default function BackroomsScene({
               wandererX = gx;
               wandererZ = gz;
               wandererSince = elapsed;
-              wanderer.group.position.set(gx * CS, 0, gz * CS);
+              wanderer.group.position.set(gx * CS, floorY(gz), gz * CS);
               wanderer.group.rotation.y = Math.atan2(player.x - gx, player.z - gz);
               break;
             }
@@ -2284,6 +2361,8 @@ export default function BackroomsScene({
       const valve = nearValve();
       const using = keys.has("e") || held.use;
       let valveShown: number | null = null;
+      if (valve && using && !spectating && !gripping) playGripValve(audio.ctx, audio.master);
+      gripping = !!valve && using && !spectating;
       if (valve && using && !spectating) {
         const before = valve.progress;
         valve.progress = Math.min(1, valve.progress + delta / VALVE_SECONDS);
@@ -2364,7 +2443,7 @@ export default function BackroomsScene({
       const blackoutFog = def.id === "niveau-1" ? 1 - power : 0;
       fog.far = THREE.MathUtils.lerp(def.fog.far, def.fog.far * 0.45, Math.max(blackoutFog, sanityDread * 0.4));
       // Mode dev, au-dessus du plafond : on voit le niveau comme une carte.
-      const flyingHigh = devRef.current.fly && devFlyHeight > WH - EYE + 0.3;
+      const flyingHigh = devRef.current.fly && camera.position.y > floorY(player.z) + WH + 0.3;
       if (flyingHigh) {
         fog.near = 120;
         fog.far = 600;
@@ -2519,7 +2598,7 @@ export default function BackroomsScene({
     // rendu, elle figeait la page plusieurs secondes au lancement d'un niveau.
     let ready = false;
     let disposed = false;
-    camera.position.set(player.x * CS, EYE, player.z * CS);
+    camera.position.set(player.x * CS, floorY(player.z) + EYE, player.z * CS);
     camera.rotation.set(0, player.yaw, 0);
     const compiling = renderer
       .compileAsync(scene, camera)
@@ -2601,6 +2680,7 @@ export default function BackroomsScene({
         smiler?.dispose();
         wanderer.dispose();
         handRig.dispose();
+        decor.dispose();
         for (const av of avatars.values()) av.survivor.dispose();
         for (const o of owned) o.dispose();
         renderer.forceContextLoss();
@@ -2804,18 +2884,27 @@ export default function BackroomsScene({
               <span className={muted ? "text-red-400" : ""}>{muted ? "MICRO COUPÉ" : "MICRO"}</span>
               {!muted && (
                 <span className="flex h-2.5 items-end gap-[2px]">
-                  {Array.from({ length: 6 }, (_, i) => (
-                    <span
-                      key={i}
-                      className="w-[3px]"
-                      style={{
-                        height: `${3 + i}px`,
-                        background: micLevel * 6 > i ? (i >= 4 ? "#ef4444" : accent) : "rgba(255,255,255,0.15)",
-                      }}
-                    />
-                  ))}
+                  {Array.from({ length: 8 }, (_, i) => {
+                    // Les barres au-dela du seuil sont rouges : c'est la zone ou elle entend.
+                    const loudBar = (i + 1) / 8 > VOICE_LOUD;
+                    return (
+                      <span
+                        key={i}
+                        className="w-[3px]"
+                        style={{
+                          height: `${3 + i}px`,
+                          background: micLevel * 8 > i ? (loudBar ? "#ef4444" : accent) : loudBar ? "rgba(239,68,68,0.25)" : "rgba(255,255,255,0.15)",
+                        }}
+                      />
+                    );
+                  })}
                 </span>
               )}
+            </span>
+          )}
+          {voice?.hasMic() && !muted && micLevel > VOICE_LOUD && (
+            <span className="font-bold text-red-400" style={{ animation: "backrooms-rec 0.5s steps(1) infinite" }}>
+              TROP FORT · ELLE T&apos;ENTEND
             </span>
           )}
           {blackout && (

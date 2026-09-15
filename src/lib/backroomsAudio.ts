@@ -329,6 +329,73 @@ export function playStep(ctx: AudioContext, master: GainNode, surface: Surface, 
   }
 }
 
+/** Elan au depart d'une course : la veste qui claque, le poids qui bascule. */
+export function playRunStart(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.22, 0.2, (t) => Math.sin(t * Math.PI) * (1 - t * 0.5), { type: "bandpass", freq: 1400, q: 0.7 });
+  tone(ctx, master, "sine", 120, 60, 0.14, 0.12, 0.004);
+}
+
+/**
+ * Une foulee de course, par-dessus le bruit du sol : talon lourd, veste qui
+ * frotte, et parfois le sac a dos qui cogne. `side` alterne gauche et droite.
+ */
+export function playRunStride(ctx: AudioContext, master: GainNode, side: number) {
+  const dest = out(ctx, master, { pan: side * 0.18, gain: 1 });
+  tone(ctx, dest, "sine", 95 + Math.random() * 20, 48, 0.13, 0.2, 0.003);
+  noiseBurst(ctx, dest, 0.16, 0.075, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 2300 + Math.random() * 600, q: 0.8 });
+  if (Math.random() < 0.3) {
+    const f = 1500 + Math.random() * 500;
+    tone(ctx, dest, "triangle", f, f * 0.9, 0.05, 0.03, 0.002, 0.06);
+  }
+}
+
+/**
+ * Souffle de course. Inspiration breve, expiration plus longue ; quand
+ * l'endurance fond (`strain` vers 1), le souffle devient rauque et s'entend.
+ */
+export function playRunBreath(ctx: AudioContext, master: GainNode, exhale: boolean, strain: number) {
+  const k = Math.max(0, Math.min(1, strain));
+  const gain = 0.05 + k * 0.13;
+  if (exhale) {
+    noiseBurst(ctx, master, 0.3 + k * 0.08, gain, (t) => Math.pow(1 - t, 1.4) * Math.min(1, t * 12), {
+      type: "bandpass",
+      freq: 950 - k * 200,
+      q: 0.9,
+    });
+    // A bout de souffle, la gorge vibre un peu a l'expiration.
+    if (k > 0.6) tone(ctx, master, "sawtooth", 140, 105, 0.26, 0.02 * k, 0.03);
+  } else {
+    noiseBurst(ctx, master, 0.2, gain * 0.8, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 1500 + k * 300, q: 1.1 });
+  }
+}
+
+/** Tendre la main et saisir : froissement de manche, doigts qui se referment. */
+export function playGrab(ctx: AudioContext, master: GainNode) {
+  noiseBurst(ctx, master, 0.14, 0.16, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 1900, q: 0.9 });
+  tone(ctx, master, "triangle", 320, 210, 0.06, 0.05, 0.002, 0.09);
+}
+
+/** Poignee de porte : le loquet claque ; verrouillee, elle resiste et cogne. */
+export function playHandle(ctx: AudioContext, master: GainNode, locked: boolean) {
+  noiseBurst(ctx, master, 0.05, 0.35, (t) => Math.pow(1 - t, 3), { type: "highpass", freq: 1600 });
+  tone(ctx, master, "square", 540, 380, 0.045, 0.07, 0.001);
+  if (locked) {
+    for (const at of [140, 250]) {
+      window.setTimeout(() => {
+        if (ctx.state === "closed") return;
+        noiseBurst(ctx, master, 0.06, 0.3, (t) => Math.pow(1 - t, 2), { type: "bandpass", freq: 1100, q: 2 });
+        tone(ctx, master, "square", 300, 230, 0.05, 0.05, 0.001);
+      }, at);
+    }
+  }
+}
+
+/** Les mains se referment sur le volant d'une vanne : metal froid, un premier grincement. */
+export function playGripValve(ctx: AudioContext, master: GainNode) {
+  tone(ctx, master, "triangle", 720, 660, 0.22, 0.07, 0.004);
+  noiseBurst(ctx, master, 0.1, 0.2, (t) => Math.pow(1 - t, 2), { type: "bandpass", freq: 900, q: 1.2 });
+}
+
 /** Ramasser une bouteille : le verre qui tinte. */
 export function playBottle(ctx: AudioContext, master: GainNode) {
   tone(ctx, master, "sine", 2400, 2380, 0.4, 0.14, 0.002);
