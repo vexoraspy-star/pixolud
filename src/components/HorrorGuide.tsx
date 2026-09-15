@@ -48,9 +48,12 @@ const NOISE_LABELS: Record<NoiseKind, string> = {
   course: "Courir",
   piece: "Une pièce lancée qui retombe",
   "boite-a-musique": "Une boîte à musique posée",
+  voix: "Parler au micro",
 };
 
+// La voix n'existe que dans les Backrooms : pas de ligne dans le guide du Manoir.
 const NOISES = (Object.keys(NOISE_RADIUS) as NoiseKind[])
+  .filter((kind) => kind !== "voix")
   .map((kind) => ({ kind, radius: NOISE_RADIUS[kind], label: NOISE_LABELS[kind] }))
   .sort((a, b) => a.radius - b.radius);
 const LOUDEST = NOISES[NOISES.length - 1].radius;

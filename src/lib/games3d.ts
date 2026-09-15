@@ -83,9 +83,9 @@ export const GAMES_3D: Game3D[] = [
     emoji: "🟨",
     gradient: "from-yellow-600 to-stone-900",
     genre: "Horreur",
-    players: "Solo",
+    players: "Solo ou groupe de 4",
     duration: "25 à 45 min",
-    highlights: ["4 niveaux", "Style caméscope VHS", "Lucidité et eau d'amande", "Entités qui écoutent"],
+    highlights: ["Groupe avec code et vocal", "Elles entendent ta voix", "4 niveaux", "Style caméscope VHS"],
     featured: true,
   },
 ];

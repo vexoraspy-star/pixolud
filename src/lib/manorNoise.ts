@@ -17,7 +17,9 @@ export type NoiseKind =
   | "piece"
   | "boite-a-musique"
   | "porte"
-  | "sel";
+  | "sel"
+  /** Parler au micro (Backrooms) : le rayon est module par le volume. */
+  | "voix";
 
 export interface Noise {
   kind: NoiseKind;
@@ -44,6 +46,7 @@ export const NOISE_RADIUS: Record<NoiseKind, number> = {
   "boite-a-musique": 13,
   porte: 5,
   sel: 4,
+  voix: 9,
 };
 
 /** Combien de temps un bruit ponctuel reste « dans l'air ». */
