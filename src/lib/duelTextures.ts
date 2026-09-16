@@ -631,3 +631,35 @@ export function makeSiteMarkTexture(label: string): THREE.CanvasTexture {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/** Camouflage : des taches irregulieres superposees, de la plus claire a la plus sombre. */
+export function makeCamoTexture(colors: string[]): THREE.CanvasTexture {
+  const S = 128;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = colors[0];
+  ctx.fillRect(0, 0, S, S);
+  colors.slice(1).forEach((color, layer) => {
+    ctx.fillStyle = color;
+    const blobs = 9 - layer * 2;
+    for (let i = 0; i < blobs; i++) {
+      const cx = Math.random() * S;
+      const cy = Math.random() * S;
+      const r = 10 + Math.random() * 16;
+      // Chaque tache est redessinee aux quatre bords : la texture se repete
+      // sans couture visible.
+      for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]]) {
+        ctx.beginPath();
+        for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.7) {
+          const rr = r * (0.6 + Math.random() * 0.6);
+          const px = cx + ox + Math.cos(a) * rr;
+          const py = cy + oy + Math.sin(a) * rr * 0.7;
+          if (a === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  });
+  return finish(canvas);
+}

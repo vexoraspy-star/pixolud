@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { CAMOS, type CamoId } from "./duelProfile";
 import {
+  makeCamoTexture,
   makeGloveTexture,
   makeGunMetalTexture,
   makeGunWoodTexture,
@@ -304,7 +306,16 @@ export interface WeaponAnim {
  * Tout est dessine ici en boites et cylindres, avec quatre textures peintes
  * au canvas : aucun fichier de modele, aucune image.
  */
-export function buildWeaponModel(id: WeaponId): WeaponModel {
+/** Habillage d'une arme : camouflage, et couleurs de la tenue sur les mains. */
+export interface WeaponLook {
+  camo?: CamoId;
+  sleeve?: number;
+  glove?: number;
+  /** Faux : l'arme seule, sans les mains (vitrine du casier). */
+  hands?: boolean;
+}
+
+export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponModel {
   const group = new THREE.Group();
   // Les pieces vivent dans un sous-groupe : la scene pilote `group` (position
   // a l'ecran, visee, sprint), l'animation pilote `body` — sans se marcher
@@ -338,6 +349,30 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
   const brass = keep(new THREE.MeshLambertMaterial({ color: 0xb08d3a }));
   const accent = keep(new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
   const white = keep(new THREE.MeshBasicMaterial({ color: 0xe8f0f5 }));
+
+  // --- Tenue et camouflage ---
+  if (look.sleeve !== undefined) sleeve.color.setHex(look.sleeve);
+  if (look.glove !== undefined) {
+    glove.color.setHex(look.glove);
+    gloveDark.color.copy(glove.color).multiplyScalar(0.55);
+  }
+  const camo = CAMOS[look.camo ?? "standard"];
+  if (camo.colors.length > 0) {
+    // Le motif recouvre toute la garniture (polymere, bois, crosses) ; le
+    // metal reste du metal, sauf pour l'or.
+    const camoTex = keep(makeCamoTexture(camo.colors));
+    camoTex.repeat.set(2, 2);
+    for (const m of [polymer, sable, olive, wood]) {
+      m.map = camoTex;
+      m.color.setHex(0xffffff);
+    }
+    dark.map = camoTex;
+    dark.color.setHex(0x8a8a8a);
+  }
+  if (camo.goldMetal) {
+    steel.color.setHex(0xffd36b);
+    metal.color.setHex(0xd9ab3c);
+  }
 
   function box(w: number, h: number, d: number, mat: THREE.Material) {
     return new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), mat);
@@ -760,6 +795,11 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
       put(body, leftHand, -0.012, -0.07, -0.26).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
     }
+  }
+
+  if (look.hands === false) {
+    rightHand.visible = false;
+    leftHand.visible = false;
   }
 
   const flashMat = keep(

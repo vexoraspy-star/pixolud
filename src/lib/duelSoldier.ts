@@ -35,13 +35,21 @@ export interface SoldierParts {
   /** Eclair de bouche de son arme : c'est ce qui te dit qu'il tire sur toi. */
   flash: THREE.Mesh;
   setTeamColor(hex: number): void;
+  /** Tenue : uniforme, equipement et visiere (le camp reste lisible par l'accent). */
+  setLook(look: SoldierLook): void;
   dispose(): void;
+}
+
+export interface SoldierLook {
+  cloth: number;
+  gear: number;
+  visor: number;
 }
 
 /** Un soldat complet mesure 1,80 m ; sa tete est a DUEL_HEAD_Y (1,62). */
 export const SOLDIER_HEIGHT = 1.8;
 
-export function buildSoldier(teamHex: number): SoldierParts {
+export function buildSoldier(teamHex: number, look?: SoldierLook): SoldierParts {
   const group = new THREE.Group();
   const owned: (THREE.BufferGeometry | THREE.Material)[] = [];
 
@@ -52,8 +60,8 @@ export function buildSoldier(teamHex: number): SoldierParts {
   // premier jet a 0x22262c donnait des soldats qui disparaissaient dans les
   // couloirs sombres : dans un jeu de tir, ne pas voir l'ennemi n'est pas
   // une ambiance, c'est un defaut.
-  const cloth = new THREE.MeshLambertMaterial({ color: 0x454f5c });
-  const gear = new THREE.MeshLambertMaterial({ color: 0x23282f });
+  const cloth = new THREE.MeshLambertMaterial({ color: look?.cloth ?? 0x454f5c });
+  const gear = new THREE.MeshLambertMaterial({ color: look?.gear ?? 0x23282f });
   const team = new THREE.MeshLambertMaterial({ color: teamHex });
   owned.push(cloth, gear, team);
 
@@ -175,7 +183,7 @@ export function buildSoldier(teamHex: number): SoldierParts {
 
   // Visiere non eclairee : elle brille meme dans l'ombre, et donne au premier
   // coup d'oeil la direction du regard.
-  const visorMat = new THREE.MeshBasicMaterial({ color: 0x6ff0ff });
+  const visorMat = new THREE.MeshBasicMaterial({ color: look?.visor ?? 0x6ff0ff });
   owned.push(visorMat);
   const visorGeo = new THREE.BoxGeometry(0.17, 0.045, 0.02);
   owned.push(visorGeo);
@@ -247,6 +255,11 @@ export function buildSoldier(teamHex: number): SoldierParts {
     flash,
     setTeamColor(hex: number) {
       team.color.setHex(hex);
+    },
+    setLook(next: SoldierLook) {
+      cloth.color.setHex(next.cloth);
+      gear.color.setHex(next.gear);
+      visorMat.color.setHex(next.visor);
     },
     dispose() {
       for (const o of owned) o.dispose();

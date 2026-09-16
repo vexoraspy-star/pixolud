@@ -20,6 +20,7 @@ import {
   type DuelTheme,
 } from "@/lib/duel";
 import { buildDuelDecor } from "@/lib/duelDecor";
+import { SKINS, type SkinId } from "@/lib/duelProfile";
 import {
   DUEL_MODES,
   buildZoneMap,
@@ -37,6 +38,7 @@ import {
   SHOP_ORDER,
   buildWeaponModel,
   type WeaponId,
+  type WeaponLook,
   type WeaponModel,
 } from "@/lib/duelWeapons";
 import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier";
@@ -83,6 +85,8 @@ export interface DuelLink {
     dead: boolean;
     moving: boolean;
     weapon?: WeaponId;
+    /** Tenue de l'adversaire : on le voit tel qu'il s'est habille. */
+    skin?: SkinId;
   } | null;
   inbox: { event: string; payload: Record<string, unknown> }[];
   send: (event: string, payload: Record<string, unknown>) => void;
@@ -139,6 +143,8 @@ export default function DuelScene({
   mode: modeId,
   mapId = "arene",
   link,
+  look,
+  skin,
   onMatchEnd,
 }: {
   side: DuelSide;
@@ -149,6 +155,10 @@ export default function DuelScene({
   mapId?: DuelMapId;
   /** Ref vers la boite aux lettres reseau : on ne la lit que dans l'effet. */
   link: RefObject<DuelLink>;
+  /** Camouflage de l'arme et couleurs de la tenue sur les mains. */
+  look?: WeaponLook;
+  /** Tenue du joueur, envoyee a l'adversaire en ligne. */
+  skin?: SkinId;
   onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number) => void;
 }) {
   const mode = DUEL_MODES[modeId];
@@ -455,7 +465,7 @@ export default function DuelScene({
     // invisible ne coute aucun appel de rendu.
     const weaponModels = {} as Record<WeaponId, WeaponModel>;
     for (const id of Object.keys(WEAPONS) as WeaponId[]) {
-      const wm = buildWeaponModel(id);
+      const wm = buildWeaponModel(id, look);
       wm.group.visible = false;
       camera.add(wm.group);
       weaponModels[id] = wm;
@@ -1409,6 +1419,8 @@ export default function DuelScene({
     window.addEventListener("blur", onBlur);
 
     // ------------------------------------------------------ reception reseau
+    /** Derniere tenue appliquee a l'adversaire en ligne : on ne la refait pas a chaque paquet. */
+    let remoteSkin: SkinId | null = null;
     function drainInbox() {
       const remote = fighters[0];
       const box = link.current.inbox;
@@ -1460,6 +1472,11 @@ export default function DuelScene({
         remote.tpitch = r.pitch ?? 0;
         remote.moving = r.moving;
         if (r.weapon && WEAPONS[r.weapon]) remote.weapon = r.weapon;
+        if (r.skin && r.skin in SKINS && r.skin !== remoteSkin) {
+          remoteSkin = r.skin;
+          const sk = SKINS[r.skin];
+          remote.model.setLook({ cloth: sk.cloth, gear: sk.gear, visor: sk.visor });
+        }
         if (r.dead && !remote.dead) remote.dead = true;
         else if (!r.dead && remote.dead) {
           remote.dead = false;
@@ -1938,6 +1955,7 @@ export default function DuelScene({
           dead: me.dead,
           moving,
           weapon: me.weapon,
+          skin,
         });
       }
 
