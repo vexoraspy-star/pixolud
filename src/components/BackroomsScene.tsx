@@ -105,9 +105,28 @@ import {
   saveBrightness3D,
   type Layout3D,
 } from "@/lib/settings3d";
-import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
+import { createHorrorMonster, type HorrorMonster } from "@/lib/horrorHeads";
 
 export type DeathCause = "souriant" | "bacterie" | "lucidite";
+
+/** Ramene un angle entre -PI et PI. */
+function wrapAngle(a: number) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/**
+ * Cadence d'une animation de marche ou de course pour une vitesse au sol
+ * donnee : les pieds ne glissent pas. A l'arret ou bras tendus, cadence normale.
+ */
+function gaitClip(m: HorrorMonster, speed: number, reaching: boolean): { clip: string; rate: number } {
+  const moving = speed > 0.25;
+  if (reaching) return moving ? { clip: "Run_Shoot", rate: THREE.MathUtils.clamp(speed / m.runSpeed, 0.75, 1.4) } : { clip: "Idle_Gun_Pointing", rate: 1 };
+  if (speed > 2.3) return { clip: "Run", rate: THREE.MathUtils.clamp(speed / m.runSpeed, 0.75, 1.4) };
+  if (moving) return { clip: "Walk", rate: THREE.MathUtils.clamp(speed / m.walkSpeed, 0.6, 1.8) };
+  return { clip: "Idle_Neutral", rate: 1 };
+}
 
 export interface LevelStats {
   seconds: number;
@@ -1351,39 +1370,53 @@ export default function BackroomsScene({
       if (def.id === "niveau-run") bacteria.group.visible = false;
     }
 
-    // --- Le Rodeur des bureaux (niveau 4) ---
-    // Un modele anime (CC0) remplace la creature dessinee en code : il marche
-    // en trainant les pieds, court bras tendus et se jette sur toi. Ses
-    // couleurs de dessin anime sont eteintes jusqu'a la silhouette, et seuls
-    // deux yeux pales restent visibles dans le noir. Meme IA, meme groupe :
-    // position, visibilite et reseau ne changent pas.
-    let rodeur: AnimatedModel | null = null;
-    let rodeurEyeGeo: THREE.SphereGeometry | null = null;
-    let rodeurEyeMat: THREE.MeshBasicMaterial | null = null;
+    // --- Les monstres animes ---
+    // Un corps anime (squelette CC0) et une tete sculptee remplacent les
+    // creatures dessinees en code, qui restent affichees tant que le fichier
+    // n'est pas charge (ou si le reseau echoue). Meme IA, memes positions,
+    // meme reseau.
+    // - Niveau 4, « le Masque » : un grand type en bleu de travail, masque
+    //   blanc sans expression. Il marche, s'arrete, penche la tete, puis fonce.
+    // - Niveaux 1 et 3, « le Souriant » : une silhouette noire de 2,20 m. Dans
+    //   le noir, on ne voit que son sourire.
+    let masque: HorrorMonster | null = null;
+    let souriant: HorrorMonster | null = null;
     let sceneGone = false;
-    if (bacteria && def.id === "niveau-4") {
-      createAnimatedModel("zombie-a", 1.95)
+    const masqueLook = { yaw: 0, roll: 0 };
+    const souriantLook = { yaw: 0, twitchAt: 0, twitchYaw: 0, twitchRoll: 0 };
+    const loadMonster = (kind: "masque" | "souriant", onReady: (m: HorrorMonster) => void) => {
+      createHorrorMonster(kind, { fading: kind === "souriant" })
         .then((m) => {
           if (sceneGone) {
             m.dispose();
             return;
           }
-          m.tint(() => true, 0x3b3833);
-          rodeurEyeGeo = new THREE.SphereGeometry(0.03, 8, 6);
-          rodeurEyeMat = new THREE.MeshBasicMaterial({ color: 0xe4dcb0 });
-          const eyes = new THREE.Group();
-          for (const sx of [-0.06, 0.06]) {
-            const eye = new THREE.Mesh(rodeurEyeGeo, rodeurEyeMat);
-            eye.position.set(sx, 0.1, 0.2);
-            eyes.add(eye);
+          // Shaders prepares des le chargement : sinon, la premiere apparition
+          // du monstre fige l'image.
+          try {
+            renderer.compile(m.model.root, camera, scene);
+          } catch {
+            // Tant pis : ils se compileront au premier rendu.
           }
-          m.attach("Head", eyes, "Idle");
-          for (const child of bacteria.group.children) child.visible = false;
-          bacteria.group.add(m.root);
-          m.play("Idle");
-          rodeur = m;
+          onReady(m);
         })
         .catch(() => {});
+    };
+    if (bacteria && def.id === "niveau-4") {
+      loadMonster("masque", (m) => {
+        for (const child of bacteria.group.children) child.visible = false;
+        bacteria.group.add(m.model.root);
+        m.model.play("Idle_Neutral");
+        masque = m;
+      });
+    }
+    if (smiler) {
+      loadMonster("souriant", (m) => {
+        m.setOpacity(0);
+        scene.add(m.model.root);
+        m.model.play("Idle_Neutral");
+        souriant = m;
+      });
     }
 
     // --- Main et lampe ---
@@ -2085,14 +2118,30 @@ export default function BackroomsScene({
           bacteria.group.position.set(camera.position.x + fx * dist, floorY(player.z) - 0.2 * rush, camera.position.z + fz * dist);
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
-          if (rodeur) {
-            rodeur.play("Run_Attack", { fade: 0.08 });
-            rodeur.update(delta);
+          if (masque) {
+            // Il t'attrape et se penche jusqu'a coller son masque a l'objectif.
+            // (la camera leve les yeux pendant la mort : le masque monte d'autant)
+            const eyeY = camera.position.y + dist * Math.tan(rush * 0.25);
+            masque.model.root.position.y = rush * (eyeY - bacteria.group.position.y - masque.eyeHeight);
+            masque.look(0, 0.12 * rush, 0.45 * rush);
+            masque.model.play("Idle_Gun_Pointing", { fade: 0.08 });
+            masque.model.update(delta);
           }
         } else if (deathCause === "souriant" && smiler) {
           smiler.group.position.set(camera.position.x + fx * dist, camera.position.y - 1.45, camera.position.z + fz * dist);
           smiler.group.rotation.y = player.yaw;
           poseSmiler(smiler, elapsed, 1, 1);
+          if (souriant) {
+            smiler.group.visible = false;
+            souriant.setOpacity(1);
+            const eyeY = camera.position.y + dist * Math.tan(rush * 0.25);
+            souriant.model.root.position.set(camera.position.x + fx * dist, eyeY - souriant.eyeHeight, camera.position.z + fz * dist);
+            souriant.model.root.rotation.y = player.yaw;
+            // Le sourire a hauteur des yeux, la tete prise de tics.
+            souriant.look((Math.random() - 0.5) * 0.2, 0.08, 0.2 + 0.3 * rush + (Math.random() - 0.5) * 0.25);
+            souriant.model.play("Idle_Gun_Pointing", { fade: 0.08 });
+            souriant.model.update(delta);
+          }
         }
         if (t >= 1 && !ended) {
           if (link) {
@@ -2645,13 +2694,19 @@ export default function BackroomsScene({
           lunge: entity.lunge,
           scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
         });
-        if (rodeur) {
-          // La foulee suit la vitesse reelle : il traine, il presse, il fonce.
-          const clip = entity.lunge > 0.05 ? "Run_Attack" : renderSpeed > 3 ? "Run_Arms" : renderSpeed > 0.25 ? "Walk" : "Idle";
-          rodeur.play(clip, { fade: 0.25 });
-          if (clip === "Walk") rodeur.setSpeed(THREE.MathUtils.clamp(renderSpeed / 1.3, 0.55, 1.9));
-          else if (clip === "Run_Arms") rodeur.setSpeed(THREE.MathUtils.clamp(renderSpeed / 4.3, 0.8, 1.5));
-          rodeur.update(delta);
+        if (masque) {
+          // La foulee suit la vitesse reelle ; les bras se tendent quand il est sur toi.
+          const gait = gaitClip(masque, renderSpeed, entity.lunge > 0.3);
+          masque.model.play(gait.clip, { fade: 0.25, speed: gait.rate });
+          masque.model.root.position.y = 0;
+          // Il te suit des yeux. Immobile, il penche lentement la tete et t'observe.
+          const watching = hunting || (los && distM < 12);
+          const lookTarget = watching ? THREE.MathUtils.clamp(headYaw, -1.2, 1.2) : Math.sin(elapsed * 0.45) * 0.6;
+          masqueLook.yaw += (lookTarget - masqueLook.yaw) * Math.min(1, delta * 4);
+          const tilt = watching && renderSpeed < 0.25 ? 0.42 : 0;
+          masqueLook.roll += (tilt - masqueLook.roll) * Math.min(1, delta * 1.5);
+          masque.look(masqueLook.yaw, 0, masqueLook.roll);
+          masque.model.update(delta);
         }
         if (entity.active && runReleased && !introHold) {
           if (elapsed >= nextClickAt && distM < 26) {
@@ -2674,6 +2729,30 @@ export default function BackroomsScene({
         smiler.group.rotation.y = Math.atan2(player.x - entity.x, player.z - entity.z);
         const rush = state === "poursuivre" && entity.active ? THREE.MathUtils.clamp(1 - distM / 9, 0, 1) : 0;
         poseSmiler(smiler, elapsed, rush, entity.opacity * (1 - power * 0.95));
+        if (souriant) {
+          smiler.group.visible = false;
+          souriant.setOpacity(entity.opacity * (1 - power * 0.95));
+          const root = souriant.model.root;
+          root.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
+          const toPlayer = Math.atan2(player.x - entity.x, player.z - entity.z);
+          const moving = renderSpeed > 0.25;
+          // En marche, le corps suit sa route ; a l'arret, il se tourne lentement vers toi.
+          root.rotation.y = wrapAngle(root.rotation.y + wrapAngle((moving ? entity.yaw : toPlayer) - root.rotation.y) * Math.min(1, delta * (moving ? 8 : 1.5)));
+          // La tete ne te lache jamais : penchee, secouee de tics, de plus en
+          // plus rapproches quand il fonce sur toi.
+          if (elapsed >= souriantLook.twitchAt) {
+            souriantLook.twitchAt = elapsed + (rush > 0 ? 0.06 + Math.random() * 0.14 : 0.8 + Math.random() * 2.5);
+            const k = rush > 0 ? 0.25 + rush * 0.5 : 0.16;
+            souriantLook.twitchYaw = (Math.random() - 0.5) * k;
+            souriantLook.twitchRoll = (Math.random() - 0.5) * k * 1.6;
+          }
+          const headTarget = THREE.MathUtils.clamp(wrapAngle(toPlayer - root.rotation.y), -1.4, 1.4);
+          souriantLook.yaw += (headTarget - souriantLook.yaw) * Math.min(1, delta * 6);
+          souriant.look(souriantLook.yaw + souriantLook.twitchYaw, 0.1, 0.3 + souriantLook.twitchRoll);
+          const gait = gaitClip(souriant, renderSpeed, rush > 0.5);
+          souriant.model.play(gait.clip, { fade: 0.3, speed: gait.rate });
+          if (root.visible) souriant.model.update(delta);
+        }
         if (rush > 0.4 && elapsed >= nextClickAt) {
           nextClickAt = elapsed + 2.2;
           playSmilerRush(audio.ctx, audio.master, spatial(entity.x, entity.z, 30, 1));
@@ -3071,9 +3150,8 @@ export default function BackroomsScene({
       const disposeGpu = () => {
         bacteria?.dispose();
         sceneGone = true;
-        rodeur?.dispose();
-        rodeurEyeGeo?.dispose();
-        rodeurEyeMat?.dispose();
+        masque?.dispose();
+        souriant?.dispose();
         smiler?.dispose();
         wanderer.dispose();
         handRig.dispose();

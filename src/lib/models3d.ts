@@ -147,6 +147,12 @@ export interface AnimatedModel {
    * l'echelle du monde, en metres.
    */
   attach(boneName: string, object: THREE.Object3D, referencePose?: string): boolean;
+  /**
+   * Reduit un os a rien : les sommets qui en dependent disparaissent (la tete
+   * d'origine, pour en poser une autre sur le cou). Les animations n'ont pas
+   * de pistes d'echelle, donc ca tient d'une image a l'autre.
+   */
+  hideBone(name: string): boolean;
   dispose(): void;
 }
 
@@ -291,6 +297,12 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
       currentAction = null;
       model.current = null;
       if (wasCurrent) model.play(wasCurrent, { fade: 0 });
+      return true;
+    },
+    hideBone(name) {
+      const b = model.bone(name);
+      if (!b) return false;
+      b.scale.setScalar(1e-4);
       return true;
     },
     dispose() {
