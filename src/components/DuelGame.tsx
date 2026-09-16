@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import DuelOptionsPanel from "./DuelOptionsPanel";
+import {
+  BOT_LEVELS,
+  DEFAULT_DUEL_OPTIONS,
+  loadDuelOptions,
+  saveDuelOptions,
+  type DuelOptions,
+} from "@/lib/duelOptions";
 import { buildDuelMap, DUEL_MAP_INFO, DUEL_MAP_ORDER, generateDuelCode, type DuelMapId, type DuelSide } from "@/lib/duel";
 import { DUEL_MODES, DUEL_MODE_ORDER, type DuelModeId } from "@/lib/duelModes";
 import { WEAPONS, GUN_GAME_ORDER } from "@/lib/duelWeapons";
@@ -55,6 +63,8 @@ export default function DuelGame({ title }: { title: string }) {
     rank?: number;
   } | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [options, setOptions] = useState<DuelOptions>(DEFAULT_DUEL_OPTIONS);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [matchKey, setMatchKey] = useState(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,6 +97,16 @@ export default function DuelGame({ title }: { title: string }) {
 
   useEffect(() => cleanupChannel, [cleanupChannel]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setOptions(loadDuelOptions()), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  function changeOptions(next: DuelOptions) {
+    setOptions(next);
+    saveDuelOptions(next);
+  }
+
   const connect = useCallback(
     (code: string, mySide: DuelSide) => {
       cleanupChannel();
@@ -112,6 +132,13 @@ export default function DuelGame({ title }: { title: string }) {
         })
         .on("broadcast", { event: "shot" }, ({ payload }: { payload: Record<string, unknown> }) => {
           link.current.inbox.push({ event: "shot", payload });
+        })
+        // Mesure du ping : l'un envoie son horodatage, l'autre le renvoie tel quel.
+        .on("broadcast", { event: "ping" }, ({ payload }: { payload: Record<string, unknown> }) => {
+          link.current.inbox.push({ event: "ping", payload });
+        })
+        .on("broadcast", { event: "pong" }, ({ payload }: { payload: Record<string, unknown> }) => {
+          link.current.inbox.push({ event: "pong", payload });
         })
         .on("presence", { event: "sync" }, () => {
           const state = channel.presenceState<{ side: DuelSide }>();
@@ -337,6 +364,35 @@ export default function DuelGame({ title }: { title: string }) {
                 );
               })}
             </div>
+          </div>
+
+          {/* --- Réglages du tir : réticule, laser, affichage, difficulté --- */}
+          <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <button
+              type="button"
+              onClick={() => setOptionsOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-3 text-left"
+            >
+              <span>
+                <span className="block text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Réglages du tir
+                </span>
+                <span className="mt-1 block text-[11px] text-zinc-400">
+                  Réticule · viseur laser · images par seconde et ping · difficulté des bots
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                  Bots : {BOT_LEVELS[options.bots].label}
+                </span>
+                <span className="text-lg text-zinc-400">{optionsOpen ? "−" : "+"}</span>
+              </span>
+            </button>
+            {optionsOpen && (
+              <div className="mt-3 flex justify-center">
+                <DuelOptionsPanel options={options} onChange={changeOptions} />
+              </div>
+            )}
           </div>
 
           {/* --- Les modes solo --- */}

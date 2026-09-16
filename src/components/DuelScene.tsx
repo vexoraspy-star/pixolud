@@ -17,7 +17,9 @@ import {
   DUEL_NET_HZ,
   type DuelMapId,
   type DuelSide,
+  type DuelTheme,
 } from "@/lib/duel";
+import { buildDuelDecor } from "@/lib/duelDecor";
 import {
   DUEL_MODES,
   buildZoneMap,
@@ -58,6 +60,15 @@ import {
   playMatchEnd,
 } from "@/lib/duelAudio";
 import { loadLayout3D, loadQuality3D, loadSensitivity3D, type Quality3D } from "@/lib/settings3d";
+import {
+  BOT_LEVELS,
+  DEFAULT_DUEL_OPTIONS,
+  loadDuelOptions,
+  saveDuelOptions,
+  type DuelOptions,
+} from "@/lib/duelOptions";
+import DuelCrosshair from "./DuelCrosshair";
+import DuelOptionsPanel from "./DuelOptionsPanel";
 import Game3DSettings from "./Game3DSettings";
 
 /** Boite aux lettres partagee avec le parent : aucune mise a jour React par paquet recu. */
@@ -93,13 +104,12 @@ const BOT_NAMES = ["Sentinelle", "Vigile", "Spectre", "Rôdeur", "Écho", "Fauch
  * bougeant et mortelle si on reste plante. Chaque bot tire selon la FICHE de
  * son arme, donc un bot au fusil a pompe doit venir au contact comme toi.
  */
-const BOT_REACTION = 0.5;
 /**
- * Precision de base ; elle chute avec la distance et si la cible bouge.
- * Reglee par simulation : un bot seul met environ 4 s a tuer un joueur qui
- * se deplace a moyenne portee, et 3 s s'il reste plante.
+ * Delai de reference, utilise seulement au sortir d'une phase d'achat : la
+ * reaction reelle des bots vient du niveau de difficulte choisi par le
+ * joueur (voir BOT_LEVELS dans duelOptions).
  */
-const BOT_BASE_ACCURACY = 0.62;
+const BOT_REACTION = 0.5;
 /**
  * Plafond de degats en melee.
  *
@@ -169,6 +179,13 @@ export default function DuelScene({
   });
 
   const [touchDevice, setTouchDevice] = useState(false);
+  /** Reglages du joueur : reticule, laser, affichage, difficulte des bots. */
+  const [options, setOptions] = useState<DuelOptions>(DEFAULT_DUEL_OPTIONS);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [fps, setFps] = useState(0);
+  const [ping, setPing] = useState<number | null>(null);
+  /** Ouverture du reticule : course, saut de recul, tir. */
+  const [spread, setSpread] = useState(0);
   /** Mode Economie : argent, manche en cours, phase d'achat et boutique. */
   const [money, setMoney] = useState(mode.economy?.startMoney ?? 0);
   const [round, setRound] = useState(1);
@@ -177,6 +194,9 @@ export default function DuelScene({
   const [roundBanner, setRoundBanner] = useState<string | null>(null);
 
   const onMatchEndRef = useRef(onMatchEnd);
+  // La boucle 3D lit les reglages a chaque image : une ref, pas un etat, pour
+  // ne pas relancer la scene a chaque case cochee.
+  const optionsRef = useRef<DuelOptions>(DEFAULT_DUEL_OPTIONS);
   const sensitivityRef = useRef(1.5);
   const layoutRef = useRef<{ current: "azerty" | "qwerty" } | null>(null);
   const touchRef = useRef({ moveX: 0, moveZ: 0, firing: false });
@@ -201,6 +221,20 @@ export default function DuelScene({
   useEffect(() => {
     onMatchEndRef.current = onMatchEnd;
   }, [onMatchEnd]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const saved = loadDuelOptions();
+      setOptions(saved);
+      optionsRef.current = saved;
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  function changeOptions(next: DuelOptions) {
+    setOptions(next);
+    optionsRef.current = next;
+    saveDuelOptions(next);
+  }
 
   useEffect(() => {
     const container = containerRef.current;
@@ -218,6 +252,9 @@ export default function DuelScene({
     const mapW = zoneMap?.width ?? duelMap!.width;
     const mapH = zoneMap?.height ?? duelMap!.height;
     const mapWalls = zoneMap?.walls ?? duelMap!.walls;
+    // L'habillage suit la carte : metal bleute, hangar, roche ou gres.
+    const theme: DuelTheme = duelMap?.theme ?? "arene";
+    const crateSet = new Set((duelMap?.crates ?? []).map(([x, y]) => `${x},${y}`));
     const wallSet = new Set(mapWalls.map(([x, y]) => `${x},${y}`));
     const isSolid = (cx: number, cy: number) =>
       cx < 0 || cy < 0 || cx >= mapW || cy >= mapH || wallSet.has(`${cx},${cy}`);
@@ -315,18 +352,27 @@ export default function DuelScene({
 
     // Eclairage volontairement simple : l'arene doit rester LISIBLE, c'est
     // un jeu de tir, pas un jeu d'ambiance.
-    scene.add(new THREE.HemisphereLight(0xb6c9dd, 0x2a3138, 2.7));
-    const key = new THREE.DirectionalLight(0xd6f0ff, 0.9);
+    // L'eclairage change avec le lieu : neon bleute dans l'Arene, jour filtre
+    // dans l'Entrepot, lampes chaudes au Gouffre, plein soleil sur Poussiere.
+    const LIGHTS: Record<DuelTheme, { sky: number; ground: number; power: number; key: number; fill: number }> = {
+      arene: { sky: 0xb6c9dd, ground: 0x2a3138, power: 2.7, key: 0xd6f0ff, fill: 0x8fb4d8 },
+      entrepot: { sky: 0xd8dcd6, ground: 0x32332e, power: 2.5, key: 0xfff3d6, fill: 0x9fb0bd },
+      gouffre: { sky: 0x8f8778, ground: 0x1a1714, power: 2.2, key: 0xffd9a0, fill: 0x6d7a88 },
+      poussiere: { sky: 0xffe6b8, ground: 0x6b5637, power: 2.8, key: 0xfff0c8, fill: 0xc9b089 },
+    };
+    const lightPlan = LIGHTS[theme];
+    scene.add(new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.power));
+    const key = new THREE.DirectionalLight(lightPlan.key, 0.9);
     key.position.set(12, 24, 8);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0x8fb4d8, 0.5);
+    const fill = new THREE.DirectionalLight(lightPlan.fill, 0.5);
     fill.position.set(-14, 18, -10);
     scene.add(fill);
 
     const worldW = mapW * DUEL_CELL;
     const worldH = mapH * DUEL_CELL;
 
-    const floorTex = makeArenaFloorTexture(mapW, mapH);
+    const floorTex = makeArenaFloorTexture(mapW, mapH, theme);
     const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
     const floorGeo = new THREE.PlaneGeometry(worldW, worldH);
     const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -337,7 +383,7 @@ export default function DuelScene({
     // La Zone se joue a ciel ouvert : un plafond sur un terrain de 31x31
     // enfermerait la partie et masquerait les trajectoires de sniper.
     const ceilingGeo = new THREE.PlaneGeometry(worldW, worldH);
-    const ceilingTex = makeArenaCeilingTexture(mapW, mapH);
+    const ceilingTex = makeArenaCeilingTexture(mapW, mapH, theme);
     const ceilingMat = new THREE.MeshLambertMaterial({ map: ceilingTex });
     let ceiling: THREE.Mesh | null = null;
     if (!useZone) {
@@ -348,15 +394,24 @@ export default function DuelScene({
     }
 
     const wallGeo = new THREE.BoxGeometry(DUEL_CELL, DUEL_WALL_HEIGHT, DUEL_CELL);
-    const wallTex = makeArenaWallTexture();
+    const wallTex = makeArenaWallTexture(theme);
     const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
-    const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, mapWalls.length);
+    // Les caisses sont des cases pleines comme les autres, mais dessinees par
+    // le decor : on les sort donc du maillage des murs.
+    const plainWalls = mapWalls.filter(([wx, wy]) => !crateSet.has(`${wx},${wy}`));
+    const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, Math.max(1, plainWalls.length));
     const mat4 = new THREE.Matrix4();
-    mapWalls.forEach(([wx, wy], i) => {
+    plainWalls.forEach(([wx, wy], i) => {
       mat4.makeTranslation((wx + 0.5) * DUEL_CELL, DUEL_WALL_HEIGHT / 2, (wy + 0.5) * DUEL_CELL);
       wallMesh.setMatrixAt(i, mat4);
     });
+    wallMesh.count = plainWalls.length;
     scene.add(wallMesh);
+
+    // Caisses empilees, bidons, sacs de sable et lettres de site peintes au
+    // sol : c'est ce qui donne son caractere a chaque carte.
+    const decor = duelMap ? buildDuelDecor(duelMap, DUEL_CELL, DUEL_WALL_HEIGHT) : null;
+    if (decor) scene.add(decor.group);
 
     const effects = createDuelEffects(scene);
 
@@ -406,6 +461,25 @@ export default function DuelScene({
     }
     // Arme un peu plus presente a l'ecran depuis qu'elle a des mains : trop
     // petite, on ne voyait ni les doigts ni la culasse qui recule.
+    // --- Viseur laser (optionnel) ---
+    // Un rayon fin depuis le canon, et le point rouge la ou il touche. Il
+    // part du canon et pas de l'oeil : de pres, le point est donc legerement
+    // decale, exactement comme un vrai laser monte sous l'arme.
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.35, depthWrite: false });
+    const laserGeo = new THREE.CylinderGeometry(0.006, 0.006, 1, 5, 1, true);
+    const laserBeam = new THREE.Mesh(laserGeo, laserMat);
+    laserBeam.visible = false;
+    scene.add(laserBeam);
+    const laserDotMat = new THREE.MeshBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.9, depthWrite: false });
+    const laserDotGeo = new THREE.SphereGeometry(0.035, 8, 6);
+    const laserDot = new THREE.Mesh(laserDotGeo, laserDotMat);
+    laserDot.visible = false;
+    scene.add(laserDot);
+    const laserFrom = new THREE.Vector3();
+    const laserTo = new THREE.Vector3();
+    const laserDir = new THREE.Vector3();
+    const laserUp = new THREE.Vector3(0, 1, 0);
+
     const GUN_BASE = new THREE.Vector3(0.21, -0.18, -0.62);
     function applyWeaponTransform() {
       for (const id of Object.keys(weaponModels) as WeaponId[]) {
@@ -700,6 +774,12 @@ export default function DuelScene({
     let nextNetAt = 0;
     let uiTimer = 0;
     let hitMarkerLevel = 0;
+    // Compteur d'images : moyenne sur une demi-seconde, sinon le chiffre
+    // clignote trop vite pour etre lu.
+    let frameCount = 0;
+    let fpsTimer = 0;
+    let nextPingAt = 2;
+    let lastPingSentAt = -1;
     let damageLevel = 0;
     let lastDamageYaw: number | null = null;
     let lastDamageAt = -10;
@@ -1331,6 +1411,12 @@ export default function DuelScene({
           );
         } else if (msg.event === "died") {
           if (remote && !remote.dead) registerFighterDeath(remote, "Toi", true);
+        } else if (msg.event === "ping") {
+          // On renvoie l'horodatage tel quel : c'est l'autre qui calcule.
+          link.current.send("pong", { t: Number(msg.payload.t) || 0 });
+        } else if (msg.event === "pong") {
+          const sent = Number(msg.payload.t) || 0;
+          if (sent > 0) setPing(Math.max(1, Math.round(performance.now() - sent)));
         } else if (msg.event === "shot") {
           const p = msg.payload as Record<string, number | string>;
           const wid = (p.w as WeaponId) ?? "fusil";
@@ -1482,7 +1568,10 @@ export default function DuelScene({
         // A bonne distance il fait des pas de cote : un bot immobile est une
         // cible gratuite, et c'est ce qui rendait les duels ternes.
         if (elapsed > f.strafeUntil) {
-          f.strafeUntil = elapsed + BOT_STRAFE_SECONDS * (0.6 + Math.random() * 0.8);
+          f.strafeUntil =
+            elapsed +
+            (BOT_STRAFE_SECONDS * (0.6 + Math.random() * 0.8)) /
+              (BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal).strafe;
           f.strafeDir = Math.random() < 0.5 ? -1 : 1;
         }
         const side = Math.atan2(target.x - f.x, target.z - f.z) + (Math.PI / 2) * f.strafeDir;
@@ -1508,13 +1597,14 @@ export default function DuelScene({
         f.reloadUntil = 0;
       }
 
+      const botCfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
       f.yaw = Math.atan2(target.x - f.x, target.z - f.z);
       f.pitch = 0;
       f.speed = Math.hypot(f.x - prevX, f.z - prevZ) / Math.max(delta, 1e-4);
       f.walkPhase += f.speed * delta * 2.6;
 
       // --- Il tire ---
-      if (!sees || f.seenFor < BOT_REACTION || elapsed < f.nextShotAt) return;
+      if (!sees || f.seenFor < botCfg.reaction || elapsed < f.nextShotAt) return;
       if (f.reloadUntil > elapsed) return;
       if (f.mag <= 0) {
         f.reloadUntil = elapsed + spec.reloadSeconds;
@@ -1523,7 +1613,7 @@ export default function DuelScene({
         return;
       }
       f.mag -= 1;
-      f.nextShotAt = elapsed + spec.fireInterval * (1.7 + Math.random() * 0.8);
+      f.nextShotAt = elapsed + spec.fireInterval * (1.7 + Math.random() * 0.8) * botCfg.fireDelay;
       f.flashUntil = elapsed + 0.05;
       playShot(audio.ctx, audio.master, panFor(f.x, f.z));
       pingRadar(f.x, f.z);
@@ -1540,13 +1630,13 @@ export default function DuelScene({
       // se deplace. Rester immobile a couvert doit rester une mauvaise idee
       // uniquement quand on est a portee.
       const movingTarget = target.isMe ? movingNow : (target.ref?.speed ?? 0) > 0.5;
-      let accuracy = BOT_BASE_ACCURACY - dist * 0.035;
+      let accuracy = botCfg.accuracy - dist * 0.035;
       if (movingTarget) accuracy -= 0.16;
       if (dist > spec.range) accuracy *= 0.45;
       accuracy = Math.max(0.08, Math.min(0.85, accuracy));
 
       if (Math.random() < accuracy) {
-        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1);
+        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * botCfg.damage;
         if (target.isMe) {
           applyDamageToMe(dmg, f.x, f.z, f);
           effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 8);
@@ -1781,6 +1871,29 @@ export default function DuelScene({
       });
       if (elapsed > muzzleUntil) model.flash.visible = false;
 
+      // --- Laser : du canon jusqu'au premier mur (ou au sol) ---
+      const wantLaser = optionsRef.current.laser && !me.dead && me.alive && !isZoomed;
+      laserBeam.visible = wantLaser;
+      laserDot.visible = wantLaser;
+      if (wantLaser) {
+        laserDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        // `rayWallDistance` travaille en cases : la distance revient donc en
+        // cases, et on la convertit une seule fois ici.
+        let t = rayWallDistance(me.x, me.z, laserDir.x, laserDir.z, 40);
+        if (laserDir.y < -1e-4) t = Math.min(t, -DUEL_EYE_HEIGHT / (laserDir.y * DUEL_CELL));
+        if (laserDir.y > 1e-4) t = Math.min(t, (DUEL_WALL_HEIGHT - DUEL_EYE_HEIGHT) / (laserDir.y * DUEL_CELL));
+        const reach = Math.max(0.4, t * DUEL_CELL - 0.02);
+        model.flash.getWorldPosition(laserFrom);
+        laserTo.copy(camera.position).addScaledVector(laserDir, reach);
+        const length = laserFrom.distanceTo(laserTo);
+        laserBeam.position.copy(laserFrom).add(laserTo).multiplyScalar(0.5);
+        laserBeam.scale.set(1, Math.max(0.01, length), 1);
+        laserBeam.quaternion.setFromUnitVectors(laserUp, laserDir.clone().normalize());
+        laserDot.position.copy(laserTo);
+        // Le point garde a peu pres la meme taille a l'ecran, de pres comme de loin.
+        laserDot.scale.setScalar(0.6 + length * 0.12);
+      }
+
       // --------------------------------------------------- rendu des soldats
       for (const f of fighters) {
         const visible = f.alive && (!f.dead || f.deathT < 1);
@@ -1817,6 +1930,19 @@ export default function DuelScene({
       }
 
       // ------------------------------------------------- retours a React
+      frameCount++;
+      fpsTimer += delta;
+      if (fpsTimer >= 0.5) {
+        if (optionsRef.current.showFps) setFps(Math.round(frameCount / fpsTimer));
+        frameCount = 0;
+        fpsTimer = 0;
+      }
+      // Ping : un aller-retour toutes les deux secondes sur le canal du duel.
+      if (!bot && optionsRef.current.showPing && elapsed >= nextPingAt) {
+        nextPingAt = elapsed + 2;
+        lastPingSentAt = performance.now();
+        link.current.send("ping", { t: lastPingSentAt });
+      }
       hitMarkerLevel = Math.max(0, hitMarkerLevel - delta * 3.4);
       damageLevel = Math.max(0, damageLevel - delta * 1.5);
       uiTimer += delta;
@@ -1824,6 +1950,10 @@ export default function DuelScene({
         uiTimer = 0;
         setHitMarker(hitMarkerLevel);
         setDamageFlash(damageLevel);
+        // Ouverture du reticule : elle suit la gerbe reelle de l'arme.
+        setSpread(
+          Math.min(1, hitMarkerLevel * 0 + recoil * 0.7 + (movingNow ? 0.3 : 0) + (sprinting ? 0.35 : 0)),
+        );
         setRespawnIn(me.dead && me.alive && mode.respawn && !eco ? Math.max(0, me.respawnAt - elapsed) : 0);
         if (eco) {
           const left = buying() ? Math.max(0, buyUntil - elapsed) : 0;
@@ -1882,6 +2012,10 @@ export default function DuelScene({
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
       for (const f of fighters) f.model.dispose();
       for (const id of Object.keys(weaponModels) as WeaponId[]) weaponModels[id].dispose();
+      laserGeo.dispose();
+      laserMat.dispose();
+      laserDotGeo.dispose();
+      laserDotMat.dispose();
       effects.dispose();
       floorGeo.dispose();
       floorMat.dispose();
@@ -1889,6 +2023,7 @@ export default function DuelScene({
       ceilingGeo.dispose();
       ceilingMat.dispose();
       ceilingTex.dispose();
+      decor?.dispose();
       wallGeo.dispose();
       wallMat.dispose();
       wallTex.dispose();
@@ -1936,6 +2071,42 @@ export default function DuelScene({
             animation: "horror-breathe 1.1s ease-in-out infinite",
           }}
         />
+      )}
+
+      {/* Images/seconde et ping */}
+      {(options.showFps || (options.showPing && !bot)) && (
+        <div className="pointer-events-none absolute left-3 top-14 flex flex-col items-start gap-0.5 rounded-lg bg-black/55 px-2 py-1 font-mono text-[11px] leading-tight backdrop-blur">
+          {options.showFps && (
+            <span className={fps >= 50 ? "text-emerald-300" : fps >= 30 ? "text-amber-300" : "text-red-400"}>
+              {fps} IPS
+            </span>
+          )}
+          {options.showPing && !bot && (
+            <span className={ping === null ? "text-zinc-500" : ping < 80 ? "text-emerald-300" : ping < 160 ? "text-amber-300" : "text-red-400"}>
+              {ping === null ? "— ms" : `${ping} ms`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Réglages du tir : réticule, laser, affichage, bots */}
+      <button
+        type="button"
+        onClick={() => setOptionsOpen((o) => !o)}
+        aria-label="Réglages du tir"
+        className="absolute right-3 top-[6.5rem] z-30 flex size-9 items-center justify-center rounded-full bg-black/70 text-base text-white backdrop-blur transition hover:bg-black/90"
+      >
+        🎯
+      </button>
+      {optionsOpen && (
+        <div className="absolute right-3 top-[9.5rem] z-40 max-h-[70vh] overflow-y-auto">
+          <DuelOptionsPanel
+            options={options}
+            onChange={changeOptions}
+            onClose={() => setOptionsOpen(false)}
+            showBots={bot}
+          />
+        </div>
       )}
 
       <Game3DSettings
@@ -2041,32 +2212,8 @@ export default function DuelScene({
         </div>
       )}
 
-      {/* Réticule : il s'ouvre a la course, disparait en visee a la lunette */}
-      {!zoomed && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative">
-            <div className="absolute left-1/2 top-1/2 h-0.5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90" />
-            {[0, 90, 180, 270].map((deg) => (
-              <div
-                key={deg}
-                className="absolute left-1/2 top-1/2 h-2 w-0.5 bg-white/60"
-                style={{ transform: `translate(-50%,-50%) rotate(${deg}deg) translateY(-7px)` }}
-              />
-            ))}
-            {hitMarker > 0.02 && (
-              <div style={{ opacity: hitMarker }}>
-                {[45, 135, 225, 315].map((deg) => (
-                  <div
-                    key={deg}
-                    className="absolute left-1/2 top-1/2 h-2.5 w-0.5 bg-red-400"
-                    style={{ transform: `translate(-50%,-50%) rotate(${deg}deg) translateY(-9px)` }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Réticule : regle par le joueur, il s'ouvre a la course et au tir */}
+      {!zoomed && <DuelCrosshair options={options} spread={spread} hit={hitMarker} />}
 
       {/* Lunette du sniper : un vrai masque noir, pas juste un zoom */}
       {zoomed && (
