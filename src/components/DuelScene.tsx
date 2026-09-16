@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import {
   buildDuelMap,
@@ -22,12 +22,18 @@ import {
 import { buildDuelDecor } from "@/lib/duelDecor";
 import { SKINS, type SkinId } from "@/lib/duelProfile";
 import {
+  buildIsland,
+  nearestOpenCell,
+  ISLAND_DROP_HEIGHT,
+  ISLAND_DROP_SECONDS,
+  ISLAND_FINAL_RADIUS,
+  ISLAND_GRACE_SECONDS,
+  ISLAND_SHRINK_SECONDS,
+} from "@/lib/duelIsland";
+import IslandMapView from "./IslandMapView";
+import {
   DUEL_MODES,
-  buildZoneMap,
-  ZONE_SHRINK_SECONDS,
-  ZONE_GRACE_SECONDS,
   ZONE_DAMAGE_PER_SECOND,
-  ZONE_FINAL_RADIUS,
   WEAPON_PRICES,
   type DuelModeId,
 } from "@/lib/duelModes";
@@ -47,6 +53,7 @@ import {
   makeArenaWallTexture,
   makeArenaFloorTexture,
   makeArenaCeilingTexture,
+  makeIslandGroundTexture,
 } from "@/lib/duelTextures";
 import {
   createDuelAudio,
@@ -102,7 +109,26 @@ const LOOK_SENSITIVITY = 0.0034;
 
 /** Couleurs d'equipe : elles doivent rester distinctes dans la penombre. */
 const ENEMY_COLORS = [0xd93b2b, 0xd9852b, 0xa93bd9, 0x2bb5d9, 0x6ad93b];
-const BOT_NAMES = ["Sentinelle", "Vigile", "Spectre", "Rôdeur", "Écho", "Faucheur"];
+const BOT_NAMES = [
+  "Sentinelle",
+  "Vigile",
+  "Spectre",
+  "Rôdeur",
+  "Écho",
+  "Faucheur",
+  "Corsaire",
+  "Orage",
+  "Lynx",
+  "Brasier",
+  "Nomade",
+  "Vortex",
+];
+
+// La battle royale se joue sur l'ile : ses durees remplacent celles de
+// l'ancien terrain de la Zone.
+const ZONE_SHRINK_SECONDS = ISLAND_SHRINK_SECONDS;
+const ZONE_GRACE_SECONDS = ISLAND_GRACE_SECONDS;
+const ZONE_FINAL_RADIUS = ISLAND_FINAL_RADIUS;
 
 /**
  * L'IA, reglee par simulation puis par essais : elle doit etre battable en
@@ -145,6 +171,7 @@ export default function DuelScene({
   link,
   look,
   skin,
+  seed = 1,
   onMatchEnd,
 }: {
   side: DuelSide;
@@ -159,6 +186,8 @@ export default function DuelScene({
   look?: WeaponLook;
   /** Tenue du joueur, envoyee a l'adversaire en ligne. */
   skin?: SkinId;
+  /** Graine de l'ile en battle royale : une nouvelle ile a chaque partie. */
+  seed?: number;
   onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number) => void;
 }) {
   const mode = DUEL_MODES[modeId];
@@ -182,6 +211,12 @@ export default function DuelScene({
   const [alive, setAlive] = useState(mode.bots + 1);
   const [outsideZone, setOutsideZone] = useState(false);
   const [zoneLeft, setZoneLeft] = useState(ZONE_SHRINK_SECONDS);
+  /** Battle royale : l'ile de cette partie, la meme pour la carte et pour la scene. */
+  const island = useMemo(() => (mode.arena === "zone" ? buildIsland(seed) : null), [mode.arena, seed]);
+  const [dropOpen, setDropOpen] = useState(mode.arena === "zone");
+  const [dropLeft, setDropLeft] = useState(ISLAND_DROP_SECONDS);
+  const [fallMeters, setFallMeters] = useState(0);
+  const [bigMap, setBigMap] = useState(false);
   const [radar, setRadar] = useState<{ me: [number, number]; yaw: number; blips: [number, number][]; zone: [number, number, number] | null }>({
     me: [0, 0],
     yaw: 0,
@@ -216,6 +251,7 @@ export default function DuelScene({
     zoom: () => void;
     applyQuality: (value: Quality3D) => void;
     buy: (id: WeaponId) => void;
+    drop: (x: number, z: number) => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
@@ -258,13 +294,15 @@ export default function DuelScene({
 
     // ------------------------------------------------------------ la carte
     const useZone = mode.arena === "zone";
-    const zoneMap = useZone ? buildZoneMap() : null;
+    const zoneMap = island
+      ? { width: island.width, height: island.height, walls: island.walls, spawns: island.spawns, loot: island.loot }
+      : null;
     const duelMap = useZone ? null : buildDuelMap(mapId);
     const mapW = zoneMap?.width ?? duelMap!.width;
     const mapH = zoneMap?.height ?? duelMap!.height;
     const mapWalls = zoneMap?.walls ?? duelMap!.walls;
     // L'habillage suit la carte : metal bleute, hangar, roche ou gres.
-    const theme: DuelTheme = duelMap?.theme ?? "arene";
+    const theme: DuelTheme = island ? "ile" : (duelMap?.theme ?? "arene");
     const crateSet = new Set((duelMap?.crates ?? []).map(([x, y]) => `${x},${y}`));
     const wallSet = new Set(mapWalls.map(([x, y]) => `${x},${y}`));
     const isSolid = (cx: number, cy: number) =>
@@ -337,9 +375,10 @@ export default function DuelScene({
 
     // ------------------------------------------------------------- la scene
     const scene = new THREE.Scene();
-    const skyColor = useZone ? 0x121a24 : 0x0d1014;
+    // L'ile se joue en plein jour sous un ciel bleu ; les arenes restent sombres.
+    const skyColor = island ? 0x9fd4ff : 0x0d1014;
     scene.background = new THREE.Color(skyColor);
-    scene.fog = new THREE.Fog(skyColor, 16 * DUEL_CELL, (useZone ? 46 : 30) * DUEL_CELL);
+    scene.fog = new THREE.Fog(skyColor, (island ? 24 : 16) * DUEL_CELL, (island ? 64 : 30) * DUEL_CELL);
 
     const BASE_FOV = 82;
     const camera = new THREE.PerspectiveCamera(
@@ -370,6 +409,7 @@ export default function DuelScene({
       entrepot: { sky: 0xd8dcd6, ground: 0x32332e, power: 2.5, key: 0xfff3d6, fill: 0x9fb0bd },
       gouffre: { sky: 0x8f8778, ground: 0x1a1714, power: 2.2, key: 0xffd9a0, fill: 0x6d7a88 },
       poussiere: { sky: 0xffe6b8, ground: 0x6b5637, power: 2.8, key: 0xfff0c8, fill: 0xc9b089 },
+      ile: { sky: 0xe8f6ff, ground: 0x4a6a3a, power: 2.6, key: 0xfff4dc, fill: 0xb8d4ea },
     };
     const lightPlan = LIGHTS[theme];
     scene.add(new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.power));
@@ -383,13 +423,25 @@ export default function DuelScene({
     const worldW = mapW * DUEL_CELL;
     const worldH = mapH * DUEL_CELL;
 
-    const floorTex = makeArenaFloorTexture(mapW, mapH, theme);
+    const floorTex = island ? makeIslandGroundTexture(island) : makeArenaFloorTexture(mapW, mapH, theme);
+    floorTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
     const floorGeo = new THREE.PlaneGeometry(worldW, worldH);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(worldW / 2, 0, worldH / 2);
     scene.add(floor);
+    // Autour de l'ile : la mer jusqu'a l'horizon.
+    let sea: THREE.Mesh | null = null;
+    if (island) {
+      sea = new THREE.Mesh(
+        new THREE.PlaneGeometry(worldW * 4, worldH * 4),
+        new THREE.MeshLambertMaterial({ color: 0x2f8fd0 }),
+      );
+      sea.rotation.x = -Math.PI / 2;
+      sea.position.set(worldW / 2, -0.04, worldH / 2);
+      scene.add(sea);
+    }
 
     // La Zone se joue a ciel ouvert : un plafond sur un terrain de 31x31
     // enfermerait la partie et masquerait les trajectoires de sniper.
@@ -409,7 +461,7 @@ export default function DuelScene({
     const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
     // Les caisses sont des cases pleines comme les autres, mais dessinees par
     // le decor : on les sort donc du maillage des murs.
-    const plainWalls = mapWalls.filter(([wx, wy]) => !crateSet.has(`${wx},${wy}`));
+    const plainWalls = island ? island.structures : mapWalls.filter(([wx, wy]) => !crateSet.has(`${wx},${wy}`));
     const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, Math.max(1, plainWalls.length));
     const mat4 = new THREE.Matrix4();
     plainWalls.forEach(([wx, wy], i) => {
@@ -421,7 +473,24 @@ export default function DuelScene({
 
     // Caisses empilees, bidons, sacs de sable et lettres de site peintes au
     // sol : c'est ce qui donne son caractere a chaque carte.
-    const decor = duelMap ? buildDuelDecor(duelMap, DUEL_CELL, DUEL_WALL_HEIGHT) : null;
+    const decor = duelMap
+      ? buildDuelDecor(duelMap, DUEL_CELL, DUEL_WALL_HEIGHT)
+      : island
+        ? buildDuelDecor(
+            {
+              width: island.width,
+              height: island.height,
+              walls: [...island.structures, ...island.crates],
+              crates: island.crates,
+              marks: [],
+              spawns: { a: [], b: [] },
+              theme: "ile",
+              trees: island.trees,
+            },
+            DUEL_CELL,
+            DUEL_WALL_HEIGHT,
+          )
+        : null;
     if (decor) scene.add(decor.group);
 
     const effects = createDuelEffects(scene);
@@ -457,7 +526,7 @@ export default function DuelScene({
       (max, [sx, sz]) => Math.max(max, Math.hypot(sx + 0.5 - mapW / 2, sz + 0.5 - mapH / 2)),
       0,
     );
-    const startRadius = farthestSpawn * 1.3;
+    const startRadius = island ? island.radius * 1.08 : farthestSpawn * 1.3;
 
     // --------------------------------------------------- armes du joueur
     // Les cinq modeles sont construits d'avance : basculer d'une arme a
@@ -697,6 +766,8 @@ export default function DuelScene({
       tyaw: number;
       tpitch: number;
       moving: boolean;
+      /** Battle royale : hauteur restante avant de toucher le sol, en metres. */
+      air: number;
     }
 
     const fighters: Fighter[] = [];
@@ -751,6 +822,7 @@ export default function DuelScene({
         tyaw: 0,
         tpitch: 0,
         moving: false,
+        air: 0,
       });
     }
 
@@ -1338,6 +1410,8 @@ export default function DuelScene({
       if (e.key.toLowerCase() === "l" && !e.repeat) {
         changeOptions({ ...optionsRef.current, laser: !optionsRef.current.laser });
       }
+      // M : la grande carte de l'ile.
+      if (e.key.toLowerCase() === "m" && !e.repeat && island) setBigMap((o) => !o);
       if (eco && buying()) {
         const n = Number(e.key);
         if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
@@ -1388,6 +1462,35 @@ export default function DuelScene({
     renderer.domElement.addEventListener("pointerup", onTouchPointerUp);
     renderer.domElement.addEventListener("pointercancel", onTouchPointerUp);
 
+    // -------------------------------------------- saut en parachute (ile)
+    let dropPhase: "choix" | "chute" | "sol" = island ? "choix" : "sol";
+    /** Instant de l'atterrissage : la zone ne compte qu'a partir de la. */
+    let dropAt = island ? Infinity : 0;
+    let fall = 0;
+    let lastDropSecond = -1;
+    let lastFallShown = -1;
+    function doDrop(tx: number, tz: number) {
+      if (!island || dropPhase !== "choix") return;
+      const [ox, oz] = nearestOpenCell(island, tx, tz);
+      me.x = ox + 0.5;
+      me.z = oz + 0.5;
+      me.pitch = -0.75;
+      fall = ISLAND_DROP_HEIGHT;
+      dropPhase = "chute";
+      // Chaque bot saute sur un lieu nomme, parfois le meme que toi.
+      for (const f of fighters) {
+        const poi = island.pois[Math.floor(Math.random() * island.pois.length)];
+        const [bx, bz] = nearestOpenCell(island, poi.x + (Math.random() - 0.5) * 12, poi.y + (Math.random() - 0.5) * 12);
+        f.x = bx + 0.5;
+        f.z = bz + 0.5;
+        f.tx = f.x;
+        f.tz = f.z;
+        f.air = ISLAND_DROP_HEIGHT * (0.75 + Math.random() * 0.45);
+        f.path = null;
+      }
+      setDropOpen(false);
+    }
+
     sceneApiRef.current = {
       reload: () => startReload(),
       zoom: () => toggleZoom(),
@@ -1396,6 +1499,7 @@ export default function DuelScene({
         renderer.setPixelRatio(pixelRatioCap());
       },
       buy: (id) => buyWeapon(id),
+      drop: (x, z) => doDrop(x, z),
     };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
@@ -1688,6 +1792,74 @@ export default function DuelScene({
 
       if (!bot) drainInbox();
 
+      // ------------------------------------- battle royale : avant le sol
+      if (dropPhase !== "sol") {
+        currentModel().group.visible = false;
+        laserBeam.visible = false;
+        laserDot.visible = false;
+        if (dropPhase === "choix") {
+          const left = Math.max(0, Math.ceil(ISLAND_DROP_SECONDS - elapsed));
+          if (left !== lastDropSecond) {
+            lastDropSecond = left;
+            setDropLeft(left);
+          }
+          if (elapsed >= ISLAND_DROP_SECONDS && island) {
+            const poi = island.pois[Math.floor(Math.random() * island.pois.length)];
+            doDrop(poi.x, poi.y);
+          }
+          // Vue d'avion au-dessus de l'ile, qui tourne lentement.
+          const a = elapsed * 0.08;
+          camera.position.set(worldW / 2 + Math.cos(a) * worldW * 0.55, 70, worldH / 2 + Math.sin(a) * worldH * 0.55);
+          camera.lookAt(worldW / 2, 0, worldH / 2);
+        } else {
+          // Chute : on se dirige avec les touches, on ne tire pas encore.
+          const fk = layout.current === "azerty" ? "z" : "w";
+          const lk = layout.current === "azerty" ? "q" : "a";
+          let gf = 0;
+          let gs = 0;
+          if (keys.has(fk) || keys.has("arrowup")) gf += 1;
+          if (keys.has("s") || keys.has("arrowdown")) gf -= 1;
+          if (keys.has(lk) || keys.has("arrowleft")) gs -= 1;
+          if (keys.has("d") || keys.has("arrowright")) gs += 1;
+          gf += touchRef.current.moveZ;
+          gs += touchRef.current.moveX;
+          const glide = (7 / DUEL_CELL) * delta;
+          const gsin = Math.sin(me.yaw);
+          const gcos = Math.cos(me.yaw);
+          me.x = THREE.MathUtils.clamp(me.x + (-gsin * gf + gcos * gs) * glide, 1, mapW - 1);
+          me.z = THREE.MathUtils.clamp(me.z + (-gcos * gf - gsin * gs) * glide, 1, mapH - 1);
+          // Chute libre, puis le parachute s'ouvre a douze metres.
+          fall = Math.max(0, fall - delta * (fall > 12 ? 13 : 6));
+          const shown = Math.ceil(fall);
+          if (shown !== lastFallShown) {
+            lastFallShown = shown;
+            setFallMeters(shown);
+          }
+          camera.position.set(me.x * DUEL_CELL, DUEL_EYE_HEIGHT + fall, me.z * DUEL_CELL);
+          camera.rotation.set(me.pitch, me.yaw, 0);
+          if (fall <= 0 && island) {
+            if (isSolid(Math.floor(me.x), Math.floor(me.z))) {
+              const [lx, lz] = nearestOpenCell(island, me.x, me.z);
+              me.x = lx + 0.5;
+              me.z = lz + 0.5;
+            }
+            dropPhase = "sol";
+            dropAt = elapsed;
+            me.safeUntil = elapsed + 2.5;
+            me.pitch = 0;
+            playRespawn(audio.ctx, audio.master);
+          }
+        }
+        // Les bots descendent eux aussi.
+        for (const f of fighters) {
+          if (f.air > 0) f.air = Math.max(0, f.air - delta * 11);
+          f.model.group.visible = dropPhase === "chute";
+          f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+        }
+        renderer.render(scene, camera);
+        return;
+      }
+
       const spec = WEAPONS[me.weapon];
       engagingLast = engagingMe;
       engagingMe = 0;
@@ -1759,8 +1931,9 @@ export default function DuelScene({
 
       // ------------------------------------------------------------ la zone
       if (mode.shrinkingZone) {
+        const zoneTime = Math.max(0, elapsed - dropAt);
         const raw = THREE.MathUtils.clamp(
-          (elapsed - ZONE_GRACE_SECONDS) / (ZONE_SHRINK_SECONDS - ZONE_GRACE_SECONDS),
+          (zoneTime - ZONE_GRACE_SECONDS) / (ZONE_SHRINK_SECONDS - ZONE_GRACE_SECONDS),
           0,
           1,
         );
@@ -1789,12 +1962,17 @@ export default function DuelScene({
           if (me.hp <= 0) registerMyDeath("La zone", null);
         }
         setOutsideZone(outside);
-        setZoneLeft(Math.max(0, ZONE_SHRINK_SECONDS - elapsed));
+        setZoneLeft(Math.max(0, ZONE_SHRINK_SECONDS - zoneTime));
 
         // Les bots aussi doivent rentrer, sinon ils meurent tous dehors et la
         // partie se gagne toute seule.
         for (const f of fighters) {
           if (f.dead || !f.alive) continue;
+          // Encore en l'air : il ne subit rien et ne fait rien.
+          if (f.air > 0) {
+            f.air = Math.max(0, f.air - delta * 11);
+            continue;
+          }
           const d = Math.hypot(f.x - zoneCenter.x, f.z - zoneCenter.z);
           if (d > zoneRadius) {
             f.hp = Math.max(0, f.hp - ZONE_DAMAGE_PER_SECOND * delta);
@@ -1809,7 +1987,7 @@ export default function DuelScene({
           let goal: { x: number; z: number } | undefined;
           if (d > zoneRadius * 0.8) {
             goal = zoneCenter;
-          } else if (elapsed < ZONE_GRACE_SECONDS) {
+          } else if (zoneTime < ZONE_GRACE_SECONDS) {
             let best: LootDrop | null = null;
             let bestD = Infinity;
             for (const l of loots) {
@@ -1928,7 +2106,7 @@ export default function DuelScene({
         const visible = f.alive && (!f.dead || f.deathT < 1);
         f.model.group.visible = visible;
         if (!visible) continue;
-        f.model.group.position.set(f.x * DUEL_CELL, 0, f.z * DUEL_CELL);
+        f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
         f.model.group.rotation.y = f.yaw;
         poseSoldier(f.model, {
           walk: f.walkPhase,
@@ -2054,6 +2232,10 @@ export default function DuelScene({
       ceilingMat.dispose();
       ceilingTex.dispose();
       decor?.dispose();
+      if (sea) {
+        sea.geometry.dispose();
+        (sea.material as THREE.Material).dispose();
+      }
       wallGeo.dispose();
       wallMat.dispose();
       wallTex.dispose();
@@ -2101,6 +2283,52 @@ export default function DuelScene({
             animation: "horror-breathe 1.1s ease-in-out infinite",
           }}
         />
+      )}
+
+      {/* Battle royale : choix du point d'atterrissage */}
+      {island && dropOpen && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 overflow-y-auto bg-[#061528]/80 p-3 backdrop-blur-sm">
+          <div className="text-center">
+            <p className="text-3xl font-black uppercase italic text-white drop-shadow sm:text-4xl">Choisis où atterrir</p>
+            <p className="mt-1 text-sm font-semibold text-sky-100">
+              Clique sur la carte · saut automatique dans{" "}
+              <span className="font-mono font-black text-yellow-300">{dropLeft} s</span> · {mode.bots + 1} joueurs
+            </p>
+          </div>
+          <div className="aspect-square w-full max-w-[min(78vh,640px)] overflow-hidden rounded-xl shadow-2xl ring-4 ring-white/25">
+            <IslandMapView island={island} onPick={(x, y) => sceneApiRef.current?.drop(x, y)} />
+          </div>
+          <p className="text-xs text-sky-100/80">Pendant la chute : ZQSD pour te diriger. Touche M en partie : la carte.</p>
+        </div>
+      )}
+
+      {/* Chute en parachute */}
+      {island && !dropOpen && fallMeters > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-30 flex flex-col items-center">
+          <p className="rounded-full bg-black/60 px-5 py-2 text-2xl font-black uppercase italic text-yellow-300">
+            🪂 {fallMeters} m
+          </p>
+          <p className="mt-1 rounded bg-black/50 px-3 py-1 text-xs font-semibold text-white">
+            ZQSD pour te diriger · la souris pour regarder
+          </p>
+        </div>
+      )}
+
+      {/* Grande carte de l'ile (touche M) */}
+      {island && bigMap && !dropOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4" onClick={() => setBigMap(false)}>
+          <div className="aspect-square w-full max-w-[min(85vh,680px)] overflow-hidden rounded-xl ring-4 ring-white/25">
+            <IslandMapView
+              island={island}
+              zone={
+                radar.zone
+                  ? { x: radar.zone[0] * island.width, y: radar.zone[1] * island.height, r: radar.zone[2] * island.width }
+                  : null
+              }
+              me={{ x: radar.me[0] * island.width, y: radar.me[1] * island.height, yaw: radar.yaw }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Images/seconde et ping */}
@@ -2219,7 +2447,7 @@ export default function DuelScene({
             <circle cx={radar.me[0] * 100} cy={radar.me[1] * 100} r="2.4" fill="#7ff0ff" />
           </svg>
           <span className="absolute bottom-0.5 left-0 w-full text-center text-[9px] uppercase tracking-wider text-zinc-500">
-            Coups de feu
+            {island ? "M : carte" : "Coups de feu"}
           </span>
         </div>
       )}

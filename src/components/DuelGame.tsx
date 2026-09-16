@@ -327,6 +327,7 @@ export default function DuelGame({ title }: { title: string }) {
         link={link}
         look={{ camo: profile.camo, sleeve: skin.sleeve, glove: skin.glove }}
         skin={profile.skin}
+        seed={matchKey * 7919 + 17}
         onMatchEnd={(win, mine, theirs, rank) => {
           // Recompense : lue et ecrite d'un bloc sur le profil sauvegarde,
           // pour ne jamais perdre une partie jouee dans un autre onglet.

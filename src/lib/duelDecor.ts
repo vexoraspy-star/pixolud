@@ -57,6 +57,7 @@ const THEME_PROPS: Record<DuelTheme, ThemeProps> = {
   entrepot: { every: 5, barils: 0.35, sacs: 0.1, palettes: 0.5, rochers: 0, caissons: 0.1, buissons: 0, barilColor: 0xb5793a },
   gouffre: { every: 6, barils: 0.2, sacs: 0.15, palettes: 0.1, rochers: 0.55, caissons: 0, buissons: 0, barilColor: 0x7a6a52 },
   poussiere: { every: 4, barils: 0.3, sacs: 0.35, palettes: 0.2, rochers: 0.05, caissons: 0, buissons: 0.3, barilColor: 0xb5793a },
+  ile: { every: 9, barils: 0.25, sacs: 0.15, palettes: 0.3, rochers: 0.1, caissons: 0, buissons: 0.4, barilColor: 0x4f7fb5 },
 };
 
 export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): DuelDecor {
@@ -279,6 +280,46 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       mesh.setMatrixAt(i, m4);
     });
     group.add(mesh);
+  }
+
+  // --- Arbres (battle royale) : de vraies cases pleines, tronc et feuillage ---
+  if (map.trees && map.trees.length > 0) {
+    const trunkMat = keep(new THREE.MeshLambertMaterial({ color: 0x7a5534 }));
+    const pineMat = keep(new THREE.MeshLambertMaterial({ color: 0x2f6f3a, flatShading: true }));
+    const leafMat = keep(new THREE.MeshLambertMaterial({ color: 0x4f9a3c, flatShading: true }));
+    const trunkGeo = keep(new THREE.CylinderGeometry(0.2, 0.28, 2.6, 7));
+    const coneGeo = keep(new THREE.ConeGeometry(1.25, 2.4, 8));
+    const ballGeo = keep(new THREE.IcosahedronGeometry(1.35, 0));
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, map.trees.length);
+    const pines = new THREE.InstancedMesh(coneGeo, pineMat, map.trees.length * 2);
+    const leaves = new THREE.InstancedMesh(ballGeo, leafMat, map.trees.length);
+    let pi = 0;
+    let li = 0;
+    map.trees.forEach(([tx, ty], i) => {
+      const x = (tx + 0.5) * cell;
+      const z = (ty + 0.5) * cell;
+      const s = 0.85 + rng() * 0.45;
+      m4.compose(v3.set(x, 1.3 * s, z), q4.identity(), s3.set(s, s, s));
+      trunks.setMatrixAt(i, m4);
+      if (rng() < 0.55) {
+        // Sapin : deux cones empiles.
+        for (let k = 0; k < 2; k++) {
+          euler.set(0, rng() * 3, 0);
+          q4.setFromEuler(euler);
+          const ks = s * (1 - k * 0.28);
+          m4.compose(v3.set(x, (2.6 + k * 1.3) * s, z), q4, s3.set(ks, ks, ks));
+          pines.setMatrixAt(pi++, m4);
+        }
+      } else {
+        euler.set(rng() * 3, rng() * 3, rng() * 3);
+        q4.setFromEuler(euler);
+        m4.compose(v3.set(x, 3.2 * s, z), q4, s3.set(s * 1.1, s, s * 1.1));
+        leaves.setMatrixAt(li++, m4);
+      }
+    });
+    pines.count = pi;
+    leaves.count = li;
+    group.add(trunks, pines, leaves);
   }
 
   // --- Caissons techniques (Arene) : coffre sombre avec un liseré lumineux ---

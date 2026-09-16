@@ -14,7 +14,7 @@
 export type DuelMapId = "arene" | "entrepot" | "gouffre" | "poussiere";
 
 /** Habillage d'une carte : textures et decor changent completement avec. */
-export type DuelTheme = "arene" | "entrepot" | "gouffre" | "poussiere";
+export type DuelTheme = "arene" | "entrepot" | "gouffre" | "poussiere" | "ile";
 
 const MAPS: Record<DuelMapId, string[]> = {
   arene: [
@@ -139,6 +139,8 @@ export interface DuelMap {
   crates: [number, number][];
   /** Lettres peintes au sol, comme les sites d'un jeu par equipes. */
   marks: { x: number; y: number; label: string }[];
+  /** Arbres (battle royale) : des cases pleines dessinees en arbres. */
+  trees?: [number, number][];
   /** Deux apparitions par camp : on repart de la plus eloignee du tueur. */
   spawns: Record<DuelSide, [number, number][]>;
   theme: DuelTheme;

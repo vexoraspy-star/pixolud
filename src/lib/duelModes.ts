@@ -129,12 +129,12 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
   },
   zone: {
     id: "zone",
-    name: "Zone",
-    tagline: "Battle royale",
+    name: "Battle royale",
+    tagline: "Grande île · 12 joueurs",
     detail:
-      "Grand terrain, cinq adversaires, aucune réapparition. Tu commences au pistolet et tu ramasses mieux au sol. La zone se referme et brûle ceux qui restent dehors.",
+      "Une grande île avec sept lieux nommés. Tu choisis où atterrir sur la carte, tu sautes en parachute, tu ramasses tes armes et tu survis à la zone. Une seule vie, le dernier debout gagne.",
     arena: "zone",
-    bots: 5,
+    bots: 11,
     scoreToWin: 0,
     respawn: false,
     startWeapon: "pistolet",

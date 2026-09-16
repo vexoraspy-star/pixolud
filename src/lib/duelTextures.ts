@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DuelTheme } from "./duel";
+import type { IslandMap } from "./duelIsland";
 
 // Textures de l'arene du Duel, dessinees au canvas comme celles du Manoir.
 //
@@ -28,6 +29,7 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
   if (theme === "entrepot") return makeWarehouseWall();
   if (theme === "gouffre") return makeRockWall();
   if (theme === "poussiere") return makeSandstoneWall();
+  if (theme === "ile") return makeHouseWall();
   const { canvas, ctx } = canvas2d(256, 256);
   ctx.fillStyle = "#2b3138";
   ctx.fillRect(0, 0, 256, 256);
@@ -83,7 +85,7 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
 export function makeArenaFloorTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
   if (theme === "entrepot") return makeWarehouseFloor(width, height);
   if (theme === "gouffre") return makeRockFloor(width, height);
-  if (theme === "poussiere") return makeSandFloor(width, height);
+  if (theme === "poussiere" || theme === "ile") return makeSandFloor(width, height);
   const { canvas, ctx } = canvas2d(128, 128);
   ctx.fillStyle = "#23262b";
   ctx.fillRect(0, 0, 128, 128);
@@ -105,7 +107,7 @@ export function makeArenaFloorTexture(width: number, height: number, theme: Duel
 export function makeArenaCeilingTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
   if (theme === "entrepot") return makeWarehouseCeiling(width, height);
   if (theme === "gouffre") return makeRockCeiling(width, height);
-  if (theme === "poussiere") return makeSkyCeiling(width, height);
+  if (theme === "poussiere" || theme === "ile") return makeSkyCeiling(width, height);
   const { canvas, ctx } = canvas2d(128, 128);
   ctx.fillStyle = "#15181c";
   ctx.fillRect(0, 0, 128, 128);
@@ -662,4 +664,112 @@ export function makeCamoTexture(colors: string[]): THREE.CanvasTexture {
     }
   });
   return finish(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// L'ile de la battle royale
+// ---------------------------------------------------------------------------
+
+/** Mur de maison : enduit clair, colombages de bois, une fenetre. */
+function makeHouseWall(): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#e6dcc6";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.15)" : "rgba(120,100,70,0.12)";
+    ctx.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  // Colombages.
+  ctx.fillStyle = "#6b4a2c";
+  ctx.fillRect(0, 0, S, 14);
+  ctx.fillRect(0, S - 22, S, 22);
+  ctx.fillRect(0, 0, 12, S);
+  ctx.fillRect(S - 12, 0, 12, S);
+  ctx.save();
+  ctx.translate(S / 2, S / 2);
+  ctx.rotate(0.6);
+  ctx.fillRect(-150, -6, 300, 12);
+  ctx.restore();
+  // Fenetre avec ses volets.
+  ctx.fillStyle = "#3d6f8f";
+  ctx.fillRect(86, 70, 84, 70);
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillRect(92, 76, 30, 20);
+  ctx.strokeStyle = "#f2efe6";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(86, 70, 84, 70);
+  ctx.beginPath();
+  ctx.moveTo(128, 70);
+  ctx.lineTo(128, 140);
+  ctx.moveTo(86, 105);
+  ctx.lineTo(170, 105);
+  ctx.stroke();
+  ctx.fillStyle = "#3f7a4a";
+  ctx.fillRect(62, 70, 20, 70);
+  ctx.fillRect(174, 70, 20, 70);
+  // Salissure au pied du mur.
+  const dirt = ctx.createLinearGradient(0, S * 0.75, 0, S);
+  dirt.addColorStop(0, "rgba(80,60,30,0)");
+  dirt.addColorStop(1, "rgba(80,60,30,0.3)");
+  ctx.fillStyle = dirt;
+  ctx.fillRect(0, S * 0.75, S, S * 0.25);
+  return finish(canvas);
+}
+
+/**
+ * Le sol de toute l'ile, peint case par case : herbe, sable de plage, beton
+ * des docks, terre des chemins, parquet des maisons, eau autour. Une seule
+ * texture pour toute la carte, donc un seul appel de rendu.
+ */
+export function makeIslandGroundTexture(island: IslandMap): THREE.CanvasTexture {
+  const P = 12;
+  const W = island.width;
+  const H = island.height;
+  const { canvas, ctx } = canvas2d(W * P, H * P);
+  const palette = ["#5f9a3e", "#e2cf94", "#9a9c98", "#9b7a4e", "#2f8fd0", "#9a6c42"];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const g = island.ground[y * W + x];
+      ctx.fillStyle = palette[g] ?? palette[0];
+      ctx.fillRect(x * P, y * P, P, P);
+    }
+  }
+  // Variations : touffes d'herbe, grain du sable, planches du parquet.
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const g = island.ground[y * W + x];
+      const px = x * P;
+      const py = y * P;
+      if (g === 0) {
+        for (let k = 0; k < 4; k++) {
+          ctx.fillStyle = Math.random() > 0.5 ? "rgba(140,190,90,0.5)" : "rgba(50,90,30,0.45)";
+          ctx.fillRect(px + Math.random() * P, py + Math.random() * P, 2, 3);
+        }
+      } else if (g === 1) {
+        ctx.fillStyle = "rgba(180,150,90,0.35)";
+        ctx.fillRect(px + Math.random() * P, py + Math.random() * P, 2, 2);
+      } else if (g === 5) {
+        ctx.fillStyle = "rgba(60,36,18,0.45)";
+        ctx.fillRect(px, py + P - 1, P, 1);
+      } else if (g === 2) {
+        ctx.strokeStyle = "rgba(60,60,60,0.25)";
+        ctx.strokeRect(px + 0.5, py + 0.5, P - 1, P - 1);
+      } else if (g === 4) {
+        // Eau plus claire pres du rivage.
+        const nearLand =
+          (x > 0 && island.ground[y * W + x - 1] !== 4) ||
+          (x < W - 1 && island.ground[y * W + x + 1] !== 4) ||
+          (y > 0 && island.ground[(y - 1) * W + x] !== 4) ||
+          (y < H - 1 && island.ground[(y + 1) * W + x] !== 4);
+        if (nearLand) {
+          ctx.fillStyle = "rgba(140,220,240,0.55)";
+          ctx.fillRect(px, py, P, P);
+        }
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
