@@ -261,13 +261,13 @@ export function makeCeilingTiles(tint = "#d8cd9f", stains = 1): THREE.CanvasText
 }
 
 /** Dalle de neon : plaque laiteuse, grille de diffusion, cadre metallique. */
-export function makeLightPanel(warm = "#fffbe6"): THREE.CanvasTexture {
+export function makeLightPanel(warm = "#fffbe6", edge = "#e9e0bd"): THREE.CanvasTexture {
   const { canvas, ctx } = canvas2d(256, 128);
   ctx.fillStyle = "#8b8778";
   ctx.fillRect(0, 0, 256, 128);
   const g = ctx.createRadialGradient(128, 64, 10, 128, 64, 130);
   g.addColorStop(0, warm);
-  g.addColorStop(1, "#e9e0bd");
+  g.addColorStop(1, edge);
   ctx.fillStyle = g;
   ctx.fillRect(8, 8, 240, 112);
   ctx.strokeStyle = "rgba(160,150,110,0.55)";
@@ -692,7 +692,7 @@ export function makeArrowDecal(color = "#8a1410"): THREE.CanvasTexture {
   return t;
 }
 
-export type DoorStyle = "service" | "monte-charge" | "trappe" | "sortie";
+export type DoorStyle = "service" | "monte-charge" | "trappe" | "sortie" | "centrale" | "securite" | "piscine";
 
 /** Portes de sortie, une par niveau. */
 export function makeDoorTexture(style: DoorStyle): THREE.CanvasTexture {
@@ -748,6 +748,113 @@ export function makeDoorTexture(style: DoorStyle): THREE.CanvasTexture {
     }
     ctx.fillStyle = "rgba(140,62,22,0.5)";
     for (let i = 0; i < 18; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 3 + Math.random() * 8, 20 + Math.random() * 80);
+  } else if (style === "centrale") {
+    // Porte de local technique : tole grise, triangle haute tension, rouille.
+    ctx.fillStyle = "#4d524d";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 8;
+    ctx.strokeRect(12, 12, W - 24, H - 24);
+    for (let y = 60; y < H - 40; y += 90) {
+      ctx.fillStyle = "rgba(0,0,0,0.25)";
+      ctx.fillRect(30, y, W - 60, 4);
+    }
+    ctx.fillStyle = "#e7b92a";
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 70);
+    ctx.lineTo(W / 2 + 62, 178);
+    ctx.lineTo(W / 2 - 62, 178);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#15130e";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.fillStyle = "#15130e";
+    ctx.beginPath();
+    ctx.moveTo(W / 2 + 8, 96);
+    ctx.lineTo(W / 2 - 18, 142);
+    ctx.lineTo(W / 2 + 2, 142);
+    ctx.lineTo(W / 2 - 10, 170);
+    ctx.lineTo(W / 2 + 20, 124);
+    ctx.lineTo(W / 2, 124);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = "bold 20px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e7b92a";
+    ctx.fillText("DANGER", W / 2, 214);
+    ctx.fillStyle = "#1b1a17";
+    ctx.fillRect(W - 60, 270, 30, 50);
+    ctx.fillStyle = "rgba(130,60,20,0.45)";
+    for (let i = 0; i < 26; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 3 + Math.random() * 10, 10 + Math.random() * 60);
+  } else if (style === "securite") {
+    // Porte coupe-feu des bureaux : lecteur de badge, bandeau, vitre armee.
+    ctx.fillStyle = "#8d9496";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.fillStyle = "#c9dde2";
+    ctx.fillRect(W / 2 - 30, 60, 60, 150);
+    ctx.strokeStyle = "rgba(70,80,85,0.5)";
+    ctx.lineWidth = 1;
+    for (let y = 60; y < 210; y += 12) {
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 30, y);
+      ctx.lineTo(W / 2 + 30, y);
+      ctx.stroke();
+    }
+    for (let x = W / 2 - 30; x <= W / 2 + 30; x += 12) {
+      ctx.beginPath();
+      ctx.moveTo(x, 60);
+      ctx.lineTo(x, 210);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#2a6f9e";
+    ctx.fillRect(10, 240, W - 20, 30);
+    ctx.fillStyle = "#f2f6f8";
+    ctx.font = "bold 18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("ACCÈS RÉSERVÉ", W / 2, 262);
+    ctx.fillStyle = "#1d2022";
+    ctx.fillRect(W - 62, 296, 34, 56);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(W - 52, 306, 14, 6);
+    ctx.fillStyle = "#3a3e40";
+    ctx.fillRect(28, 300, 16, 70);
+  } else if (style === "piscine") {
+    // Porte de vestiaire : blanche, hublot rond, pictogramme de nageur.
+    ctx.fillStyle = "#e4eeee";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(60,110,120,0.35)";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.fillStyle = "#1f3b44";
+    ctx.beginPath();
+    ctx.arc(W / 2, 130, 46, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#9fb4b8";
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.fillStyle = "#2a7fa0";
+    ctx.fillRect(40, 240, W - 80, 64);
+    ctx.fillStyle = "#f4fbfc";
+    ctx.beginPath();
+    ctx.arc(W / 2 - 34, 262, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#f4fbfc";
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 24, 268);
+    ctx.lineTo(W / 2 + 30, 262);
+    ctx.stroke();
+    ctx.beginPath();
+    for (let x = 56; x < W - 56; x += 4) ctx.lineTo(x, 292 + Math.sin(x * 0.2) * 4);
+    ctx.stroke();
+    ctx.fillStyle = "#b9c6c7";
+    ctx.fillRect(28, 330, 18, 60);
+    ctx.fillStyle = "rgba(90,130,120,0.18)";
+    for (let i = 0; i < 12; i++) ctx.fillRect(Math.random() * W, H - 80 + Math.random() * 60, 2 + Math.random() * 30, 2);
   } else {
     ctx.fillStyle = style === "sortie" ? "#6b6560" : "#77746a";
     ctx.fillRect(0, 0, W, H);
@@ -850,4 +957,374 @@ export function makeWaterLabel(): THREE.CanvasTexture {
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = THREE.RepeatWrapping;
   return t;
+}
+
+// ---------------------------------------------------------------------------
+// Niveau 3 — Centrale electrique
+// ---------------------------------------------------------------------------
+
+/** Brique noircie de suie, soubassement peint en vert d'usine, cable qui court. */
+export function makeBrickWall(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 768;
+  const { canvas, ctx } = canvas2d(W, H);
+  ctx.fillStyle = "#2a1c16";
+  ctx.fillRect(0, 0, W, H);
+  const bw = 64;
+  const bh = 28;
+  for (let row = 0, y = 0; y < H; row++, y += bh) {
+    const off = row % 2 === 0 ? 0 : bw / 2;
+    for (let x = -off; x < W; x += bw) {
+      const r = 96 + Math.random() * 40;
+      const g = 52 + Math.random() * 22;
+      const b = 38 + Math.random() * 16;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x + 3, y + 3, bw - 6, bh - 5);
+      // Arete eclairee et ombre sous chaque brique.
+      ctx.fillStyle = "rgba(255,200,160,0.08)";
+      ctx.fillRect(x + 3, y + 3, bw - 6, 2);
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.fillRect(x + 3, y + bh - 4, bw - 6, 2);
+      if (Math.random() < 0.06) {
+        ctx.fillStyle = "rgba(20,12,8,0.5)";
+        ctx.fillRect(x + 6 + Math.random() * 30, y + 5, 10 + Math.random() * 16, bh - 10);
+      }
+    }
+  }
+  // Suie qui monte vers le plafond.
+  const soot = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+  soot.addColorStop(0, "rgba(10,8,6,0.65)");
+  soot.addColorStop(1, "rgba(10,8,6,0)");
+  ctx.fillStyle = soot;
+  ctx.fillRect(0, 0, W, H * 0.5);
+  // Soubassement peint, ecaille.
+  const band = H * 0.62;
+  ctx.fillStyle = "#3f5347";
+  ctx.fillRect(0, band, W, H - band);
+  ctx.fillStyle = "#c9a227";
+  ctx.fillRect(0, band - 10, W, 10);
+  ctx.fillStyle = "#15130e";
+  for (let x = -20; x < W + 20; x += 26) {
+    ctx.beginPath();
+    ctx.moveTo(x, band - 10);
+    ctx.lineTo(x + 12, band - 10);
+    ctx.lineTo(x + 4, band);
+    ctx.lineTo(x - 8, band);
+    ctx.closePath();
+    ctx.fill();
+  }
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = `rgba(${100 + Math.random() * 30},${56 + Math.random() * 20},40,0.9)`;
+    ctx.fillRect(Math.random() * W, band + Math.random() * (H - band), 4 + Math.random() * 22, 3 + Math.random() * 10);
+  }
+  const dirt = ctx.createLinearGradient(0, H * 0.85, 0, H);
+  dirt.addColorStop(0, "rgba(10,8,6,0)");
+  dirt.addColorStop(1, "rgba(10,8,6,0.6)");
+  ctx.fillStyle = dirt;
+  ctx.fillRect(0, H * 0.85, W, H * 0.15);
+  // Chemin de cables.
+  ctx.fillStyle = "#161412";
+  ctx.fillRect(0, 150, W, 9);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(0, 150, W, 2);
+  grain(ctx, W, H, 26);
+  return finish(canvas);
+}
+
+/** Face d'armoire ou de transformateur : tole peinte, grilles, voyants, jauge. */
+export function makeMachinePanel(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#56615a";
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, S - 12, S - 12);
+  ctx.beginPath();
+  ctx.moveTo(S / 2, 6);
+  ctx.lineTo(S / 2, S - 6);
+  ctx.stroke();
+  // Grilles d'aeration.
+  ctx.fillStyle = "#1a1d1b";
+  for (const x0 of [40, S / 2 + 40]) {
+    for (let y = 60; y < 200; y += 14) ctx.fillRect(x0, y, 176, 7);
+  }
+  // Plaque constructeur et jauge.
+  ctx.fillStyle = "#c8c2ad";
+  ctx.fillRect(60, 240, 130, 60);
+  ctx.fillStyle = "#2a2620";
+  ctx.font = "bold 15px monospace";
+  ctx.fillText("TR-400 kVA", 70, 266);
+  ctx.fillText("20 000 V", 70, 288);
+  ctx.fillStyle = "#e9e3d2";
+  ctx.beginPath();
+  ctx.arc(S * 0.75, 280, 40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2a2520";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.strokeStyle = "#b3261e";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(S * 0.75, 280);
+  ctx.lineTo(S * 0.75 + 26, 262);
+  ctx.stroke();
+  // Bandeau haute tension.
+  ctx.fillStyle = "#d9a91f";
+  ctx.fillRect(6, S - 110, S - 12, 34);
+  ctx.fillStyle = "#15130e";
+  for (let x = -30; x < S + 30; x += 34) {
+    ctx.beginPath();
+    ctx.moveTo(x, S - 110);
+    ctx.lineTo(x + 16, S - 110);
+    ctx.lineTo(x + 2, S - 76);
+    ctx.lineTo(x - 14, S - 76);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Coulures d'huile et rouille.
+  for (let i = 0; i < 14; i++) {
+    const x = Math.random() * S;
+    const y = 320 + Math.random() * 60;
+    const g = ctx.createLinearGradient(0, y, 0, y + 120);
+    g.addColorStop(0, "rgba(40,24,12,0.45)");
+    g.addColorStop(1, "rgba(40,24,12,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, 3 + Math.random() * 6, 120);
+  }
+  const dirt = ctx.createLinearGradient(0, S * 0.8, 0, S);
+  dirt.addColorStop(0, "rgba(10,10,8,0)");
+  dirt.addColorStop(1, "rgba(10,10,8,0.55)");
+  ctx.fillStyle = dirt;
+  ctx.fillRect(0, S * 0.8, S, S * 0.2);
+  grain(ctx, S, S, 24);
+  return finish(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// Niveau 4 — Bureaux abandonnes
+// ---------------------------------------------------------------------------
+
+/** Peinture blanc casse de bureau, plinthe grise, traces de chaises et de scotch. */
+export function makeOfficeWall(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 716;
+  const { canvas, ctx } = canvas2d(W, H);
+  const base = ctx.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, "#d9d8cf");
+  base.addColorStop(1, "#c3c2b8");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, H);
+  // Rail de protection a hauteur de chaise.
+  ctx.fillStyle = "#9ea3a3";
+  ctx.fillRect(0, H * 0.6, W, 14);
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillRect(0, H * 0.6, W, 2);
+  // Rayures de dossiers de chaises sous le rail.
+  ctx.strokeStyle = "rgba(60,60,55,0.18)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 16; i++) {
+    const x = Math.random() * W;
+    const y = H * 0.64 + Math.random() * 50;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 20 + Math.random() * 50, y + (Math.random() - 0.5) * 6);
+    ctx.stroke();
+  }
+  // Traces rectangulaires : des cadres et des tableaux decroches.
+  for (let i = 0; i < 2; i++) {
+    const w = 70 + Math.random() * 110;
+    const h = 50 + Math.random() * 80;
+    const x = Math.random() * (W - w);
+    const y = 90 + Math.random() * 180;
+    ctx.fillStyle = "rgba(240,240,232,0.55)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(90,88,80,0.2)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+  }
+  // Morceaux de scotch jauni.
+  ctx.fillStyle = "rgba(210,190,120,0.5)";
+  for (let i = 0; i < 5; i++) ctx.fillRect(Math.random() * W, 120 + Math.random() * 260, 18, 7);
+  if (Math.random() < 0.5) {
+    waterStain(ctx, Math.random() * W, 60 + Math.random() * 120, 30 + Math.random() * 60, "rgba(140,120,70,0.1)", "rgba(110,90,50,0.14)");
+  }
+  // Plinthe.
+  ctx.fillStyle = "#4a4d4f";
+  ctx.fillRect(0, H - 30, W, 30);
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(0, H - 30, W, 2);
+  const dirt = ctx.createLinearGradient(0, H * 0.8, 0, H - 30);
+  dirt.addColorStop(0, "rgba(50,48,40,0)");
+  dirt.addColorStop(1, "rgba(50,48,40,0.25)");
+  ctx.fillStyle = dirt;
+  ctx.fillRect(0, H * 0.8, W, H * 0.2 - 30);
+  grain(ctx, W, H, 14);
+  return finish(canvas);
+}
+
+/** Moquette en dalles de 50 cm, poses a sens alterne, bleu-gris d'open-space. */
+export function makeOfficeCarpet(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  const t = 128;
+  for (let y = 0; y < S; y += t) {
+    for (let x = 0; x < S; x += t) {
+      const v = Math.random() * 8;
+      ctx.fillStyle = `rgb(${72 + v},${80 + v},${90 + v})`;
+      ctx.fillRect(x, y, t, t);
+      const vertical = ((x + y) / t) % 2 === 0;
+      ctx.strokeStyle = "rgba(30,34,40,0.22)";
+      ctx.lineWidth = 1;
+      for (let k = 4; k < t; k += 5) {
+        ctx.beginPath();
+        if (vertical) {
+          ctx.moveTo(x + k, y);
+          ctx.lineTo(x + k, y + t);
+        } else {
+          ctx.moveTo(x, y + k);
+          ctx.lineTo(x + t, y + k);
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(20,22,26,0.4)";
+      ctx.strokeRect(x + 0.5, y + 0.5, t - 1, t - 1);
+    }
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 30 + Math.random() * 60;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "rgba(40,34,24,0.3)");
+    g.addColorStop(1, "rgba(40,34,24,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  grain(ctx, S, S, 22);
+  return finish(canvas);
+}
+
+/** Tissu des cloisons de box : chine bleu-gris, profil alu en haut. */
+export function makeCubicleFabric(): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#5f6b78";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 5000; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? "rgba(140,152,166,0.18)" : "rgba(30,36,44,0.2)";
+    ctx.fillRect(Math.random() * S, Math.random() * S, 1.5, 1.5);
+  }
+  ctx.fillStyle = "#b5babd";
+  ctx.fillRect(0, 0, S, 10);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(0, 10, S, 3);
+  // Post-it oublies.
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = ["#e8dc6a", "#e89ab0", "#8fd1e0"][i];
+    ctx.fillRect(20 + Math.random() * 200, 40 + Math.random() * 150, 22, 22);
+  }
+  grain(ctx, S, S, 18);
+  return finish(canvas);
+}
+
+/** Ecran d'ordinateur allume pour personne : fenetres, tableur, et un message. */
+export function makeScreenTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = canvas2d(256, 160);
+  const g = ctx.createLinearGradient(0, 0, 0, 160);
+  g.addColorStop(0, "#2d6fa6");
+  g.addColorStop(1, "#1b4a73");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 160);
+  ctx.fillStyle = "#e9eef2";
+  ctx.fillRect(22, 18, 150, 104);
+  ctx.fillStyle = "#1f5f99";
+  ctx.fillRect(22, 18, 150, 12);
+  ctx.strokeStyle = "rgba(60,80,100,0.35)";
+  ctx.lineWidth = 1;
+  for (let y = 38; y < 118; y += 8) {
+    ctx.beginPath();
+    ctx.moveTo(26, y);
+    ctx.lineTo(168, y);
+    ctx.stroke();
+  }
+  for (let x = 58; x < 168; x += 30) {
+    ctx.beginPath();
+    ctx.moveTo(x, 34);
+    ctx.lineTo(x, 120);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#101418";
+  ctx.font = "bold 13px monospace";
+  ctx.fillText("AIDEZ-MOI", 150, 142);
+  ctx.fillStyle = "#1a1f24";
+  ctx.fillRect(0, 150, 256, 10);
+  return finish(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// Niveau 37 — Les Piscines
+// ---------------------------------------------------------------------------
+
+/** Petit carrelage blanc brillant (ou bleu pour le fond des bassins), joints gris. */
+export function makePoolTile(bottom = false): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = bottom ? "#6fa9b4" : "#b9c9c9";
+  ctx.fillRect(0, 0, S, S);
+  const t = 32;
+  for (let y = 0; y < S; y += t) {
+    for (let x = 0; x < S; x += t) {
+      const v = Math.random() * 10;
+      ctx.fillStyle = bottom ? `rgb(${96 + v},${176 + v},${190 + v})` : `rgb(${232 + v * 0.5},${240 + v * 0.5},${238 + v * 0.5})`;
+      ctx.fillRect(x + 2, y + 2, t - 3, t - 3);
+      // Reflet sur l'emaille.
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.fillRect(x + 4, y + 4, t - 12, 2);
+    }
+  }
+  if (!bottom) {
+    // Traces de calcaire, rares : c'est presque trop propre.
+    for (let i = 0; i < 3; i++) {
+      const x = Math.random() * S;
+      const y = Math.random() * S;
+      const r = 20 + Math.random() * 50;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, "rgba(150,170,160,0.16)");
+      g.addColorStop(1, "rgba(150,170,160,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+  grain(ctx, S, S, 8);
+  return finish(canvas);
+}
+
+/** Surface de l'eau : reseau de caustiques clairs, a faire defiler. */
+export function makeWaterSurface(): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#7fd3de";
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(240,255,255,0.55)";
+  ctx.lineCap = "round";
+  // Cellules de Voronoi approximees : des boucles irregulieres qui se touchent.
+  for (let i = 0; i < 26; i++) {
+    const cx = Math.random() * S;
+    const cy = Math.random() * S;
+    const r = 14 + Math.random() * 18;
+    ctx.lineWidth = 1 + Math.random() * 2.2;
+    for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]]) {
+      ctx.beginPath();
+      for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.5) {
+        const rr = r * (0.75 + Math.sin(a * 3 + i) * 0.2);
+        const px = cx + ox + Math.cos(a) * rr;
+        const py = cy + oy + Math.sin(a) * rr;
+        if (a === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+  return finish(canvas);
 }

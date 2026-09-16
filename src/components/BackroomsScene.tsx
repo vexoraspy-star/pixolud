@@ -13,11 +13,13 @@ import {
   isSolidCell,
   mulberry32,
   type LevelDef,
+  type LevelId,
   type PickupKind,
   type WallSpot,
 } from "@/lib/backrooms";
 import {
   makeArrowDecal,
+  makeBrickWall,
   makeCardboard,
   makeCeilingTiles,
   makeConcreteFloor,
@@ -25,14 +27,22 @@ import {
   makeDarkCeiling,
   makeDoorTexture,
   makeExitSign,
+  makeFuseBoxTexture,
   makeGrating,
   makeHallCarpet,
   makeHallWallpaper,
+  makeCubicleFabric,
   makeLightPanel,
+  makeMachinePanel,
   makeMetalWall,
+  makeOfficeCarpet,
+  makeOfficeWall,
+  makePoolTile,
+  makeScreenTexture,
   makeTileFloor,
   makeTileWall,
   makeWaterLabel,
+  makeWaterSurface,
 } from "@/lib/backroomsTextures";
 import {
   createBackroomsAudio,
@@ -66,6 +76,7 @@ import {
   playValveDone,
   playValveTurn,
   playWhisper,
+  type AudioFlavor,
   type Surface,
 } from "@/lib/backroomsAudio";
 import {
@@ -114,6 +125,98 @@ const WATER_SANITY = 38;
 const PICK_REACH = 1.5;
 const DOOR_REACH = 2.1;
 const VALVE_REACH = 1.8;
+/** Dans les bassins du niveau 37 : hauteur de l'eau, et vitesse reduite. */
+const WATER_Y = 0.15;
+const WADE_SPEED = 0.62;
+
+/**
+ * Vocabulaire des objectifs. Le mecanisme est partage (ramasser trois objets,
+ * ou maintenir E sur trois points), mais il change de nom selon le lieu :
+ * fusibles au niveau 1, vannes au 2, disjoncteurs au 3, badges au 4.
+ */
+interface GoalWords {
+  todo: (n: number, total: number) => string;
+  todoDetail: string;
+  done: string;
+  doneDetail: string;
+  gotOne: (n: number, total: number) => string;
+  friend: (n: number, total: number) => string;
+  locked: (missing: number) => string;
+  lockedPrompt: string;
+  itemPrompt: string;
+  openPrompt: string;
+}
+const plural = (n: number) => (n > 1 ? "s" : "");
+function goalWords(id: LevelId): GoalWords {
+  switch (id) {
+    case "niveau-2":
+      return {
+        todo: (n, t) => `Vannes ${n}/${t}`,
+        todoDetail: "Ferme-les pour déverrouiller la trappe. Ça s'entend.",
+        done: "Rejoins la trappe",
+        doneDetail: "La pression est tombée. Elle est ouverte.",
+        gotOne: (n, t) => (n < t ? `Vanne fermée. Encore ${t - n}.` : "La dernière vanne. La trappe se déverrouille."),
+        friend: (n, t) => `Un ami a fermé une vanne (${n}/${t}).`,
+        locked: (m) => `Verrouillée. Encore ${m} vanne${plural(m)} à fermer.`,
+        lockedPrompt: "Verrouillée",
+        itemPrompt: "Maintiens E — Fermer la vanne",
+        openPrompt: "E — Ouvrir la trappe",
+      };
+    case "niveau-3":
+      return {
+        todo: (n, t) => `Disjoncteurs ${n}/${t}`,
+        todoDetail: "Relève-les pour remettre le courant de la porte. Ça claque fort.",
+        done: "Rejoins la porte du local",
+        doneDetail: "Le courant revient. Elle est déverrouillée.",
+        gotOne: (n, t) => (n < t ? `Disjoncteur relevé. Encore ${t - n}.` : "Le dernier disjoncteur. La porte se déverrouille."),
+        friend: (n, t) => `Un ami a relevé un disjoncteur (${n}/${t}).`,
+        locked: (m) => `Pas de courant. Encore ${m} disjoncteur${plural(m)} à relever.`,
+        lockedPrompt: "Pas de courant",
+        itemPrompt: "Maintiens E — Relever le disjoncteur",
+        openPrompt: "E — Ouvrir la porte",
+      };
+    case "niveau-4":
+      return {
+        todo: (n, t) => `Badges ${n}/${t}`,
+        todoDetail: "La porte de sécurité en demande trois.",
+        done: "Rejoins la porte de sécurité",
+        doneDetail: "Tu as les trois badges.",
+        gotOne: (n, t) => (n < t ? `Badge ${n}/${t}.` : "Trois badges. À la porte de sécurité."),
+        friend: (n, t) => `Un ami a trouvé un badge (${n}/${t}).`,
+        locked: (m) => `Accès refusé. Il manque ${m} badge${plural(m)}.`,
+        lockedPrompt: "Accès refusé",
+        itemPrompt: "E — Ramasser le badge",
+        openPrompt: "E — Passer les badges",
+      };
+    default:
+      return {
+        todo: (n, t) => `Fusibles ${n}/${t}`,
+        todoDetail: "Le monte-charge n'a plus de courant.",
+        done: "Rejoins le monte-charge",
+        doneDetail: "Tu as les trois fusibles.",
+        gotOne: (n, t) => (n < t ? `Fusible ${n}/${t}.` : "Trois fusibles. Au monte-charge."),
+        friend: (n, t) => `Un ami a trouvé un fusible (${n}/${t}).`,
+        locked: (m) => `Pas de courant. Il manque ${m} fusible${plural(m)}.`,
+        lockedPrompt: "Pas de courant",
+        itemPrompt: "E — Ramasser le fusible",
+        openPrompt: id === "niveau-1" ? "E — Appeler le monte-charge" : "E — Ouvrir la porte",
+      };
+  }
+}
+
+const AUDIO_FLAVOR: Partial<Record<LevelId, AudioFlavor>> = {
+  "niveau-3": "centrale",
+  "niveau-4": "bureaux",
+  "niveau-37": "piscines",
+};
+
+const HUD_ACCENT: Partial<Record<LevelId, string>> = {
+  "niveau-0": "#f3e3a0",
+  "niveau-1": "#d9dde0",
+  "niveau-3": "#ffcf8a",
+  "niveau-4": "#dfe8ee",
+  "niveau-37": "#c9f3f6",
+};
 const VALVE_SECONDS = 2.6;
 const CAPTURE = 0.65;
 const DEATH_SECONDS = 1.25;
@@ -370,6 +473,7 @@ export default function BackroomsScene({
     const rng = mulberry32(seed + 17);
     const isSolid = (x: number, y: number) => isSolidCell(cells, W, H, x, y);
     const radiusCells = PLAYER_RADIUS / CS;
+    const words = goalWords(def.id);
 
     const reachable: [number, number][] = [];
     for (let i = 0; i < cells.length; i++) {
@@ -429,6 +533,21 @@ export default function BackroomsScene({
       floorTex = tex(makeGrating(), (W * CS) / 1.4, (H * CS) / 1.4);
       ceilTex = tex(makeDarkCeiling("#15110f"), (W * CS) / 4, (H * CS) / 4);
       surface = "metal";
+    } else if (def.id === "niveau-3") {
+      makeWall = makeBrickWall;
+      floorTex = tex(makeConcreteFloor(), (W * CS) / 5, (H * CS) / 5);
+      ceilTex = tex(makeDarkCeiling("#1e1914"), (W * CS) / 4, (H * CS) / 4);
+      surface = "beton";
+    } else if (def.id === "niveau-4") {
+      makeWall = makeOfficeWall;
+      floorTex = tex(makeOfficeCarpet(), (W * CS) / 2, (H * CS) / 2);
+      ceilTex = tex(makeCeilingTiles("#d3d6d0", 1), (W * CS) / 2.4, (H * CS) / 2.4);
+      surface = "moquette";
+    } else if (def.id === "niveau-37") {
+      makeWall = () => makePoolTile(false);
+      floorTex = tex(makePoolTile(false), (W * CS) / 2.4, (H * CS) / 2.4);
+      ceilTex = tex(makeCeilingTiles("#e4ecea", 0), (W * CS) / 2.4, (H * CS) / 2.4);
+      surface = "carrelage";
     } else {
       makeWall = makeTileWall;
       floorTex = tex(makeTileFloor(), (W * CS) / 2.4, (H * CS) / 2.4);
@@ -530,9 +649,10 @@ export default function BackroomsScene({
 
     // --- Escaliers : de vraies marches, on monte dessus pour de bon ---
     if (multiFloor) {
-      const stepColor = def.id === "niveau-1" ? 0x55524c : def.id === "niveau-2" ? 0x35302c : 0x8a7a42;
+      const stepColor =
+        { "niveau-1": 0x55524c, "niveau-2": 0x35302c, "niveau-3": 0x4a4038, "niveau-4": 0x6a6e70 }[def.id as string] ?? 0x8a7a42;
       const stepMat = own(new THREE.MeshLambertMaterial({ color: stepColor }));
-      const noseMat = own(new THREE.MeshLambertMaterial({ color: def.id === "niveau-0" ? 0x5e5128 : 0x24211e }));
+      const noseMat = own(new THREE.MeshLambertMaterial({ color: def.id === "niveau-0" ? 0x5e5128 : def.id === "niveau-4" ? 0x3a3d40 : 0x24211e }));
       const STEPS = data.stairRows * 2;
       const stepDepth = (data.stairRows * CS) / STEPS;
       const railMat = own(new THREE.MeshLambertMaterial({ color: 0x2b2a26 }));
@@ -565,8 +685,184 @@ export default function BackroomsScene({
       }
     }
 
+    // --- Machines de la centrale (niveau 3) : armoires, isolateurs, voyants ---
+    let machineBlink: ((time: number) => void) | null = null;
+    if (rackCells.length > 0 && def.id === "niveau-3") {
+      const panelMat = own(new THREE.MeshLambertMaterial({ map: tex(makeMachinePanel()) }));
+      const topMat = own(new THREE.MeshLambertMaterial({ color: 0x3a403c }));
+      const machineH = Math.min(2.3, WH - 0.7);
+      const body = new THREE.InstancedMesh(own(new THREE.BoxGeometry(CS, machineH, CS)), [panelMat, panelMat, topMat, topMat, panelMat, panelMat], rackCells.length);
+      const insulatorMat = own(new THREE.MeshLambertMaterial({ color: 0x7a3f22 }));
+      const insulators = new THREE.InstancedMesh(own(new THREE.CylinderGeometry(0.06, 0.1, 0.42, 8)), insulatorMat, rackCells.length * 3);
+      const cableMat = own(new THREE.MeshLambertMaterial({ color: 0x151412 }));
+      const cables = new THREE.InstancedMesh(own(new THREE.BoxGeometry(0.05, 1, 0.05)), cableMat, rackCells.length * 3);
+      const lampGeo = own(new THREE.SphereGeometry(0.045, 6, 5));
+      const redMat = own(new THREE.MeshBasicMaterial({ color: 0xff3020 }));
+      const greenMat = own(new THREE.MeshBasicMaterial({ color: 0x30ff70 }));
+      const redLamps = new THREE.InstancedMesh(lampGeo, redMat, rackCells.length * 4);
+      const greenLamps = new THREE.InstancedMesh(lampGeo, greenMat, rackCells.length * 4);
+      let ii = 0;
+      let ci = 0;
+      let ri = 0;
+      let gi = 0;
+      rackCells.forEach((i, k) => {
+        const x = i % W;
+        const y = (i - x) / W;
+        const cx = (x + 0.5) * CS;
+        const cz = (y + 0.5) * CS;
+        const baseY = floorY(y + 0.5);
+        m4.makeTranslation(cx, baseY + machineH / 2, cz);
+        body.setMatrixAt(k, m4);
+        const top = baseY + machineH;
+        if (((i * 2654435761) >>> 0) % 2 === 0) {
+          for (let n = -1; n <= 1; n++) {
+            m4.makeTranslation(cx + n * CS * 0.28, top + 0.21, cz);
+            insulators.setMatrixAt(ii++, m4);
+            // Cable qui monte de chaque isolateur jusqu'au plafond.
+            const len = Math.max(0.1, baseY + WH - (top + 0.42));
+            m4.compose(v4.set(cx + n * CS * 0.28, top + 0.42 + len / 2, cz), q4.identity(), s4.set(1, len, 1));
+            cables.setMatrixAt(ci++, m4);
+          }
+        }
+        // Voyants sur les faces qui donnent sur un passage.
+        for (const [dx, dy] of Object.values(DIRS)) {
+          if (cells[(y + dy) * W + (x + dx)] !== CELL_OPEN) continue;
+          const px = cx + dx * (CS / 2 + 0.02);
+          const pz = cz + dy * (CS / 2 + 0.02);
+          const side = dx !== 0 ? [0, 1] : [1, 0];
+          m4.makeTranslation(px + side[0] * 0.25, baseY + 1.55, pz + side[1] * 0.25);
+          redLamps.setMatrixAt(ri++, m4);
+          m4.makeTranslation(px - side[0] * 0.25, baseY + 1.55, pz - side[1] * 0.25);
+          greenLamps.setMatrixAt(gi++, m4);
+        }
+      });
+      insulators.count = ii;
+      cables.count = ci;
+      redLamps.count = ri;
+      greenLamps.count = gi;
+      scene.add(body, insulators, cables, redLamps, greenLamps);
+      machineBlink = (time) => {
+        redLamps.visible = Math.sin(time * 3.1) > -0.2 && power > 0.5;
+        greenLamps.visible = Math.sin(time * 1.7 + 1) > 0.1 && power > 0.5;
+      };
+    }
+
+    // --- Postes de travail du niveau 4 : bureaux, cloisons, ecrans, chaises ---
+    if (rackCells.length > 0 && def.id === "niveau-4") {
+      const unit = own(new THREE.BoxGeometry(1, 1, 1));
+      const n = rackCells.length;
+      const deskMat = own(new THREE.MeshLambertMaterial({ color: 0xb8aa8c }));
+      const metalMat = own(new THREE.MeshLambertMaterial({ color: 0x3c3f42 }));
+      const fabricMat = own(new THREE.MeshLambertMaterial({ map: tex(makeCubicleFabric()) }));
+      const chairMat = own(new THREE.MeshLambertMaterial({ color: 0x25282e }));
+      const screenMat = own(new THREE.MeshBasicMaterial({ map: tex(makeScreenTexture()) }));
+      const desks = new THREE.InstancedMesh(unit, deskMat, n);
+      const metal = new THREE.InstancedMesh(unit, metalMat, n * 3);
+      const panels = new THREE.InstancedMesh(unit, fabricMat, n * 3);
+      const chairs = new THREE.InstancedMesh(unit, chairMat, n * 3);
+      const screens = new THREE.InstancedMesh(own(new THREE.PlaneGeometry(0.46, 0.28)), screenMat, n);
+      const e = new THREE.Euler();
+      const put = (mesh: THREE.InstancedMesh, idx: number, x: number, y: number, z: number, sx: number, sy: number, sz: number, yaw = 0) => {
+        q4.setFromEuler(e.set(0, yaw, 0));
+        m4.compose(v4.set(x, y, z), q4, s4.set(sx, sy, sz));
+        mesh.setMatrixAt(idx, m4);
+      };
+      let di = 0;
+      let mi = 0;
+      let pi = 0;
+      let chi = 0;
+      let si = 0;
+      const off = new THREE.Color(0x06080a);
+      const on = new THREE.Color();
+      for (const i of rackCells) {
+        const x = i % W;
+        const y = (i - x) / W;
+        const cx = (x + 0.5) * CS;
+        const cz = (y + 0.5) * CS;
+        const baseY = floorY(y + 0.5);
+        const upRack = y > 0 && cells[i - W] === CELL_RACK;
+        const downRack = y < H - 1 && cells[i + W] === CELL_RACK;
+        // -1 : on s'assoit au nord du bureau ; +1 : au sud.
+        const facing = upRack && !downRack ? 1 : -1;
+        const backZ = cz - facing * (CS / 2);
+        const deskZ = backZ + facing * 0.42;
+        put(desks, di++, cx, baseY + 0.74, deskZ, CS * 0.96, 0.04, 0.8);
+        put(metal, mi++, cx, baseY + 0.4, backZ + facing * 0.06, CS * 0.9, 0.62, 0.03);
+        // Cloison centrale, posee une seule fois par paire de bureaux.
+        if (facing === -1 || !upRack) put(panels, pi++, cx, baseY + 0.7, backZ, CS, 1.4, 0.06);
+        if (x > 0 && cells[i - 1] !== CELL_RACK) put(panels, pi++, cx - CS / 2, baseY + 0.62, cz - facing * 0.5, 0.05, 1.24, CS - 1);
+        if (x < W - 1 && cells[i + 1] !== CELL_RACK) put(panels, pi++, cx + CS / 2, baseY + 0.62, cz - facing * 0.5, 0.05, 1.24, CS - 1);
+        // Ecran : dos metallique, pied, et la dalle allumee (ou pas) tournee vers la chaise.
+        const r = ((i * 2654435761) >>> 0) / 4294967296;
+        const monX = cx + (r - 0.5) * CS * 0.3;
+        const monZ = backZ + facing * 0.2;
+        put(metal, mi++, monX, baseY + 1.08, monZ, 0.52, 0.34, 0.04);
+        put(metal, mi++, monX, baseY + 0.85, monZ, 0.05, 0.2, 0.05);
+        q4.setFromEuler(e.set(0, facing === -1 ? Math.PI : 0, 0));
+        m4.compose(v4.set(monX, baseY + 1.08, monZ + facing * 0.025), q4, s4.set(1, 1, 1));
+        screens.setMatrixAt(si, m4);
+        screens.setColorAt(si, r < 0.55 ? on.setScalar(0.65 + r * 0.6) : off);
+        si++;
+        // Chaise de bureau, repoussee de travers.
+        const chairZ = cz + facing * 0.45;
+        const yaw = (r - 0.5) * 1.4;
+        put(chairs, chi++, cx + (r - 0.5) * 0.5, baseY + 0.47, chairZ, 0.46, 0.08, 0.46, yaw);
+        put(chairs, chi++, cx + (r - 0.5) * 0.5 + Math.sin(yaw) * facing * 0.22, baseY + 0.8, chairZ + Math.cos(yaw) * facing * 0.22, 0.44, 0.52, 0.06, yaw);
+        put(chairs, chi++, cx + (r - 0.5) * 0.5, baseY + 0.24, chairZ, 0.06, 0.42, 0.06);
+      }
+      desks.count = di;
+      metal.count = mi;
+      panels.count = pi;
+      chairs.count = chi;
+      screens.count = si;
+      scene.add(desks, metal, panels, chairs, screens);
+    }
+
+    // --- Bassins du niveau 37 : fond carrele bleu, margelle, eau qui ondule ---
+    let waterTex: THREE.Texture | null = null;
+    const hasWater = data.water.includes(1);
+    if (hasWater) {
+      const waterCells: [number, number][] = [];
+      for (let i = 0; i < cells.length; i++) if (data.water[i]) waterCells.push([i % W, Math.floor(i / W)]);
+      const flat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+      const cellGeo = own(new THREE.PlaneGeometry(CS, CS));
+      const bottomMat = own(new THREE.MeshLambertMaterial({ map: tex(makePoolTile(true)), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      waterTex = tex(makeWaterSurface());
+      const waterMat = own(
+        new THREE.MeshLambertMaterial({ map: waterTex, color: 0xc4f1f5, emissive: 0x0b3a44, transparent: true, opacity: 0.62, depthWrite: false }),
+      );
+      const bottoms = new THREE.InstancedMesh(cellGeo, bottomMat, waterCells.length);
+      const surfaces = new THREE.InstancedMesh(cellGeo, waterMat, waterCells.length);
+      const rims: { x: number; z: number; alongZ: boolean }[] = [];
+      waterCells.forEach(([x, y], k) => {
+        const baseY = floorY(y + 0.5);
+        m4.compose(v4.set((x + 0.5) * CS, baseY + 0.006, (y + 0.5) * CS), flat, s4.set(1, 1, 1));
+        bottoms.setMatrixAt(k, m4);
+        m4.compose(v4.set((x + 0.5) * CS, baseY + WATER_Y, (y + 0.5) * CS), flat, s4.set(1, 1, 1));
+        surfaces.setMatrixAt(k, m4);
+        for (const [dx, dy] of Object.values(DIRS)) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (isSolid(nx, ny) || data.water[ny * W + nx]) continue;
+          rims.push({ x: (x + 0.5 + dx * 0.5) * CS, z: (y + 0.5 + dy * 0.5) * CS, alongZ: dx !== 0 });
+        }
+      });
+      const rimMesh = new THREE.InstancedMesh(
+        own(new THREE.BoxGeometry(CS + 0.22, 0.2, 0.22)),
+        own(new THREE.MeshLambertMaterial({ color: 0xeef5f3 })),
+        Math.max(1, rims.length),
+      );
+      const qAlongZ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0));
+      rims.forEach((rim, k) => {
+        m4.compose(v4.set(rim.x, floorY(rim.z / CS) + 0.1, rim.z), rim.alongZ ? qAlongZ : q4.identity(), s4.set(1, 1, 1));
+        rimMesh.setMatrixAt(k, m4);
+      });
+      rimMesh.count = rims.length;
+      scene.add(bottoms, surfaces, rimMesh);
+    }
+
     // --- Rayonnages du niveau 1 ---
-    if (rackCells.length > 0) {
+    if (rackCells.length > 0 && def.id !== "niveau-3" && def.id !== "niveau-4") {
       const frameMat = own(new THREE.MeshLambertMaterial({ color: 0x2f4f7a }));
       const boxMat = own(new THREE.MeshLambertMaterial({ map: tex(makeCardboard()) }));
       const unit = own(new THREE.BoxGeometry(1, 1, 1));
@@ -638,7 +934,9 @@ export default function BackroomsScene({
     const deadColor = new THREE.Color(0x3a382f);
     const tmpColor = new THREE.Color();
     if (def.lighting === "neons") {
-      const panelTex = tex(makeLightPanel());
+      const panelTex = tex(
+        def.id === "niveau-4" ? makeLightPanel("#f6fbff", "#d8e2e6") : def.id === "niveau-37" ? makeLightPanel("#ffffff", "#e0f1f1") : makeLightPanel(),
+      );
       const panelMat = own(new THREE.MeshBasicMaterial({ map: panelTex }));
       const panelGeo = own(new THREE.BoxGeometry(CS * 0.62, 0.05, CS * 0.32));
       fixtureMesh = new THREE.InstancedMesh(panelGeo, panelMat, Math.max(1, data.lights.length));
@@ -692,7 +990,7 @@ export default function BackroomsScene({
         cages.setMatrixAt(k, m4);
         m4.makeTranslation(t.x - t.dx * 0.06, y, t.z - t.dy * 0.06);
         fixtureMesh!.setMatrixAt(k, m4);
-        fixtureMesh!.setColorAt(k, l.state === 1 ? deadColor : tmpColor.setHex(0xff2a18));
+        fixtureMesh!.setColorAt(k, l.state === 1 ? deadColor : tmpColor.setHex(def.id === "niveau-3" ? 0xffa040 : 0xff2a18));
       });
       scene.add(cages);
     } else {
@@ -723,7 +1021,7 @@ export default function BackroomsScene({
     // dans le brouillard. Un seul nuage de points additifs pour tout le niveau.
     const glowTex = own(makeGlowTexture());
     const lit = fixtures.filter((f) => f.state !== 1);
-    const glowTint = def.lighting === "neons" ? new THREE.Color(1, 0.95, 0.72) : new THREE.Color(1, 1, 1);
+    const glowTint = def.id === "niveau-0" ? new THREE.Color(1, 0.95, 0.72) : def.lighting === "neons" ? new THREE.Color(0.9, 0.97, 1) : new THREE.Color(1, 1, 1);
     const glowBase = lit.map((f) => baseFixtureColors[f.index].clone().multiply(glowTint));
     const glowPositions = new Float32Array(Math.max(1, lit.length) * 3);
     const glowColors = new Float32Array(Math.max(1, lit.length) * 3);
@@ -763,7 +1061,7 @@ export default function BackroomsScene({
     {
       const aoTex = own(makeContactShadowTexture());
       const aoMat = own(
-        new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, opacity: def.id === "niveau-0" ? 0.5 : 0.65, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+        new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, opacity: def.id === "niveau-37" ? 0.3 : def.id === "niveau-0" || def.id === "niveau-4" ? 0.5 : 0.65, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
       );
       const depth = 0.65;
       const aoGeo = own(new THREE.PlaneGeometry(CS, depth));
@@ -819,7 +1117,9 @@ export default function BackroomsScene({
 
     // --- Porte de sortie ---
     const exitT = faceTransform(data.exit, CS, 0.03);
-    const doorStyle = def.id === "niveau-1" ? "monte-charge" : def.id === "niveau-2" ? "trappe" : def.id === "niveau-run" ? "sortie" : "service";
+    const doorStyle = (
+      { "niveau-1": "monte-charge", "niveau-2": "trappe", "niveau-3": "centrale", "niveau-4": "securite", "niveau-37": "piscine", "niveau-run": "sortie" } as const
+    )[def.id as string] ?? "service";
     const doorW = def.id === "niveau-1" ? Math.min(CS * 0.9, 2.2) : Math.min(CS * 0.7, 1.15);
     const doorH = def.id === "niveau-1" ? 2.6 : 2.1;
     const exitGroup = new THREE.Group();
@@ -856,7 +1156,7 @@ export default function BackroomsScene({
         exitGroup.add(ind);
       }
     }
-    if (def.id === "niveau-0" || def.id === "niveau-run") {
+    if (def.id === "niveau-0" || def.id === "niveau-run" || def.id === "niveau-37") {
       const sign = new THREE.Mesh(own(new THREE.PlaneGeometry(0.62, 0.23)), own(new THREE.MeshBasicMaterial({ map: own(makeExitSign()) })));
       sign.position.set(0, doorH + 0.3, 0.06);
       exitGroup.add(sign);
@@ -894,6 +1194,11 @@ export default function BackroomsScene({
     const fuseGeo = own(new THREE.CylinderGeometry(0.045, 0.045, 0.2, 10));
     const fuseMat = own(new THREE.MeshLambertMaterial({ color: 0xd8d2bd }));
     const fuseBandMat = own(new THREE.MeshLambertMaterial({ color: 0xb0281c }));
+    const badgeGeo = own(new THREE.BoxGeometry(0.12, 0.01, 0.08));
+    const badgeMat = own(new THREE.MeshLambertMaterial({ color: 0xf2f2ee }));
+    const badgeStripeGeo = own(new THREE.BoxGeometry(0.12, 0.004, 0.024));
+    const badgeStripeMat = own(new THREE.MeshLambertMaterial({ color: 0x2a6f9e }));
+    const cordGeo = own(new THREE.TorusGeometry(0.075, 0.006, 6, 18));
 
     const pickups = data.pickups.map((p) => {
       const group = new THREE.Group();
@@ -919,6 +1224,16 @@ export default function BackroomsScene({
         top.rotation.z = Math.PI / 2;
         top.position.set(0.085, 0.035, 0);
         group.add(body, top);
+      } else if (def.id === "niveau-4") {
+        // Badge d'acces tombe par terre, avec son cordon rouge.
+        const card = new THREE.Mesh(badgeGeo, badgeMat);
+        card.position.y = 0.006;
+        const stripe = new THREE.Mesh(badgeStripeGeo, badgeStripeMat);
+        stripe.position.set(0, 0.012, -0.022);
+        const cord = new THREE.Mesh(cordGeo, fuseBandMat);
+        cord.rotation.x = -Math.PI / 2;
+        cord.position.set(0, 0.004, 0.1);
+        group.add(card, stripe, cord);
       } else {
         const body = new THREE.Mesh(fuseGeo, fuseMat);
         body.position.y = 0.1;
@@ -939,12 +1254,41 @@ export default function BackroomsScene({
     // --- Vannes du niveau 2 ---
     const wheelMat = own(new THREE.MeshLambertMaterial({ color: 0x9a2418 }));
     const pipeStubMat = own(new THREE.MeshLambertMaterial({ color: 0x3a3532 }));
+    const breakerTex = def.id === "niveau-3" ? own(makeFuseBoxTexture(0)) : null;
     const valves = data.valves.map((v) => {
       const t = faceTransform(v, CS, 0);
       const group = new THREE.Group();
       group.position.set(t.x, floorY(v.y + 0.5) + 1.25, t.z);
       group.rotation.y = t.yaw;
       scene.add(group);
+      if (breakerTex) {
+        // Disjoncteur : caisson, gaine jusqu'au plafond, et le gros levier a relever.
+        const cabinet = new THREE.Mesh(own(new THREE.BoxGeometry(0.46, 0.7, 0.2)), own(new THREE.MeshLambertMaterial({ map: breakerTex })));
+        cabinet.position.z = 0.1;
+        group.add(cabinet);
+        const conduitLen = Math.max(0.2, WH - 1.25 - 0.35);
+        const conduit = new THREE.Mesh(own(new THREE.CylinderGeometry(0.04, 0.04, conduitLen, 8)), pipeStubMat);
+        conduit.position.set(-0.12, 0.35 + conduitLen / 2, 0.06);
+        group.add(conduit);
+        const pivot = new THREE.Group();
+        pivot.position.set(0, -0.05, 0.22);
+        group.add(pivot);
+        const handle = new THREE.Mesh(own(new THREE.BoxGeometry(0.05, 0.32, 0.05)), pipeStubMat);
+        handle.position.y = 0.16;
+        const grip = new THREE.Mesh(own(new THREE.BoxGeometry(0.12, 0.08, 0.09)), wheelMat);
+        grip.position.y = 0.34;
+        pivot.add(handle, grip);
+        const lampMat = own(new THREE.MeshBasicMaterial({ color: 0xc0231a }));
+        const lamp = new THREE.Mesh(own(new THREE.SphereGeometry(0.04, 8, 6)), lampMat);
+        lamp.position.set(0.17, 0.28, 0.21);
+        group.add(lamp);
+        // Levier en bas (pointe vers le sol), il remonte en passant devant soi.
+        const setTurn = (p: number) => {
+          pivot.rotation.x = Math.PI * (1 - p);
+        };
+        setTurn(0);
+        return { setTurn, lampMat, progress: 0, done: false, face: t };
+      }
       const stub = new THREE.Mesh(own(new THREE.CylinderGeometry(0.09, 0.09, 0.35, 10)), pipeStubMat);
       stub.rotation.x = Math.PI / 2;
       stub.position.z = 0.17;
@@ -965,7 +1309,10 @@ export default function BackroomsScene({
       const lamp = new THREE.Mesh(own(new THREE.SphereGeometry(0.05, 8, 6)), lampMat);
       lamp.position.set(0.38, 0.32, 0.08);
       group.add(lamp);
-      return { wheel, lampMat, progress: 0, done: false, face: t };
+      const setTurn = (p: number) => {
+        wheel.rotation.z = -p * Math.PI * 3;
+      };
+      return { setTurn, lampMat, progress: 0, done: false, face: t };
     });
 
     // --- Entites ---
@@ -1010,18 +1357,20 @@ export default function BackroomsScene({
     camera.add(handRig.group);
 
     // --- Audio ---
-    const audio = createBackroomsAudio(def.lighting);
+    const audio = createBackroomsAudio(def.lighting, AUDIO_FLAVOR[def.id] ?? null);
 
     // --- Etat du joueur ---
     const player = { x: data.start.x + 0.5, z: data.start.y + 0.5, yaw: data.startYaw, pitch: 0 };
     let elapsed = 0;
     let sanityLevel = 100;
     let batteryLevel = 100;
-    let lamp = def.lighting === "secours";
+    // Dans les tunnels on part lampe allumee ; a la centrale, mieux vaut attendre.
+    let lamp = def.lighting === "secours" && !def.blackouts;
     let staminaLevel = 100;
     let exhausted = false;
     let crouching = false;
     let crouchLevel = 0;
+    let waterSink = 0;
     let waterCount = 0;
     let waterDrunk = 0;
     let fuses = 0;
@@ -1062,7 +1411,7 @@ export default function BackroomsScene({
     // Coupures du niveau 1.
     let power = 1;
     let powerTarget = 1;
-    let blackoutWarnAt = def.id === "niveau-1" ? 38 + rng() * 20 : Infinity;
+    let blackoutWarnAt = def.blackouts ? 38 + rng() * 20 : Infinity;
     let blackoutStartAt = Infinity;
     let blackoutEndAt = Infinity;
     let devFlyHeight = 0;
@@ -1157,17 +1506,15 @@ export default function BackroomsScene({
 
     function computeObjective(): HudObjective {
       if (def.objective === "sortie") {
-        return { title: "Trouve une sortie", detail: "Les flèches taguées aident. Pas toutes." };
+        return def.id === "niveau-37"
+          ? { title: "Trouve une sortie", detail: "L'eau ralentit. Les flèches aident, pas toutes." }
+          : { title: "Trouve une sortie", detail: "Les flèches taguées aident. Pas toutes." };
       }
-      if (def.objective === "fusibles") {
-        return fuses < def.goalCount
-          ? { title: `Fusibles ${fuses}/${def.goalCount}`, detail: "Le monte-charge n'a plus de courant." }
-          : { title: "Rejoins le monte-charge", detail: "Tu as les trois fusibles." };
-      }
-      if (def.objective === "vannes") {
-        return valvesDone < def.goalCount
-          ? { title: `Vannes ${valvesDone}/${def.goalCount}`, detail: "Ferme-les pour déverrouiller la trappe. Ça s'entend." }
-          : { title: "Rejoins la trappe", detail: "La pression est tombée. Elle est ouverte." };
+      if (def.objective === "fusibles" || def.objective === "vannes") {
+        const got = def.objective === "fusibles" ? fuses : valvesDone;
+        return got < def.goalCount
+          ? { title: words.todo(got, def.goalCount), detail: words.todoDetail }
+          : { title: words.done, detail: words.doneDetail };
       }
       return { title: "COURS", detail: "La porte, au bout du couloir." };
     }
@@ -1277,7 +1624,7 @@ export default function BackroomsScene({
           fuses++;
           playFuse(audio.ctx, audio.master, false);
           if (indicatorMats[fuses - 1]) indicatorMats[fuses - 1].color.setHex(0x2fd35a);
-          showHint(fuses < def.goalCount ? `Fusible ${fuses}/${def.goalCount}.` : "Trois fusibles. Au monte-charge.", 3);
+          showHint(words.gotOne(fuses, def.goalCount), 3);
         }
         return;
       }
@@ -1285,17 +1632,13 @@ export default function BackroomsScene({
         handReachAt = elapsed;
         if (exitUnlocked()) {
           if (def.id === "niveau-1") playFuse(audio.ctx, audio.master, true);
+          else if (def.id === "niveau-4") playClick(audio.ctx, audio.master, true);
           else playHandle(audio.ctx, audio.master, false);
           completeLevel();
         } else {
           playHandle(audio.ctx, audio.master, true);
           const missing = def.goalCount - (def.objective === "fusibles" ? fuses : valvesDone);
-          showHint(
-            def.objective === "fusibles"
-              ? `Pas de courant. Il manque ${missing} fusible${missing > 1 ? "s" : ""}.`
-              : `Verrouillée. Encore ${missing} vanne${missing > 1 ? "s" : ""} à fermer.`,
-            3,
-          );
+          showHint(words.locked(missing), 3);
         }
       }
     }
@@ -1304,17 +1647,18 @@ export default function BackroomsScene({
       if (v.done) return;
       v.done = true;
       v.progress = 1;
-      v.wheel.rotation.z = -Math.PI * 3;
+      v.setTurn(1);
       valvesDone++;
       v.lampMat.color.setHex(0x2fd35a);
       if (indicatorMats[valvesDone - 1]) indicatorMats[valvesDone - 1].color.setHex(0x2fd35a);
-      playValveDone(audio.ctx, audio.master);
+      if (def.id === "niveau-3") playPowerOn(audio.ctx, audio.master);
+      else playValveDone(audio.ctx, audio.master);
       if (local) {
         emitNoise("haletement", player.x, player.z, 1.3);
         link?.sendEvent({ type: "valve", index: valves.indexOf(v) });
-        showHint(valvesDone < def.goalCount ? `Vanne fermée. Encore ${def.goalCount - valvesDone}.` : "La dernière vanne. La trappe se déverrouille.", 3);
+        showHint(words.gotOne(valvesDone, def.goalCount), 3);
       } else {
-        showHint(`Un ami a fermé une vanne (${valvesDone}/${def.goalCount}).`, 3);
+        showHint(words.friend(valvesDone, def.goalCount), 3);
       }
     }
 
@@ -1378,7 +1722,7 @@ export default function BackroomsScene({
             fuses++;
             if (indicatorMats[fuses - 1]) indicatorMats[fuses - 1].color.setHex(0x2fd35a);
             playFuse(audio.ctx, audio.master, false);
-            showHint(`Un ami a trouvé un fusible (${fuses}/${def.goalCount}).`, 3);
+            showHint(words.friend(fuses, def.goalCount), 3);
           }
           break;
         }
@@ -1785,8 +2129,10 @@ export default function BackroomsScene({
       } else if (devFlyHeight !== 0) {
         devFlyHeight = 0;
       }
+      const wading = hasWater && !dev.fly && data.water[Math.floor(player.z) * W + Math.floor(player.x)] === 1;
+      waterSink += ((wading ? 1 : 0) - waterSink) * Math.min(1, delta * 5);
       if (moving) {
-        const speed = ((crouching ? def.crouch : sprinting ? def.sprint : def.walk) / CS) * (dev.fast ? 3 : 1);
+        const speed = ((crouching ? def.crouch : sprinting ? def.sprint : def.walk) / CS) * (dev.fast ? 3 : 1) * (wading ? WADE_SPEED : 1);
         const sin = Math.sin(player.yaw);
         const cos = Math.cos(player.yaw);
         let mx = -sin * fwd + cos * strafe;
@@ -1808,7 +2154,7 @@ export default function BackroomsScene({
         }
         if (elapsed >= nextStepAt && !dev.fly) {
           nextStepAt = elapsed + (sprinting ? 0.3 : crouching ? 0.62 : 0.45);
-          playStep(audio.ctx, audio.master, surface, sprinting ? 1 : crouching ? 0.3 : 0.65);
+          playStep(audio.ctx, audio.master, wading ? "eau" : surface, sprinting ? 1 : crouching ? 0.3 : 0.65);
           if (sprinting) {
             strideSide = -strideSide;
             playRunStride(audio.ctx, audio.master, strideSide);
@@ -1831,7 +2177,7 @@ export default function BackroomsScene({
       bob += ((moving ? 1 : 0) - bob) * Math.min(1, delta * 8);
 
       // Camera : balancement de marche + tremblement de camescope.
-      const eye = THREE.MathUtils.lerp(EYE, CROUCH_EYE, crouchLevel);
+      const eye = THREE.MathUtils.lerp(EYE, CROUCH_EYE, crouchLevel) - waterSink * 0.12;
       camera.position.set(player.x * CS, floorY(player.z) + eye + devFlyHeight + (Math.abs(Math.sin(walkPhase)) * 0.05 - 0.02) * bob, player.z * CS);
       const handheldX = Math.sin(elapsed * 0.9) * 0.004 + Math.sin(elapsed * 2.3) * 0.002;
       const handheldY = Math.sin(elapsed * 0.7 + 1) * 0.004;
@@ -1966,8 +2312,8 @@ export default function BackroomsScene({
       flashlight.intensity = lamp ? 14 * lampFlicker * brightness : 0;
       hub?.setListener(camera.position.x, camera.position.y, camera.position.z, lookDir.x, lookDir.y, lookDir.z);
 
-      // --- Coupures de courant (niveau 1) ---
-      if (def.id === "niveau-1") {
+      // --- Coupures de courant (niveaux 1 et 3) ---
+      if (def.blackouts) {
         if (elapsed >= blackoutWarnAt && blackoutStartAt === Infinity) {
           blackoutStartAt = elapsed + 2.2;
           playFlicker(audio.ctx, audio.master);
@@ -1991,10 +2337,12 @@ export default function BackroomsScene({
       }
 
       decor.update(elapsed);
+      machineBlink?.(elapsed);
+      if (waterTex) waterTex.offset.set(elapsed * 0.035, elapsed * 0.021);
 
       // --- Luminaires qui clignotent ---
-      if (fixtureMesh && (flickering.length > 0 || def.id === "niveau-1")) {
-        const list = def.id === "niveau-1" ? fixtures : flickering;
+      if (fixtureMesh && (flickering.length > 0 || def.blackouts)) {
+        const list = def.blackouts ? fixtures : flickering;
         for (const f of list) {
           const k = fixtureFactor(f);
           tmpColor.copy(f.state === 1 ? deadColor : baseFixtureColors[f.index]).multiplyScalar(f.state === 1 ? 1 : 0.15 + 0.85 * k);
@@ -2055,7 +2403,7 @@ export default function BackroomsScene({
         slot.light.intensity = def.lamp.intensity * slot.level * k * brightness * (0.35 + 0.65 * falloff);
         lightHere = Math.max(lightHere, k * THREE.MathUtils.clamp(1 - d / (def.lamp.range * 0.9), 0, 1));
       }
-      hemi.intensity = def.hemi.intensity * brightness * (def.id === "niveau-1" ? 0.12 + 0.88 * power : 1);
+      hemi.intensity = def.hemi.intensity * brightness * (def.blackouts ? 0.12 + 0.88 * power : 1);
 
       // --- Entite ---
       const introHold = elapsed < INTRO_SECONDS;
@@ -2366,10 +2714,11 @@ export default function BackroomsScene({
       if (valve && using && !spectating) {
         const before = valve.progress;
         valve.progress = Math.min(1, valve.progress + delta / VALVE_SECONDS);
-        valve.wheel.rotation.z = -valve.progress * Math.PI * 3;
+        valve.setTurn(valve.progress);
         valveShown = valve.progress;
         if (Math.floor(before * 7) !== Math.floor(valve.progress * 7)) {
-          playValveTurn(audio.ctx, audio.master, valve.progress);
+          if (def.id === "niveau-3") playClick(audio.ctx, audio.master, valve.progress > 0.5);
+          else playValveTurn(audio.ctx, audio.master, valve.progress);
           emitNoise("porte", player.x, player.z, 0.9);
           handReachAt = elapsed;
         }
@@ -2440,7 +2789,7 @@ export default function BackroomsScene({
       const targetDread = Math.max(threat, sanityDread * 0.8, def.id === "niveau-run" && runReleased ? 0.35 : 0);
       dreadLevel += (targetDread - dreadLevel) * Math.min(1, delta * 3);
       audio.setTension(dreadLevel);
-      const blackoutFog = def.id === "niveau-1" ? 1 - power : 0;
+      const blackoutFog = def.blackouts ? 1 - power : 0;
       fog.far = THREE.MathUtils.lerp(def.fog.far, def.fog.far * 0.45, Math.max(blackoutFog, sanityDread * 0.4));
       // Mode dev, au-dessus du plafond : on voit le niveau comme une carte.
       const flyingHigh = devRef.current.fly && camera.position.y > floorY(player.z) + WH + 0.3;
@@ -2482,7 +2831,7 @@ export default function BackroomsScene({
           });
         }
       }
-      if (def.id === "niveau-1") {
+      if (def.blackouts) {
         (scene.background as THREE.Color).setHex(def.fog.color).multiplyScalar(0.25 + 0.75 * power);
         fog.color.setHex(def.fog.color).multiplyScalar(0.25 + 0.75 * power);
       }
@@ -2542,19 +2891,15 @@ export default function BackroomsScene({
         let promptText: string | null = null;
         const pk = nearestPickup();
         if (pk) {
-          promptText = pk.kind === "eau" ? "E — Ramasser l'eau d'amande" : pk.kind === "pile" ? "E — Ramasser la pile" : "E — Ramasser le fusible";
+          promptText = pk.kind === "eau" ? "E — Ramasser l'eau d'amande" : pk.kind === "pile" ? "E — Ramasser la pile" : words.itemPrompt;
         } else if (valve) {
-          promptText = "Maintiens E — Fermer la vanne";
+          promptText = words.itemPrompt;
         } else if (distToExit() < DOOR_REACH && def.objective !== "course") {
           promptText = exitUnlocked()
-            ? def.id === "niveau-1"
-              ? "E — Appeler le monte-charge"
-              : def.id === "niveau-2"
-                ? "E — Ouvrir la trappe"
-                : "E — Ouvrir la porte"
-            : def.objective === "fusibles"
-              ? "Pas de courant"
-              : "Verrouillée";
+            ? def.objective === "fusibles" || def.objective === "vannes"
+              ? words.openPrompt
+              : "E — Ouvrir la porte"
+            : words.lockedPrompt;
         }
         if (promptText !== lastPrompt) {
           lastPrompt = promptText;
@@ -2699,7 +3044,7 @@ export default function BackroomsScene({
   const hh = String(stamp.getUTCHours()).padStart(2, "0");
   const mm = String(stamp.getUTCMinutes()).padStart(2, "0");
   const ss = String(stamp.getUTCSeconds()).padStart(2, "0");
-  const accent = level.id === "niveau-0" ? "#f3e3a0" : level.id === "niveau-1" ? "#d9dde0" : "#ffb4a8";
+  const accent = HUD_ACCENT[level.id] ?? "#ffb4a8";
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-black font-mono select-none" onScroll={(e) => (e.currentTarget.scrollTop = 0)}>

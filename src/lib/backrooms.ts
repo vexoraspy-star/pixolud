@@ -6,7 +6,7 @@
 // objectif. Tout est en coordonnees de cases ; la taille d'une case en metres
 // depend du niveau (les tunnels du niveau 2 sont plus serres que l'entrepot).
 
-export type LevelId = "niveau-0" | "niveau-1" | "niveau-2" | "niveau-run";
+export type LevelId = "niveau-0" | "niveau-1" | "niveau-2" | "niveau-3" | "niveau-4" | "niveau-37" | "niveau-run";
 
 export type ObjectiveKind = "sortie" | "fusibles" | "vannes" | "course";
 export type EntityKind = "aucune" | "souriant" | "bacterie";
@@ -52,6 +52,8 @@ export interface LevelDef {
    * nombre de lignes du rez, et `rows` celui de l'etage.
    */
   upper?: { rows: number; stairs: number };
+  /** Coupures de courant regulieres : c'est dans le noir que le Souriant sort. */
+  blackouts?: boolean;
 }
 
 /** Longueur d'une cage d'escalier, en cases : la rampe monte d'une hauteur de mur. */
@@ -115,6 +117,7 @@ export const LEVELS: LevelDef[] = [
     waterCount: 8,
     batteryCount: 7,
     goalCount: 3,
+    blackouts: true,
   },
   {
     id: "niveau-2",
@@ -144,6 +147,95 @@ export const LEVELS: LevelDef[] = [
     waterCount: 7,
     batteryCount: 8,
     goalCount: 3,
+  },
+  {
+    // Les « vannes » sont ici des disjoncteurs a relever : meme geste, maintenir E.
+    id: "niveau-3",
+    number: "3",
+    name: "Centrale électrique",
+    tagline: "Brique noircie, machines qui grondent et courant qui saute. Dans le noir, quelque chose sourit.",
+    objective: "vannes",
+    entity: "souriant",
+    lighting: "secours",
+    blackouts: true,
+    cellSize: 2.2,
+    wallHeight: 3.4,
+    width: 55,
+    height: 45,
+    upper: { rows: 33, stairs: 2 },
+    walk: 3.1,
+    sprint: 5.4,
+    crouch: 1.6,
+    staminaDrain: 20,
+    staminaRegen: 14,
+    entityWander: 1.7,
+    entityInvestigate: 2.8,
+    entityChase: 4.3,
+    sanityDrain: 0.42,
+    fog: { color: 0x1a130c, near: 4, far: 30 },
+    hemi: { sky: 0xd9a066, ground: 0x1c140c, intensity: 0.82 },
+    lamp: { color: 0xffa24a, intensity: 3.2, range: 9 },
+    waterCount: 8,
+    batteryCount: 8,
+    goalCount: 3,
+  },
+  {
+    // Les « fusibles » sont ici des badges d'acces : meme logique de ramassage.
+    id: "niveau-4",
+    number: "4",
+    name: "Bureaux abandonnés",
+    tagline: "Des open-spaces sans fin et des écrans allumés pour personne. Quelque chose rôde entre les box.",
+    objective: "fusibles",
+    entity: "bacterie",
+    lighting: "neons",
+    cellSize: 2,
+    wallHeight: 2.9,
+    width: 64,
+    height: 50,
+    upper: { rows: 36, stairs: 2 },
+    walk: 3.1,
+    sprint: 5.4,
+    crouch: 1.6,
+    staminaDrain: 20,
+    staminaRegen: 14,
+    entityWander: 1.7,
+    entityInvestigate: 2.8,
+    entityChase: 4.4,
+    sanityDrain: 0.36,
+    fog: { color: 0x6c7270, near: 6, far: 36 },
+    hemi: { sky: 0xe8f0f2, ground: 0x4a4c48, intensity: 0.95 },
+    lamp: { color: 0xeaf4ff, intensity: 2.4, range: 9 },
+    waterCount: 8,
+    batteryCount: 5,
+    goalCount: 3,
+  },
+  {
+    id: "niveau-37",
+    number: "37",
+    name: "Les Piscines",
+    tagline: "De l'eau tiède, du carrelage blanc à perte de vue, et un calme qui n'a rien de rassurant.",
+    objective: "sortie",
+    entity: "aucune",
+    lighting: "neons",
+    cellSize: 2.4,
+    wallHeight: 3.6,
+    width: 58,
+    height: 46,
+    walk: 3.1,
+    sprint: 5.4,
+    crouch: 1.6,
+    staminaDrain: 20,
+    staminaRegen: 14,
+    entityWander: 0,
+    entityInvestigate: 0,
+    entityChase: 0,
+    sanityDrain: 0.3,
+    fog: { color: 0xbfe2e4, near: 8, far: 46 },
+    hemi: { sky: 0xf4ffff, ground: 0x7fb6bb, intensity: 1.12 },
+    lamp: { color: 0xf2ffff, intensity: 2.2, range: 10 },
+    waterCount: 9,
+    batteryCount: 3,
+    goalCount: 0,
   },
   {
     id: "niveau-run",
@@ -282,6 +374,30 @@ const DECOR_PLAN: Record<LevelId, [DecorKind, number][]> = {
   ],
   // Le couloir de la course : panneaux de fuite, extincteurs, et les traces
   // de ceux qui sont passes avant.
+  "niveau-3": [
+    ["cables", 55],
+    ["boitier", 70],
+    ["manometre", 130],
+    ["griffures", 120],
+    ["extincteur", 150],
+    ["flaque", 160],
+    ["affiche", 220],
+  ],
+  // Bureaux : des feuilles partout, des dalles de plafond tombees.
+  "niveau-4": [
+    ["papiers", 40],
+    ["dalle", 70],
+    ["ventilation", 110],
+    ["affiche", 120],
+    ["extincteur", 180],
+    ["flaque", 220],
+  ],
+  "niveau-37": [
+    ["grille", 45],
+    ["ventilation", 90],
+    ["dalle", 150],
+    ["affiche", 200],
+  ],
   "niveau-run": [
     ["papiers", 11],
     ["griffures", 16],
@@ -325,6 +441,8 @@ export interface LevelData {
   /** Colonnes de chaque escalier (trois cases de large). */
   stairs: { x0: number; x1: number }[];
   decor: DecorItem[];
+  /** Bassins du niveau 37 : 1 = eau peu profonde (on y marche, lentement). */
+  water: Uint8Array;
 }
 
 /**
@@ -610,6 +728,79 @@ function genPipes(w: number, h: number, rng: () => number): Uint8Array {
 }
 
 /**
+ * Niveau 3 : un treillis de couloirs de brique etroits, et des machines
+ * (transformateurs, generateurs) plantees au milieu des salles.
+ */
+function genPlant(w: number, h: number, rng: () => number): Uint8Array {
+  const cells = new Uint8Array(w * h);
+  border(cells, w, h);
+  lattice(cells, w, h, rng, 9, { removeChance: 0.2, gapMin: 2, gapMax: 2, extraGapChance: 0.35 });
+  for (let i = 0; i < w * h * 0.06; i++) {
+    const bw = randInt(rng, 2, 3);
+    const bh = randInt(rng, 1, 3);
+    const x0 = randInt(rng, 2, w - bw - 3);
+    const y0 = randInt(rng, 2, h - bh - 3);
+    let free = true;
+    // Une case de marge tout autour : une machine ne bouche jamais une porte.
+    for (let y = y0 - 1; y <= y0 + bh && free; y++) {
+      for (let x = x0 - 1; x <= x0 + bw; x++) {
+        if (isSolidCell(cells, w, h, x, y)) {
+          free = false;
+          break;
+        }
+      }
+    }
+    if (!free) continue;
+    for (let y = y0; y < y0 + bh; y++) for (let x = x0; x < x0 + bw; x++) cells[y * w + x] = CELL_RACK;
+  }
+  return cells;
+}
+
+/**
+ * Niveau 4 : de grands plateaux de bureaux. Les postes de travail vont par
+ * rangees de deux (dos a dos), avec une allee entre chaque rangee.
+ */
+function genOffice(w: number, h: number, rng: () => number): Uint8Array {
+  const cells = new Uint8Array(w * h);
+  border(cells, w, h);
+  lattice(cells, w, h, rng, 15, { removeChance: 0.3, gapMin: 3, gapMax: 4, extraGapChance: 0.7 });
+  for (let y0 = 3; y0 < h - 4; y0 += 4) {
+    for (let x0 = 3; x0 < w - 4; ) {
+      const len = randInt(rng, 3, 6);
+      if (rng() < 0.75 && x0 + len < w - 2) {
+        let free = true;
+        for (let y = y0 - 1; y <= y0 + 2 && free; y++) {
+          for (let x = x0 - 1; x <= x0 + len; x++) {
+            if (isSolidCell(cells, w, h, x, y)) {
+              free = false;
+              break;
+            }
+          }
+        }
+        if (free) {
+          for (let y = y0; y < y0 + 2; y++) for (let x = x0; x < x0 + len; x++) cells[y * w + x] = CELL_RACK;
+        }
+      }
+      x0 += len + randInt(rng, 2, 3);
+    }
+  }
+  return cells;
+}
+
+/** Niveau 37 : de grandes salles carrelees, des arches larges et des colonnes. */
+function genPools(w: number, h: number, rng: () => number): Uint8Array {
+  const cells = new Uint8Array(w * h);
+  border(cells, w, h);
+  lattice(cells, w, h, rng, 11, { removeChance: 0.42, gapMin: 3, gapMax: 6, extraGapChance: 0.55 });
+  for (let y = 3; y < h - 2; y += 4) {
+    for (let x = 3; x < w - 2; x += 4) {
+      if (rng() < 0.4 && surroundedByOpen(cells, w, h, x, y)) cells[y * w + x] = CELL_PILLAR;
+    }
+  }
+  return cells;
+}
+
+/**
  * Le niveau « ! » : un couloir en serpentin de trois cases de large. Des
  * barrieres ferment deux voies sur trois : on zigzague en courant.
  */
@@ -679,8 +870,22 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   const groundRows = def.height;
   const stairRows = def.upper ? STAIR_ROWS : 0;
   const stairs: { x0: number; x1: number }[] = [];
-  const genFloor = (fw: number, fh: number) =>
-    def.id === "niveau-1" ? genWarehouse(fw, fh, rng) : def.id === "niveau-2" ? genPipes(fw, fh, rng) : genHall(fw, fh, rng);
+  const genFloor = (fw: number, fh: number) => {
+    switch (def.id) {
+      case "niveau-1":
+        return genWarehouse(fw, fh, rng);
+      case "niveau-2":
+        return genPipes(fw, fh, rng);
+      case "niveau-3":
+        return genPlant(fw, fh, rng);
+      case "niveau-4":
+        return genOffice(fw, fh, rng);
+      case "niveau-37":
+        return genPools(fw, fh, rng);
+      default:
+        return genHall(fw, fh, rng);
+    }
+  };
 
   if (def.id === "niveau-run") {
     const run = genRun(w, h, rng);
@@ -751,13 +956,44 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     }
   }
 
+  // --- Bassins (niveau 37) : des rectangles d'eau peu profonde, jamais sur le depart ---
+  const water = new Uint8Array(w * h);
+  if (def.id === "niveau-37") {
+    const target = Math.round(reachable.length * 0.17);
+    let filled = 0;
+    for (let tries = 0; tries < 500 && filled < target; tries++) {
+      const pw = randInt(rng, 3, 7);
+      const ph = randInt(rng, 3, 6);
+      const x0 = randInt(rng, 1, w - pw - 1);
+      const y0 = randInt(rng, 1, h - ph - 1);
+      if (Math.abs(x0 + pw / 2 - start.x) + Math.abs(y0 + ph / 2 - start.y) < 7) continue;
+      let ok = true;
+      for (let y = y0; y < y0 + ph && ok; y++) {
+        for (let x = x0; x < x0 + pw; x++) {
+          const i = y * w + x;
+          if (cells[i] !== CELL_OPEN || distance[i] < 0 || water[i]) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      if (!ok) continue;
+      for (let y = y0; y < y0 + ph; y++) {
+        for (let x = x0; x < x0 + pw; x++) {
+          water[y * w + x] = 1;
+          filled++;
+        }
+      }
+    }
+  }
+
   // --- Sortie : une porte dans un mur, parmi les cases les plus eloignees ---
   let exit: WallSpot = { x: start.x, y: start.y, dir: "N" };
   if (runEnd) {
     exit = { x: runEnd.x, y: runEnd.y, dir: runEnd.x === 1 ? "W" : "E" };
   } else {
     const far = reachable
-      .filter((i) => distance[i] >= maxDist * 0.82 && !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows))
+      .filter((i) => distance[i] >= maxDist * 0.82 && !water[i] && !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows))
       .map((i) => ({ x: i % w, y: Math.floor(i / w) }))
       .map((c) => ({ ...c, dirs: wallDirs(cells, w, h, c.x, c.y) }))
       .filter((c) => c.dirs.length > 0);
@@ -806,7 +1042,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   const openReachable = reachable.filter((i) => {
     const x = i % w;
     const y = (i - x) / w;
-    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y) && !inStairwell(y);
+    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y) && !inStairwell(y) && !water[i];
   });
   const pickups: LevelData["pickups"] = [];
   const valves: WallSpot[] = [];
@@ -941,6 +1177,8 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
             decor.push({ kind, x, y, dir, variant: randInt(drng, 0, 3) });
             break;
           }
+          // Rien a plat au fond des bassins : ni flaque dans l'eau, ni grille.
+          if (place === "sol" && water[i]) continue;
           const used = place === "sol" ? usedFloor : usedCeiling;
           if (used.has(i)) continue;
           used.add(i);
@@ -982,5 +1220,6 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     stairRows,
     stairs,
     decor,
+    water,
   };
 }

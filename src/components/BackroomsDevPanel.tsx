@@ -130,7 +130,9 @@ export default function BackroomsDevPanel({
     level.objective === "fusibles" && snap && snap.progress !== "fini"
       ? "Donner les fusibles"
       : level.objective === "vannes" && snap && snap.progress !== "fini"
-        ? "Fermer toutes les vannes"
+        ? level.id === "niveau-3"
+          ? "Relever tous les disjoncteurs"
+          : "Fermer toutes les vannes"
         : "Passer au niveau suivant";
 
   return (

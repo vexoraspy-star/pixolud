@@ -112,7 +112,7 @@ export interface BackroomsAudio {
   stop: () => void;
 }
 
-export function createBackroomsAudio(lighting: LightingKind): BackroomsAudio {
+export function createBackroomsAudio(lighting: LightingKind, flavor: AudioFlavor = null): BackroomsAudio {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Ctor = window.AudioContext || (window as any).webkitAudioContext;
   const ctx: AudioContext = new Ctor();
@@ -128,13 +128,15 @@ export function createBackroomsAudio(lighting: LightingKind): BackroomsAudio {
   const humGain = ctx.createGain();
   humGain.gain.value = 0;
   humGain.connect(master);
-  const humBase = lighting === "neons" ? 0.07 : lighting === "entrepot" ? 0.035 : lighting === "alarme" ? 0.02 : 0.012;
+  const humBase =
+    flavor === "centrale" ? 0.075 : flavor === "piscines" ? 0.025 : lighting === "neons" ? 0.07 : lighting === "entrepot" ? 0.035 : lighting === "alarme" ? 0.02 : 0.012;
   const hum1 = ctx.createOscillator();
   hum1.type = "sawtooth";
-  hum1.frequency.value = lighting === "entrepot" ? 100 : 120;
+  // La centrale ronfle a 50 Hz, comme un vrai transformateur.
+  hum1.frequency.value = flavor === "centrale" ? 50 : lighting === "entrepot" ? 100 : 120;
   const humFilter = ctx.createBiquadFilter();
   humFilter.type = "bandpass";
-  humFilter.frequency.value = lighting === "entrepot" ? 200 : 240;
+  humFilter.frequency.value = flavor === "centrale" ? 150 : lighting === "entrepot" ? 200 : 240;
   humFilter.Q.value = 1.6;
   hum1.connect(humFilter);
   humFilter.connect(humGain);
@@ -178,7 +180,30 @@ export function createBackroomsAudio(lighting: LightingKind): BackroomsAudio {
   room.start();
   stoppables.push(room);
 
-  if (lighting === "secours") {
+  if (flavor === "piscines") {
+    // L'eau qui clapote contre le carrelage, et la reverberation d'un grand bassin.
+    const lap = loopNoise(ctx, 5, true);
+    const lapFilter = ctx.createBiquadFilter();
+    lapFilter.type = "bandpass";
+    lapFilter.frequency.value = 500;
+    lapFilter.Q.value = 0.7;
+    const lapGain = ctx.createGain();
+    lapGain.gain.value = 0.05;
+    const lapLfo = ctx.createOscillator();
+    lapLfo.frequency.value = 0.23;
+    const lapLfoGain = ctx.createGain();
+    lapLfoGain.gain.value = 0.03;
+    lapLfo.connect(lapLfoGain);
+    lapLfoGain.connect(lapGain.gain);
+    lap.connect(lapFilter);
+    lapFilter.connect(lapGain);
+    lapGain.connect(master);
+    lap.start();
+    lapLfo.start();
+    stoppables.push(lap, lapLfo);
+  }
+
+  if (lighting === "secours" && flavor !== "centrale") {
     // Vapeur qui fuit quelque part.
     const hiss = loopNoise(ctx, 3, false);
     const hp = ctx.createBiquadFilter();
@@ -246,7 +271,39 @@ export function createBackroomsAudio(lighting: LightingKind): BackroomsAudio {
       window.setTimeout(() => {
         if (stopped || ctx.state === "closed") return;
         const pan = Math.random() * 2 - 1;
-        if (lighting === "entrepot") {
+        if (flavor === "centrale") {
+          // Un arc electrique quelque part dans les machines, ou un relais qui claque.
+          if (Math.random() < 0.55) {
+            noiseBurst(ctx, out(ctx, master, { pan, gain: 0.35 + Math.random() * 0.3 }), 0.18 + Math.random() * 0.2, 0.5, () => (Math.random() < 0.35 ? 1 : 0.05), {
+              type: "highpass",
+              freq: 2200,
+            });
+          } else {
+            noiseBurst(ctx, out(ctx, master, { pan, gain: 0.5 }), 0.05, 0.6, (t) => Math.pow(1 - t, 6), { type: "lowpass", freq: 1800 });
+          }
+        } else if (flavor === "piscines") {
+          // Une goutte qui tombe du plafond dans un bassin.
+          const f = 900 + Math.random() * 900;
+          tone(ctx, out(ctx, master, { pan, gain: 0.4 + Math.random() * 0.4 }), "sine", f, f * 1.8, 0.09, 0.14, 0.001);
+        } else if (flavor === "bureaux") {
+          if (Math.random() < 0.6) {
+            // Quelqu'un tape au clavier, deux rangees plus loin. Il n'y a personne.
+            const dest = out(ctx, master, { pan, gain: 0.18 + Math.random() * 0.15 });
+            const strokes = 4 + Math.floor(Math.random() * 10);
+            for (let k = 0; k < strokes; k++) {
+              timers.push(
+                window.setTimeout(() => {
+                  if (!stopped && ctx.state !== "closed") noiseBurst(ctx, dest, 0.03, 0.5, (t) => Math.pow(1 - t, 5), { type: "bandpass", freq: 2600 + Math.random() * 1200, q: 2 });
+                }, k * (70 + Math.random() * 90)),
+              );
+            }
+          } else {
+            // Une sonnerie de telephone, etouffee, qui s'arrete net.
+            const dest = out(ctx, master, { pan, gain: 0.12 });
+            tone(ctx, dest, "square", 880, 880, 0.35, 0.05, 0.01);
+            tone(ctx, dest, "square", 660, 660, 0.35, 0.04, 0.01);
+          }
+        } else if (lighting === "entrepot") {
           const f = 1400 + Math.random() * 1600;
           tone(ctx, out(ctx, master, { pan, gain: 0.5 + Math.random() * 0.4 }), "sine", f, f * 0.6, 0.12, 0.12, 0.002);
         } else if (lighting === "secours") {
@@ -303,7 +360,10 @@ export function createBackroomsAudio(lighting: LightingKind): BackroomsAudio {
 // Sons ponctuels
 // ---------------------------------------------------------------------------
 
-export type Surface = "moquette" | "beton" | "metal" | "carrelage";
+export type Surface = "moquette" | "beton" | "metal" | "carrelage" | "eau";
+
+/** Ambiance propre a certains niveaux, en plus de celle de l'eclairage. */
+export type AudioFlavor = "centrale" | "bureaux" | "piscines" | null;
 
 /** Un pas. La moquette detrempee fait « scrouitch », le metal sonne creux. */
 export function playStep(ctx: AudioContext, master: GainNode, surface: Surface, intensity: number, opts?: Spatial) {
@@ -322,6 +382,15 @@ export function playStep(ctx: AudioContext, master: GainNode, surface: Surface, 
     noiseBurst(ctx, dest, 0.09, g, (t) => Math.pow(1 - t, 3), { type: "bandpass", freq: 1200, q: 1.5 });
     const f = 380 + Math.random() * 160;
     tone(ctx, dest, "triangle", f, f * 0.94, 0.18, g * 0.35, 0.002);
+  } else if (surface === "eau") {
+    // On avance dans l'eau jusqu'aux chevilles : un clapotis, puis la goutte qui retombe.
+    noiseBurst(ctx, dest, 0.22, g * 1.1, (t) => Math.sin(t * Math.PI) * (0.5 + Math.random() * 0.5), {
+      type: "bandpass",
+      freq: 900 + Math.random() * 500,
+      q: 0.9,
+    });
+    const f = 700 + Math.random() * 500;
+    tone(ctx, dest, "sine", f, f * 1.6, 0.06, g * 0.25, 0.002);
   } else if (surface === "carrelage") {
     noiseBurst(ctx, dest, 0.07, g * 1.1, (t) => Math.pow(1 - t, 4), { type: "highpass", freq: 900 });
   } else {

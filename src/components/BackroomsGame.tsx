@@ -933,7 +933,7 @@ export default function BackroomsGame({
               <li>ZQSD · se déplacer (QWERTY dans les réglages)</li>
               <li>Souris · regarder (clique dans l&apos;image)</li>
               <li>Maj · courir — C · s&apos;accroupir</li>
-              <li>F · lampe — E · ramasser, ouvrir (maintenir pour une vanne)</li>
+              <li>F · lampe — E · ramasser, ouvrir (maintenir pour une vanne ou un disjoncteur)</li>
               <li>R · boire de l&apos;eau d&apos;amande — M · couper le micro</li>
             </ul>
           </div>

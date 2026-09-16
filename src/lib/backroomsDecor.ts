@@ -33,18 +33,21 @@ function speckle(ctx: CanvasRenderingContext2D, w: number, h: number, amount: nu
 }
 
 /** Affiches et panneaux : quatre textes par niveau, dans le style du lieu. */
-const POSTERS: Record<LevelId, { text: string[]; style: "bureau" | "danger" | "vapeur" | "fuite" }> = {
+const POSTERS: Record<LevelId, { text: string[]; style: "bureau" | "danger" | "vapeur" | "fuite" | "piscine" }> = {
   "niveau-0": { text: ["RESTEZ CALME", "IL N'Y A PAS\nDE SORTIE", "NE FAITES\nPAS DE BRUIT", "RÉUNION\nANNULÉE"], style: "bureau" },
   "niveau-1": { text: ["ZONE B-3", "CHARGE MAX\n500 KG", "CASQUE\nOBLIGATOIRE", "ÉTEIGNEZ\nVOTRE LAMPE"], style: "danger" },
   "niveau-2": { text: ["DANGER\nVAPEUR", "NE PAS\nTOUCHER", "PRESSION\nÉLEVÉE", "ELLE\nENTEND"], style: "vapeur" },
+  "niveau-3": { text: ["HAUTE\nTENSION", "NE PAS\nRÉARMER", "DANGER\nDE MORT", "IL AIME\nLE NOIR"], style: "danger" },
+  "niveau-4": { text: ["OBJECTIFS\nDU MOIS", "SOURIEZ !", "RÉUNION\n9 H 00", "PERSONNE\nNE PART"], style: "bureau" },
+  "niveau-37": { text: ["PAS DE\nPLONGEON", "BAIGNADE\nSURVEILLÉE", "DOUCHE\nOBLIGATOIRE", "PERSONNE NE\nSURVEILLE"], style: "piscine" },
   "niveau-run": { text: ["SORTIE →", "← SORTIE", "COUREZ", "NE VOUS\nRETOURNEZ PAS"], style: "fuite" },
 };
 
 function makePosterTexture(text: string, style: (typeof POSTERS)[LevelId]["style"], index: number): THREE.CanvasTexture {
   const { canvas, ctx } = canvas2d(256, 180);
   const exitSign = style === "fuite" && index < 2;
-  const bg = { bureau: "#e9e1c8", danger: "#e7b928", vapeur: "#a8231a", fuite: exitSign ? "#0f7a3a" : "#b21d14" }[style];
-  const fg = { bureau: "#3b3526", danger: "#15130e", vapeur: "#f4ece0", fuite: "#f6fff2" }[style];
+  const bg = { bureau: "#e9e1c8", danger: "#e7b928", vapeur: "#a8231a", fuite: exitSign ? "#0f7a3a" : "#b21d14", piscine: "#eef7f7" }[style];
+  const fg = { bureau: "#3b3526", danger: "#15130e", vapeur: "#f4ece0", fuite: "#f6fff2", piscine: "#1d5f7c" }[style];
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, 256, 180);
   if (style === "danger") {
@@ -58,6 +61,16 @@ function makePosterTexture(text: string, style: (typeof POSTERS)[LevelId]["style
       ctx.lineTo(x - 20, 26);
       ctx.closePath();
       ctx.fill();
+    }
+  }
+  if (style === "piscine") {
+    // Liseré de vaguelettes, en haut et en bas.
+    ctx.strokeStyle = "#3a93b5";
+    ctx.lineWidth = 4;
+    for (const y of [18, 162]) {
+      ctx.beginPath();
+      for (let x = 10; x <= 246; x += 4) ctx.lineTo(x, y + Math.sin(x * 0.12) * 4);
+      ctx.stroke();
     }
   }
   if (style === "bureau") {
