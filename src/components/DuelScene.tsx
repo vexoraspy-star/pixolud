@@ -404,13 +404,15 @@ export default function DuelScene({
       camera.add(wm.group);
       weaponModels[id] = wm;
     }
-    const GUN_BASE = new THREE.Vector3(0.23, -0.19, -0.66);
+    // Arme un peu plus presente a l'ecran depuis qu'elle a des mains : trop
+    // petite, on ne voyait ni les doigts ni la culasse qui recule.
+    const GUN_BASE = new THREE.Vector3(0.21, -0.18, -0.62);
     function applyWeaponTransform() {
       for (const id of Object.keys(weaponModels) as WeaponId[]) {
         const g = weaponModels[id].group;
         g.position.copy(GUN_BASE);
         g.rotation.set(0, -0.06, 0);
-        g.scale.setScalar(0.58);
+        g.scale.setScalar(0.66);
         g.visible = id === me.weapon;
       }
     }
@@ -690,6 +692,9 @@ export default function DuelScene({
     let muzzleUntil = 0;
     let recoil = 0;
     let recoilKick = 0;
+    // Montee en visee progressive : l'arme montait d'un coup au centre, ce qui
+    // cassait la lecture du tir. Elle glisse maintenant en deux dixiemes.
+    let aimBlend = 0;
     let walkPhase = 0;
     let nextStepAt = 0;
     let nextNetAt = 0;
@@ -1748,7 +1753,8 @@ export default function DuelScene({
 
       const model = currentModel();
       // En visee, l'arme vient au centre de l'ecran ; en sprint elle s'abaisse.
-      const aimLerp = isZoomed ? 1 : 0;
+      aimBlend += ((isZoomed ? 1 : 0) - aimBlend) * Math.min(1, delta * 14);
+      const aimLerp = aimBlend;
       model.group.position.set(
         THREE.MathUtils.lerp(GUN_BASE.x, 0, aimLerp) + (moving ? Math.sin(walkPhase) * 0.012 : 0),
         THREE.MathUtils.lerp(GUN_BASE.y, -0.12, aimLerp) +
@@ -1761,6 +1767,18 @@ export default function DuelScene({
       model.group.rotation.y = THREE.MathUtils.lerp(-0.06, 0, aimLerp);
       model.group.rotation.z = sprinting ? 0.3 : 0;
       model.group.visible = !me.dead && me.alive;
+      // Pieces mobiles et mains : culasse, pompe, verrou, chargeur qui tombe.
+      const reloadProgress =
+        me.reloadUntil > 0
+          ? THREE.MathUtils.clamp(1 - (me.reloadUntil - elapsed) / spec.reloadSeconds, 0, 1)
+          : 0;
+      model.update({
+        time: elapsed,
+        recoil,
+        reload: reloadProgress,
+        aim: aimLerp,
+        sprint: sprinting ? 1 : 0,
+      });
       if (elapsed > muzzleUntil) model.flash.visible = false;
 
       // --------------------------------------------------- rendu des soldats
