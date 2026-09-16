@@ -105,6 +105,7 @@ import {
   saveBrightness3D,
   type Layout3D,
 } from "@/lib/settings3d";
+import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 
 export type DeathCause = "souriant" | "bacterie" | "lucidite";
 
@@ -1350,6 +1351,41 @@ export default function BackroomsScene({
       if (def.id === "niveau-run") bacteria.group.visible = false;
     }
 
+    // --- Le Rodeur des bureaux (niveau 4) ---
+    // Un modele anime (CC0) remplace la creature dessinee en code : il marche
+    // en trainant les pieds, court bras tendus et se jette sur toi. Ses
+    // couleurs de dessin anime sont eteintes jusqu'a la silhouette, et seuls
+    // deux yeux pales restent visibles dans le noir. Meme IA, meme groupe :
+    // position, visibilite et reseau ne changent pas.
+    let rodeur: AnimatedModel | null = null;
+    let rodeurEyeGeo: THREE.SphereGeometry | null = null;
+    let rodeurEyeMat: THREE.MeshBasicMaterial | null = null;
+    let sceneGone = false;
+    if (bacteria && def.id === "niveau-4") {
+      createAnimatedModel("zombie-a", 1.95)
+        .then((m) => {
+          if (sceneGone) {
+            m.dispose();
+            return;
+          }
+          m.tint(() => true, 0x3b3833);
+          rodeurEyeGeo = new THREE.SphereGeometry(0.03, 8, 6);
+          rodeurEyeMat = new THREE.MeshBasicMaterial({ color: 0xe4dcb0 });
+          const eyes = new THREE.Group();
+          for (const sx of [-0.06, 0.06]) {
+            const eye = new THREE.Mesh(rodeurEyeGeo, rodeurEyeMat);
+            eye.position.set(sx, 0.1, 0.2);
+            eyes.add(eye);
+          }
+          m.attach("Head", eyes, "Idle");
+          for (const child of bacteria.group.children) child.visible = false;
+          bacteria.group.add(m.root);
+          m.play("Idle");
+          rodeur = m;
+        })
+        .catch(() => {});
+    }
+
     // --- Main et lampe ---
     scene.add(camera);
     const handRig = buildHandRig();
@@ -2049,6 +2085,10 @@ export default function BackroomsScene({
           bacteria.group.position.set(camera.position.x + fx * dist, floorY(player.z) - 0.2 * rush, camera.position.z + fz * dist);
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
+          if (rodeur) {
+            rodeur.play("Run_Attack", { fade: 0.08 });
+            rodeur.update(delta);
+          }
         } else if (deathCause === "souriant" && smiler) {
           smiler.group.position.set(camera.position.x + fx * dist, camera.position.y - 1.45, camera.position.z + fz * dist);
           smiler.group.rotation.y = player.yaw;
@@ -2605,6 +2645,14 @@ export default function BackroomsScene({
           lunge: entity.lunge,
           scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
         });
+        if (rodeur) {
+          // La foulee suit la vitesse reelle : il traine, il presse, il fonce.
+          const clip = entity.lunge > 0.05 ? "Run_Attack" : renderSpeed > 3 ? "Run_Arms" : renderSpeed > 0.25 ? "Walk" : "Idle";
+          rodeur.play(clip, { fade: 0.25 });
+          if (clip === "Walk") rodeur.setSpeed(THREE.MathUtils.clamp(renderSpeed / 1.3, 0.55, 1.9));
+          else if (clip === "Run_Arms") rodeur.setSpeed(THREE.MathUtils.clamp(renderSpeed / 4.3, 0.8, 1.5));
+          rodeur.update(delta);
+        }
         if (entity.active && runReleased && !introHold) {
           if (elapsed >= nextClickAt && distM < 26) {
             nextClickAt = elapsed + 1.1 + rng() * 1.8;
@@ -3022,6 +3070,10 @@ export default function BackroomsScene({
       // et les detruire sous lui levait une erreur.
       const disposeGpu = () => {
         bacteria?.dispose();
+        sceneGone = true;
+        rodeur?.dispose();
+        rodeurEyeGeo?.dispose();
+        rodeurEyeMat?.dispose();
         smiler?.dispose();
         wanderer.dispose();
         handRig.dispose();

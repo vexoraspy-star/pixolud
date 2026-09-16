@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier";
 import { buildWeaponModel, type WeaponId, type WeaponModel } from "@/lib/duelWeapons";
 import { CAMOS, SKINS, type CamoId, type SkinId } from "@/lib/duelProfile";
+import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 
 /**
  * Le decor 3D du salon : ton soldat sur une plateforme au-dessus de l'eau,
@@ -169,22 +170,63 @@ export default function DuelLobbyStage({
     gunPivot.position.set(1.25, 1.25, 0.2);
     scene.add(gunPivot);
 
+    // Le SWAT anime (CC0) remplace le soldat dessine en code des qu'il est
+    // charge ; il porte ta tenue et ton arme, avec ton camouflage.
+    let swat: AnimatedModel | null = null;
+    let swatGun: WeaponModel | null = null;
+    const swatGunHolder = new THREE.Group();
+    let stageDisposed = false;
+    let lastLook: [SkinId, CamoId, WeaponId] | null = null;
+    createAnimatedModel("soldat-swat", 1.8)
+      .then((m) => {
+        if (stageDisposed) {
+          m.dispose();
+          return;
+        }
+        swat = m;
+        m.attach("Wrist.R", swatGunHolder, "Idle_Gun_Pointing");
+        m.play("Idle_Gun");
+        holder.add(m.root);
+        if (lastLook) setLook(...lastLook);
+      })
+      .catch(() => {});
+
     function setLook(skinId: SkinId, camoId: CamoId, weaponId: WeaponId) {
+      lastLook = [skinId, camoId, weaponId];
       const s = SKINS[skinId];
       if (soldier) {
         holder.remove(soldier.group);
         soldier.dispose();
+        soldier = null;
       }
-      soldier = buildSoldier(s.accent, { cloth: s.cloth, gear: s.gear, visor: s.visor });
-      holder.add(soldier.group);
       if (gun) {
         gunPivot.remove(gun.group);
         gun.dispose();
+        gun = null;
       }
-      gun = buildWeaponModel(weaponId, { camo: camoId, hands: false });
-      gun.group.scale.setScalar(1.55);
-      gun.group.rotation.y = Math.PI / 2;
-      gunPivot.add(gun.group);
+      if (swat) {
+        swat.tint((n) => n === "Swat", s.accent);
+        swat.tint((n) => n === "Swat_Black", s.gear);
+        swat.tint((n) => n === "Visor", s.visor);
+        if (swatGun) {
+          swatGunHolder.remove(swatGun.group);
+          swatGun.dispose();
+        }
+        // L'arme du jeu, retournee (elle vise -Z a la premiere personne) et
+        // placee pour que la poignee tombe dans la main.
+        swatGun = buildWeaponModel(weaponId, { camo: camoId, hands: false });
+        swatGun.group.rotation.y = Math.PI;
+        swatGun.group.scale.setScalar(0.9);
+        swatGun.group.position.set(0, 0.13, 0.1);
+        swatGunHolder.add(swatGun.group);
+      } else {
+        soldier = buildSoldier(s.accent, { cloth: s.cloth, gear: s.gear, visor: s.visor });
+        holder.add(soldier.group);
+        gun = buildWeaponModel(weaponId, { camo: camoId, hands: false });
+        gun.group.scale.setScalar(1.55);
+        gun.group.rotation.y = Math.PI / 2;
+        gunPivot.add(gun.group);
+      }
       // Lueur de rarete sous l'arme, a la couleur du camouflage.
       ringMat.color.set(CAMOS[camoId].rarity === "legendaire" ? 0xffc14a : CAMOS[camoId].rarity === "epique" ? 0xc47dff : 0x57e3ff);
     }
@@ -242,6 +284,13 @@ export default function DuelLobbyStage({
         poseSoldier(soldier, { walk: 0, speed: 0, pitch: 0.08 + Math.sin(t * 1.2) * 0.02, death: 0 });
         soldier.torso.position.y = 0.9 + Math.sin(t * 2) * 0.012;
       }
+      if (swat) {
+        // Au repos l'arme basse ; de temps en temps il la leve et vise.
+        const cycle = t % 9;
+        swat.play(cycle > 6.5 ? "Idle_Gun_Pointing" : "Idle_Gun", { fade: 0.35 });
+        swat.update(delta);
+        if (swatGun) swatGun.update({ time: t, recoil: 0, reload: 0, aim: 0, sprint: 0 });
+      }
       gunPivot.rotation.y = t * 0.6;
       gunPivot.position.y = 1.25 + Math.sin(t * 1.4) * 0.06;
       if (gun) gun.update({ time: t, recoil: 0, reload: 0, aim: 0, sprint: 0 });
@@ -265,8 +314,11 @@ export default function DuelLobbyStage({
       window.removeEventListener("pointerup", onUp);
       renderer.domElement.removeEventListener("pointerdown", onDown);
       apiRef.current = null;
+      stageDisposed = true;
       if (soldier) soldier.dispose();
       if (gun) gun.dispose();
+      if (swatGun) swatGun.dispose();
+      if (swat) swat.dispose();
       for (const o of owned) o.dispose();
       renderer.forceContextLoss();
       renderer.dispose();

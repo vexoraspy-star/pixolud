@@ -1,0 +1,13 @@
+Modeles 3D du site Pixolud
+=========================
+
+Tous ces modeles sont dans le domaine public (licence CC0 1.0) :
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Auteur : Quaternius (https://quaternius.com), telecharges depuis poly.pizza.
+Ils ont ete alleges pour le web (animations inutiles retirees, elagage,
+reechantillonnage et quantification avec gltf-transform).
+
+- zombie-a.glb    « Zombie »      https://poly.pizza/m/VlXjG0N8Eg
+- zombie-b.glb    « Zombie »      https://poly.pizza/m/JoBvxIUpZP
+- soldat-swat.glb « SWAT »        https://poly.pizza/m/Btfn3G5Xv4

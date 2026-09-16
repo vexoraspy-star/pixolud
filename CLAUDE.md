@@ -76,9 +76,13 @@ Conventions Three.js à respecter — chacune vient d'une régression réelle :
   téléportations à travers les murs après une pause.
 - **Peu de lumières dynamiques (~8 maximum) et `MeshLambertMaterial`, jamais `MeshStandardMaterial`.**
   Une vingtaine de lumières + des matériaux PBR avaient fait tomber le jeu à 1 FPS.
-- **Aucun asset externe.** Textures dessinées au canvas (`src/lib/manorTextures.ts`) et audio
-  synthétisé à la Web Audio API (`src/lib/manorAudio.ts`). C'est une discipline de licence autant
-  qu'une optimisation.
+- **Textures et sons faits maison, modèles 3D en CC0 seulement.** Textures dessinées au canvas
+  (`src/lib/manorTextures.ts`) et audio synthétisé à la Web Audio API (`src/lib/manorAudio.ts`).
+  Depuis septembre 2026, le propriétaire autorise des modèles animés `.glb` dans `public/models/`,
+  **uniquement sous licence CC0** (liste et sources dans `public/models/LICENCES.txt`), allégés avec
+  gltf-transform et chargés par `src/lib/models3d.ts`, qui remplace les matériaux PBR par du Lambert
+  et fusionne les morceaux d'un personnage en un seul maillage. Un jeu doit garder son modèle dessiné
+  en code tant que le fichier n'est pas chargé (ou si le réseau échoue).
 - **Ne pas enchaîner `Object3D.lookAt()` puis une écriture sur `rotation.z`.** Quand la cible est à
   la même hauteur, `lookAt` produit des angles d'Euler en blocage de cardan où `x` et `z`
   s'annulent ; écraser `z` couche l'objet au sol. Calculer le lacet à la main :

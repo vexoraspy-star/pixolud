@@ -78,6 +78,7 @@ import {
   type DuelOptions,
 } from "@/lib/duelOptions";
 import DuelCrosshair from "./DuelCrosshair";
+import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import DuelOptionsPanel from "./DuelOptionsPanel";
 import Game3DSettings from "./Game3DSettings";
 
@@ -768,6 +769,11 @@ export default function DuelScene({
       moving: boolean;
       /** Battle royale : hauteur restante avant de toucher le sol, en metres. */
       air: number;
+      /** Soldat anime (SWAT) : remplace le soldat dessine en code une fois charge. */
+      anim: AnimatedModel | null;
+      animFlash: THREE.Mesh | null;
+      lastAnimX: number;
+      lastAnimZ: number;
     }
 
     const fighters: Fighter[] = [];
@@ -823,7 +829,51 @@ export default function DuelScene({
         tpitch: 0,
         moving: false,
         air: 0,
+        anim: null,
+        animFlash: null,
+        lastAnimX: spawn[0] + 0.5,
+        lastAnimZ: spawn[1] + 0.5,
       });
+    }
+
+    // --- Soldats animes ---
+    // Le modele SWAT (CC0) apporte de vraies animations : course, pas de cote,
+    // tir en courant, mort. Il se charge en arriere-plan ; tant qu'il n'est
+    // pas la (ou si le reseau echoue), on garde les soldats dessines en code.
+    let sceneDisposed = false;
+    const botGunMat = new THREE.MeshLambertMaterial({ color: 0x23272c });
+    const botGunBody = new THREE.BoxGeometry(0.06, 0.1, 0.46);
+    const botGunBarrel = new THREE.CylinderGeometry(0.018, 0.018, 0.26, 6);
+    const botFlashMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 });
+    const botFlashGeo = new THREE.SphereGeometry(0.09, 6, 5);
+    for (const f of fighters) {
+      createAnimatedModel("soldat-swat", 1.8)
+        .then((m) => {
+          if (sceneDisposed) {
+            m.dispose();
+            return;
+          }
+          // Couleur d'equipe sur l'uniforme, adoucie pour rester lisible.
+          const uniform = new THREE.Color(0x4a5058).lerp(new THREE.Color(f.color), 0.62).getHex();
+          m.tint((n) => n === "Swat", uniform);
+          const gun = new THREE.Group();
+          const body = new THREE.Mesh(botGunBody, botGunMat);
+          body.position.set(0, 0.03, 0.12);
+          const barrel = new THREE.Mesh(botGunBarrel, botGunMat);
+          barrel.rotation.x = Math.PI / 2;
+          barrel.position.set(0, 0.05, 0.47);
+          const flash = new THREE.Mesh(botFlashGeo, botFlashMat);
+          flash.position.set(0, 0.05, 0.64);
+          flash.scale.set(1, 1, 1.7);
+          flash.visible = false;
+          gun.add(body, barrel, flash);
+          m.attach("Wrist.R", gun, "Idle_Gun_Pointing");
+          f.anim = m;
+          f.animFlash = flash;
+          m.root.visible = false;
+          scene.add(m.root);
+        })
+        .catch(() => {});
     }
 
     const audio = createDuelAudio();
@@ -1580,6 +1630,8 @@ export default function DuelScene({
           remoteSkin = r.skin;
           const sk = SKINS[r.skin];
           remote.model.setLook({ cloth: sk.cloth, gear: sk.gear, visor: sk.visor });
+          remote.anim?.tint((n) => n === "Swat", sk.accent);
+          remote.anim?.tint((n) => n === "Visor", sk.visor);
         }
         if (r.dead && !remote.dead) remote.dead = true;
         else if (!r.dead && remote.dead) {
@@ -1612,7 +1664,7 @@ export default function DuelScene({
     function updateBot(f: Fighter, delta: number, goTo?: { x: number; z: number }) {
       if (!f.alive) return;
       if (f.dead) {
-        f.deathT = Math.min(1, f.deathT + delta * 2.6);
+        f.deathT = Math.min(1, f.deathT + delta * (f.anim ? 0.35 : 2.6));
         if (mode.respawn && !eco && elapsed >= f.respawnAt) {
           const s = safestSpawn(allSpawns, [{ x: me.x, z: me.z }]);
           f.x = s[0] + 0.5;
@@ -1853,8 +1905,14 @@ export default function DuelScene({
         // Les bots descendent eux aussi.
         for (const f of fighters) {
           if (f.air > 0) f.air = Math.max(0, f.air - delta * 11);
-          f.model.group.visible = dropPhase === "chute";
+          f.model.group.visible = dropPhase === "chute" && !f.anim;
           f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+          if (f.anim) {
+            f.anim.root.visible = dropPhase === "chute";
+            f.anim.root.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+            f.anim.play("Idle_Gun_Pointing");
+            f.anim.update(delta);
+          }
         }
         renderer.render(scene, camera);
         return;
@@ -2026,7 +2084,7 @@ export default function DuelScene({
         f.pitch += (f.tpitch - f.pitch) * k;
         f.speed = Math.hypot(f.x - px, f.z - pz) / Math.max(delta, 1e-4);
         f.walkPhase += f.speed * delta * 2.6;
-        if (f.dead) f.deathT = Math.min(1, f.deathT + delta * 2.6);
+        if (f.dead) f.deathT = Math.min(1, f.deathT + delta * (f.anim ? 0.35 : 2.6));
       }
 
       // ------------------------------------------------------------- camera
@@ -2104,18 +2162,49 @@ export default function DuelScene({
       // --------------------------------------------------- rendu des soldats
       for (const f of fighters) {
         const visible = f.alive && (!f.dead || f.deathT < 1);
-        f.model.group.visible = visible;
+        f.model.group.visible = visible && !f.anim;
+        if (f.anim) f.anim.root.visible = visible;
         if (!visible) continue;
-        f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
-        f.model.group.rotation.y = f.yaw;
-        poseSoldier(f.model, {
-          walk: f.walkPhase,
-          speed: f.dead ? 0 : f.speed,
-          pitch: f.pitch,
-          death: f.dead ? f.deathT : 0,
-        });
-        f.model.flash.visible = elapsed < f.flashUntil;
-        if (f.dead) f.deathT = Math.min(1, f.deathT + delta * 2.2);
+        if (f.anim) {
+          f.anim.root.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+          f.anim.root.rotation.y = f.yaw;
+          // Sens du deplacement par rapport au regard : course, pas de cote, recul.
+          const mdx = f.x - f.lastAnimX;
+          const mdz = f.z - f.lastAnimZ;
+          f.lastAnimX = f.x;
+          f.lastAnimZ = f.z;
+          const shooting = elapsed < f.flashUntil + 0.35;
+          let clip: string;
+          if (f.dead) clip = "Death";
+          else if (f.air > 0.5) clip = "Idle_Gun_Pointing";
+          else if (f.speed > 0.6) {
+            const forward = mdx * Math.sin(f.yaw) + mdz * Math.cos(f.yaw);
+            const right = -mdx * Math.cos(f.yaw) + mdz * Math.sin(f.yaw);
+            if (Math.abs(right) > Math.abs(forward) * 1.2) clip = right > 0 ? "Run_Right" : "Run_Left";
+            else if (forward < 0) clip = "Run_Back";
+            else clip = shooting ? "Run_Shoot" : "Run";
+          } else {
+            clip = shooting ? "Idle_Gun_Shoot" : f.seenFor > 0 ? "Idle_Gun_Pointing" : "Idle_Gun";
+          }
+          f.anim.play(clip, { loop: clip !== "Death", fade: clip === "Death" ? 0.08 : 0.18 });
+          if (clip.startsWith("Run")) f.anim.setSpeed(THREE.MathUtils.clamp(f.speed / 4, 0.7, 1.5));
+          f.anim.update(delta);
+          if (f.animFlash) {
+            f.animFlash.visible = elapsed < f.flashUntil;
+            f.animFlash.rotation.z = Math.random() * Math.PI;
+          }
+        } else {
+          f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+          f.model.group.rotation.y = f.yaw;
+          poseSoldier(f.model, {
+            walk: f.walkPhase,
+            speed: f.dead ? 0 : f.speed,
+            pitch: f.pitch,
+            death: f.dead ? f.deathT : 0,
+          });
+          f.model.flash.visible = elapsed < f.flashUntil;
+        }
+        if (f.dead) f.deathT = Math.min(1, f.deathT + delta * (f.anim ? 0.35 : 2.2));
         else f.speed *= 0.86;
       }
 
@@ -2218,7 +2307,16 @@ export default function DuelScene({
       renderer.domElement.removeEventListener("mousedown", onMouseDown);
       renderer.domElement.removeEventListener("contextmenu", onContextMenu);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
-      for (const f of fighters) f.model.dispose();
+      sceneDisposed = true;
+      for (const f of fighters) {
+        f.model.dispose();
+        f.anim?.dispose();
+      }
+      botGunMat.dispose();
+      botGunBody.dispose();
+      botGunBarrel.dispose();
+      botFlashMat.dispose();
+      botFlashGeo.dispose();
       for (const id of Object.keys(weaponModels) as WeaponId[]) weaponModels[id].dispose();
       laserGeo.dispose();
       laserMat.dispose();
