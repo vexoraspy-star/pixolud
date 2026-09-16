@@ -10,7 +10,7 @@ import type { WeaponId } from "./duelWeapons";
  *  - Duel        : le 1 contre 1 d'origine, en ligne ou contre la Sentinelle.
  *  - Match a mort: chacun pour soi contre quatre bots, sur la meme arene.
  *  - Armement    : chaque elimination change ton arme ; le premier a finir
- *                  les cinq armes gagne. Une seule mort ne coute rien, mais
+ *                  les neuf armes gagne. Une seule mort ne coute rien, mais
  *                  se tromper d'arme au mauvais moment, si.
  *  - Zone        : personne ne reapparait, on ramasse ses armes au sol, et
  *                  le terrain se referme. Le dernier debout gagne.
@@ -41,9 +41,13 @@ export interface DuelEconomy {
 /** Prix de chaque arme en mode Economie. Le pistolet est toujours gratuit. */
 export const WEAPON_PRICES: Record<WeaponId, number> = {
   pistolet: 0,
+  revolver: 700,
+  pm: 1050,
   mitraillette: 1200,
   pompe: 1800,
   fusil: 2700,
+  carabine: 3400,
+  mitrailleuse: 4200,
   sniper: 4700,
 };
 
@@ -110,9 +114,9 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
   armement: {
     id: "armement",
     name: "Course à l'armement",
-    tagline: "Cinq armes à enchaîner",
+    tagline: "Neuf armes à enchaîner",
     detail:
-      "Chaque élimination te fait passer à l'arme suivante : pistolet, mitraillette, fusil, pompe, sniper. Le premier à finir les cinq gagne.",
+      "Chaque élimination te fait passer à l'arme suivante, du pistolet au sniper en passant par le revolver, la mitrailleuse et la carabine. Le premier à finir les neuf gagne.",
     arena: "duel",
     bots: 3,
     scoreToWin: 5,

@@ -34,6 +34,7 @@ import {
   WEAPONS,
   GUN_GAME_ORDER,
   LOOT_TABLE,
+  SHOP_ORDER,
   buildWeaponModel,
   type WeaponId,
   type WeaponModel,
@@ -522,9 +523,13 @@ export default function DuelScene({
      */
     const LOOT_TINT: Record<WeaponId, number> = {
       pistolet: 0x9fb4c4,
+      revolver: 0xd9b27a,
+      pm: 0x9ff08a,
       mitraillette: 0x6ef0c0,
-      fusil: 0x58b6ff,
       pompe: 0xc07aff,
+      fusil: 0x58b6ff,
+      carabine: 0x7ad0ff,
+      mitrailleuse: 0xff8a5a,
       sniper: 0xffc94a,
     };
     interface LootDrop {
@@ -933,7 +938,10 @@ export default function DuelScene({
     /** La Sentinelle depense comme un joueur prudent : elle garde de quoi rebondir. */
     function botBuy(f: Fighter) {
       if (!eco) return;
-      const wishes: WeaponId[] = botMoney >= 6500 ? ["sniper", "fusil"] : ["fusil", "pompe", "mitraillette"];
+      const wishes: WeaponId[] =
+        botMoney >= 6500
+          ? ["sniper", "mitrailleuse", "fusil"]
+          : ["fusil", "carabine", "pompe", "mitraillette", "pm", "revolver"];
       for (const w of wishes) {
         if (f.weapon === w) return;
         if (WEAPON_PRICES[w] <= botMoney) {
@@ -1312,10 +1320,14 @@ export default function DuelScene({
       if (e.button === 2) toggleZoom(false);
       else firing = false;
     }
-    const SHOP_KEYS: WeaponId[] = ["pistolet", "mitraillette", "pompe", "fusil", "sniper"];
+    const SHOP_KEYS: WeaponId[] = SHOP_ORDER;
     function onKeyDown(e: KeyboardEvent) {
       keys.add(e.key.toLowerCase());
       if (e.key.toLowerCase() === "r") startReload();
+      // L : allumer ou eteindre le laser sans ouvrir aucun menu.
+      if (e.key.toLowerCase() === "l" && !e.repeat) {
+        changeOptions({ ...optionsRef.current, laser: !optionsRef.current.laser });
+      }
       if (eco && buying()) {
         const n = Number(e.key);
         if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
@@ -2089,6 +2101,23 @@ export default function DuelScene({
         </div>
       )}
 
+      {/* Laser : un vrai bouton, visible en permanence (ou la touche L) */}
+      <button
+        type="button"
+        onClick={() => changeOptions({ ...options, laser: !options.laser })}
+        aria-pressed={options.laser}
+        aria-label={options.laser ? "Éteindre le laser" : "Allumer le laser"}
+        className={`absolute right-14 top-[6.5rem] z-30 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-black uppercase tracking-wider backdrop-blur transition ${
+          options.laser
+            ? "bg-red-600/90 text-white shadow-[0_0_14px_rgba(255,60,60,0.7)] hover:bg-red-500"
+            : "bg-black/70 text-zinc-300 hover:bg-black/90"
+        }`}
+      >
+        <span className={`size-2 rounded-full ${options.laser ? "bg-white" : "bg-red-500"}`} />
+        Laser
+        <span className="font-mono text-[10px] opacity-60">L</span>
+      </button>
+
       {/* Réglages du tir : réticule, laser, affichage, bots */}
       <button
         type="button"
@@ -2283,16 +2312,16 @@ export default function DuelScene({
           <div className="pointer-events-none flex items-center gap-3 rounded-full bg-black/75 px-4 py-1.5 backdrop-blur">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Phase d&apos;achat</span>
             <span className="font-mono text-sm font-black text-white">{buyLeft.toFixed(1)}s</span>
-            <span className="text-[11px] text-zinc-400">1-5 acheter · B boutique</span>
+            <span className="text-[11px] text-zinc-400">1-9 acheter · B boutique</span>
           </div>
           {shopOpen && (
-            <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-zinc-950/92 p-3 shadow-2xl backdrop-blur">
+            <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-zinc-950/92 p-3 shadow-2xl backdrop-blur">
               <div className="mb-2 flex items-baseline justify-between">
                 <p className="text-sm font-black uppercase tracking-wider text-white">Boutique</p>
                 <p className="font-mono text-lg font-black text-emerald-300">${money}</p>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                {(["pistolet", "mitraillette", "pompe", "fusil", "sniper"] as WeaponId[]).map((id, i) => {
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+                {SHOP_ORDER.map((id, i) => {
                   const w = WEAPONS[id];
                   const price = WEAPON_PRICES[id];
                   const owned = weaponName === w.short;

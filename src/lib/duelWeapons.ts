@@ -19,7 +19,16 @@ import {
  * et le modele 3D tenu en main. Le reste du jeu ne connait que WeaponSpec.
  */
 
-export type WeaponId = "pistolet" | "mitraillette" | "fusil" | "pompe" | "sniper";
+export type WeaponId =
+  | "pistolet"
+  | "revolver"
+  | "pm"
+  | "mitraillette"
+  | "pompe"
+  | "fusil"
+  | "carabine"
+  | "mitrailleuse"
+  | "sniper";
 
 export interface WeaponSpec {
   id: WeaponId;
@@ -122,6 +131,83 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     moveFactor: 0.95,
     tracer: 0xffbf7a,
   },
+  revolver: {
+    id: "revolver",
+    name: "Revolver",
+    short: "REVOLVER",
+    // Six coups lents qui font mal : deux au corps, ou un a la tete et un
+    // de plus. Il recompense le calme.
+    damage: 56,
+    headshot: 2,
+    fireInterval: 0.52,
+    auto: false,
+    magSize: 6,
+    reloadSeconds: 2.4,
+    pellets: 1,
+    spread: 0.006,
+    recoil: 2,
+    range: 20,
+    moveFactor: 1.06,
+    tracer: 0xffd070,
+  },
+  pm: {
+    id: "pm",
+    name: "Pistolet-mitrailleur",
+    short: "PM",
+    // La cadence la plus folle du jeu, et les degats les plus faibles : il
+    // gagne un couloir, il perd une avenue.
+    damage: 13,
+    headshot: 1.8,
+    fireInterval: 0.055,
+    auto: true,
+    magSize: 32,
+    reloadSeconds: 1.4,
+    pellets: 1,
+    spread: 0.042,
+    recoil: 0.35,
+    range: 9,
+    moveFactor: 1.1,
+    tracer: 0xfff4c8,
+  },
+  carabine: {
+    id: "carabine",
+    name: "Carabine de précision",
+    short: "CARABINE",
+    // Entre le fusil d'assaut et le sniper : semi-automatique, une petite
+    // lunette, et trois balles au corps pour abattre quelqu'un.
+    damage: 46,
+    headshot: 2,
+    fireInterval: 0.32,
+    auto: false,
+    magSize: 12,
+    reloadSeconds: 2.2,
+    pellets: 1,
+    spread: 0.004,
+    recoil: 1.5,
+    range: 30,
+    moveFactor: 0.95,
+    zoomFov: 46,
+    tracer: 0xd8f0ff,
+  },
+  mitrailleuse: {
+    id: "mitrailleuse",
+    name: "Mitrailleuse",
+    short: "LMG",
+    // Soixante-quinze coups et un rechargement interminable : on tient une
+    // position, on ne court pas avec.
+    damage: 22,
+    headshot: 1.9,
+    fireInterval: 0.09,
+    auto: true,
+    magSize: 75,
+    reloadSeconds: 4.2,
+    pellets: 1,
+    spread: 0.024,
+    recoil: 0.7,
+    range: 20,
+    moveFactor: 0.82,
+    tracer: 0xffc870,
+  },
   sniper: {
     id: "sniper",
     name: "Fusil de précision",
@@ -147,19 +233,40 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
 /** L'ordre de progression du mode Course a l'armement. */
 export const GUN_GAME_ORDER: WeaponId[] = [
   "pistolet",
+  "revolver",
+  "pm",
   "mitraillette",
-  "fusil",
   "pompe",
+  "fusil",
+  "carabine",
+  "mitrailleuse",
+  "sniper",
+];
+
+/** L'ordre des armes dans la boutique : touches 1 a 9, de la moins chere a la plus chere. */
+export const SHOP_ORDER: WeaponId[] = [
+  "pistolet",
+  "revolver",
+  "pm",
+  "mitraillette",
+  "pompe",
+  "fusil",
+  "carabine",
+  "mitrailleuse",
   "sniper",
 ];
 
 /** Ce qu'on trouve au sol en Battle Royale, du plus commun au plus rare. */
 export const LOOT_TABLE: WeaponId[] = [
+  "pm",
   "mitraillette",
   "mitraillette",
+  "revolver",
   "fusil",
   "fusil",
   "pompe",
+  "carabine",
+  "mitrailleuse",
   "sniper",
 ];
 
@@ -300,6 +407,10 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
   let pump: THREE.Object3D | null = null;
   let bolt: THREE.Object3D | null = null;
   let mag: THREE.Object3D | null = null;
+  /** Barillet du revolver : il tourne d'un sixieme de tour a chaque coup. */
+  let drum: THREE.Object3D | null = null;
+  /** Hauteur du canon, la ou part l'eclair de bouche. */
+  let muzzleY = 0.014;
   const rightHand = buildHand();
   const leftHand = buildHand();
 
@@ -466,6 +577,133 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
       break;
     }
 
+    case "revolver": {
+      add(box(0.062, 0.075, 0.15, steel), 0, 0.02, 0);
+      add(tube(0.022, 0.27, steel, 10), 0, 0.034, -0.2);
+      add(box(0.02, 0.022, 0.27, metal), 0, 0.064, -0.2); // nervure du canon
+      add(box(0.012, 0.028, 0.014, dark), 0, 0.085, -0.32); // guidon
+      add(box(0.006, 0.008, 0.006, white), 0, 0.094, -0.325);
+      add(box(0.032, 0.014, 0.02, dark), 0, 0.068, 0.06); // cran de mire
+      add(tube(0.012, 0.2, metal), 0, 0.002, -0.18); // tige d'ejecteur
+      drum = new THREE.Group();
+      add(drum as THREE.Group, 0, 0.022, -0.02);
+      put(drum, tube(0.05, 0.1, metal, 6), 0, 0, 0);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+        put(drum, box(0.014, 0.014, 0.102, dark), Math.cos(a) * 0.046, Math.sin(a) * 0.046, 0);
+      }
+      const hammer = add(box(0.016, 0.042, 0.03, dark), 0, 0.066, 0.078);
+      hammer.rotation.x = -0.45;
+      triggerGuard(-0.005, 0.02);
+      pistolGrip(0, -0.115, 0.09, -0.38, wood, 0.058, 0.17);
+      muzzleZ = -0.35;
+      muzzleY = 0.034;
+      sightY = 0.09;
+      reloadStyle = "cartouches";
+      put(body, rightHand, 0.01, -0.125, 0.1).rotation.set(-0.38, 0, 0);
+      put(body, leftHand, -0.062, -0.155, 0.06).rotation.set(-0.32, 0.6, 0.4);
+      break;
+    }
+
+    case "pm": {
+      add(box(0.078, 0.1, 0.26, metal), 0, 0, -0.02);
+      add(box(0.07, 0.03, 0.2, dark), 0, 0.062, -0.02);
+      add(tube(0.015, 0.1, steel), 0, 0.01, -0.2);
+      add(tube(0.022, 0.04, dark, 8), 0, 0.01, -0.255);
+      put(body, ring(0.02, 0.005, dark), 0, 0.09, -0.12);
+      add(box(0.03, 0.02, 0.02, dark), 0, 0.086, 0.08);
+      // Levier d'armement sur le dessus : il claque en arriere a chaque coup.
+      slide = new THREE.Group();
+      add(slide as THREE.Group, 0, 0, 0);
+      put(slide, box(0.024, 0.022, 0.04, steel), 0, 0.087, 0.02);
+      pistolGrip(0, -0.12, 0.03, -0.08, polymer, 0.066, 0.17);
+      // Chargeur dans la poignee, qui depasse longuement dessous.
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, box(0.05, 0.3, 0.06, steel), 0, -0.2, 0.036).rotation.x = -0.08;
+      put(mag, box(0.058, 0.022, 0.07, dark), 0, -0.352, 0.048).rotation.x = -0.08;
+      triggerGuard(-0.04, -0.04);
+      // Crosse en fil d'acier, repliee le long du boitier.
+      for (const sx of [-0.046, 0.046]) add(tube(0.007, 0.26, steel), sx, 0.01, 0.1);
+      add(box(0.1, 0.012, 0.02, steel), 0, 0.01, 0.23);
+      muzzleZ = -0.29;
+      muzzleY = 0.01;
+      sightY = 0.095;
+      put(body, rightHand, 0.01, -0.12, 0.035).rotation.set(-0.08, 0, 0);
+      put(body, leftHand, -0.012, -0.07, -0.13).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
+      break;
+    }
+
+    case "mitrailleuse": {
+      add(box(0.11, 0.13, 0.48, metal), 0, 0, 0);
+      add(box(0.115, 0.03, 0.3, steel), 0, 0.078, 0.02); // couvercle d'alimentation
+      add(tube(0.03, 0.62, metal, 10), 0, 0.02, -0.52);
+      // Ailettes de refroidissement autour du canon.
+      for (let i = 0; i < 5; i++) add(tube(0.038, 0.02, dark, 10), 0, 0.02, -0.34 - i * 0.06);
+      add(tube(0.035, 0.08, dark, 10), 0, 0.02, -0.86);
+      // Poignee de transport.
+      add(box(0.02, 0.07, 0.02, dark), 0, 0.12, -0.24);
+      add(box(0.02, 0.07, 0.02, dark), 0, 0.12, -0.08);
+      add(box(0.024, 0.02, 0.2, polymer), 0, 0.158, -0.16);
+      add(box(0.014, 0.05, 0.016, dark), 0, 0.075, -0.8); // guidon
+      add(box(0.036, 0.03, 0.02, dark), 0, 0.105, 0.15); // hausse
+      add(box(0.092, 0.075, 0.24, polymer), 0, -0.04, -0.3);
+      for (const sx of [-0.032, 0.032]) {
+        const leg = add(tube(0.01, 0.3, dark), sx, -0.055, -0.62);
+        leg.rotation.x = Math.PI / 2 + 0.12;
+      }
+      // Boite a munitions a gauche, et la bande de cartouches qui entre.
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, box(0.13, 0.17, 0.15, olive), -0.03, -0.15, 0.02);
+      for (let i = 0; i < 6; i++) put(mag, box(0.012, 0.012, 0.05, brass), -0.1 + i * 0.013, -0.045, 0.02);
+      slide = new THREE.Group();
+      add(slide as THREE.Group, 0, 0, 0);
+      put(slide, box(0.05, 0.022, 0.026, steel), 0.07, 0.02, -0.05);
+      pistolGrip(0, -0.17, 0.17, -0.22, polymer, 0.074, 0.2);
+      triggerGuard(-0.065, 0.12);
+      add(box(0.08, 0.14, 0.28, polymer), 0, -0.03, 0.4);
+      add(box(0.086, 0.15, 0.03, dark), 0, -0.03, 0.555);
+      muzzleZ = -0.92;
+      muzzleY = 0.02;
+      sightY = 0.105;
+      reloadStyle = "chargeur";
+      put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
+      put(body, leftHand, -0.012, -0.1, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
+      break;
+    }
+
+    case "carabine": {
+      add(box(0.08, 0.1, 0.4, metal), 0, 0, 0);
+      add(tube(0.018, 0.5, steel, 10), 0, 0.012, -0.44);
+      add(tube(0.028, 0.06, dark, 10), 0, 0.012, -0.72);
+      // Lunette compacte, grossissement x2.
+      add(tube(0.034, 0.22, dark, 12), 0, 0.12, -0.02);
+      add(tube(0.043, 0.05, dark, 12), 0, 0.12, -0.14);
+      for (const z of [-0.07, 0.04]) add(box(0.026, 0.05, 0.026, metal), 0, 0.075, z);
+      const smallLens = keep(new THREE.MeshBasicMaterial({ map: keep(makeScopeLensTexture()) }));
+      add(new THREE.Mesh(keep(new THREE.CircleGeometry(0.032, 14)), smallLens), 0, 0.12, 0.092);
+      // Bois pour le garde-main et la crosse : c'est une arme de chasseur.
+      add(box(0.074, 0.08, 0.3, wood), 0, -0.015, -0.3);
+      const dstock = add(box(0.07, 0.13, 0.32, wood), 0, -0.05, 0.36);
+      dstock.rotation.x = 0.1;
+      add(box(0.074, 0.14, 0.03, dark), 0, -0.07, 0.52);
+      slide = new THREE.Group();
+      add(slide as THREE.Group, 0, 0, 0);
+      put(slide, box(0.05, 0.02, 0.022, steel), 0.05, 0.03, 0.08);
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, box(0.05, 0.14, 0.09, metal), 0, -0.11, -0.04);
+      pistolGrip(0, -0.15, 0.15, -0.3, wood, 0.068, 0.18);
+      triggerGuard(-0.05, 0.1);
+      muzzleZ = -0.76;
+      muzzleY = 0.012;
+      sightY = 0.12;
+      put(body, rightHand, 0.01, -0.15, 0.16).rotation.set(-0.3, 0, 0);
+      put(body, leftHand, -0.012, -0.07, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
+      break;
+    }
+
     case "sniper": {
       add(box(0.085, 0.11, 0.42, dark), 0, 0, 0.02);
       add(tube(0.026, 0.62, metal, 10), 0, 0.012, -0.5);
@@ -528,7 +766,7 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
     new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 }),
   );
   const flash = new THREE.Mesh(keep(new THREE.SphereGeometry(id === "pompe" ? 0.14 : 0.09, 8, 8)), flashMat);
-  flash.position.set(0, id === "pistolet" ? 0.028 : 0.014, muzzleZ);
+  flash.position.set(0, id === "pistolet" ? 0.028 : muzzleY, muzzleZ);
   flash.visible = false;
   body.add(flash);
 
@@ -538,6 +776,8 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
   const boltZ = bolt?.position.z ?? 0;
   const magY = mag?.position.y ?? 0;
   const leftBase = leftHand.position.clone();
+  let drumTarget = 0;
+  let lastRecoil = 0;
   const rightBase = rightHand.position.clone();
 
   function update(anim: WeaponAnim) {
@@ -547,6 +787,12 @@ export function buildWeaponModel(id: WeaponId): WeaponModel {
     const cycle = Math.sin((1 - rec) * Math.PI);
 
     if (slide) slide.position.z = slideZ + rec * 0.055;
+    if (drum) {
+      // Un nouveau coup : le recul remonte d'un bond.
+      if (rec > lastRecoil + 0.5) drumTarget += Math.PI / 3;
+      drum.rotation.z += (drumTarget - drum.rotation.z) * 0.35;
+    }
+    lastRecoil = rec;
     if (pump) pump.position.z = pumpZ + cycle * 0.15;
     if (bolt) {
       bolt.rotation.x = -cycle * 1.0;
