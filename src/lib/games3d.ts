@@ -28,6 +28,17 @@ export interface Game3D {
 // l'instant) : on ajoute de nouvelles entrees ici au fil du temps.
 export const GAMES_3D: Game3D[] = [
   {
+    slug: "cubes",
+    title: "Cubes",
+    description: "Explore un monde de blocs, creuse ses grottes et construis ton refuge. Crée librement ou récolte tes ressources en affrontant les zombies.",
+    emoji: "🌳",
+    gradient: "from-emerald-700 to-slate-950",
+    genre: "Construction et exploration",
+    players: "Solo",
+    duration: "À ton rythme",
+    highlights: ["Créatif et survie", "Terrain généré à partir d’une graine", "Sauvegarde et export du monde"],
+  },
+  {
     slug: "labyrinthe-legendaire",
     title: "Labyrinthe légendaire",
     description:
