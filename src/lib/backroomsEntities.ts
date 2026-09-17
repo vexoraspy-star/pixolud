@@ -83,49 +83,6 @@ function makeWetSkinTexture(): THREE.CanvasTexture {
   return t;
 }
 
-/** Oeil injecte : sclere jaunie, veines rouges, iris minuscule. */
-function makeEyeTexture(): THREE.CanvasTexture {
-  const S = 128;
-  const { canvas, ctx } = canvas2d(S, S);
-  ctx.fillStyle = "#e9e2cf";
-  ctx.fillRect(0, 0, S, S);
-  const g = ctx.createRadialGradient(64, 64, 10, 64, 64, 64);
-  g.addColorStop(0, "rgba(255,255,255,0)");
-  g.addColorStop(1, "rgba(150,90,60,0.55)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, S, S);
-  ctx.strokeStyle = "rgba(170,20,20,0.7)";
-  for (let i = 0; i < 18; i++) {
-    const a = Math.random() * Math.PI * 2;
-    let x = 64 + Math.cos(a) * 62;
-    let y = 64 + Math.sin(a) * 62;
-    ctx.lineWidth = 0.6 + Math.random();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    for (let k = 0; k < 6; k++) {
-      x += (64 - x) * 0.14 + (Math.random() - 0.5) * 8;
-      y += (64 - y) * 0.14 + (Math.random() - 0.5) * 8;
-      ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-  // L'iris est placee sur le devant de la sphere (u = 0.25 pour SphereGeometry).
-  const cx = S * 0.25;
-  ctx.fillStyle = "#2a1a10";
-  ctx.beginPath();
-  ctx.arc(cx, 64, 9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.arc(cx, 64, 4.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.8)";
-  ctx.fillRect(cx - 3, 59, 2, 2);
-  const t = new THREE.CanvasTexture(canvas);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 interface Piece {
   pos: [number, number, number];
   size: [number, number, number];
@@ -230,58 +187,64 @@ export function buildBacteria(): BacteriaParts {
   chest.position.y = 0.06;
   body.add(chest);
 
-  // Colonne : une tige effilee et des vertebres saillantes dans le dos.
-  const spine = limb(0.05, 0.075, 0.78, 0.01);
-  spine.rotation.x = Math.PI;
-  chest.add(spine);
+  // Tronc plein et decharne, tourne au tour puis sculpte : ventre creuse sous
+  // les cotes, cotes en relief sous la peau, epaules tombantes. (Les anciennes
+  // cotes en arcs separes laissaient voir a travers : on aurait dit un
+  // squelette en baguettes.)
+  const torsoProfile: [number, number][] = [
+    [0.0001, -0.03],
+    [0.1, 0.0],
+    [0.082, 0.12],
+    [0.075, 0.26],
+    [0.1, 0.4],
+    [0.132, 0.54],
+    [0.148, 0.66],
+    [0.15, 0.75],
+    [0.12, 0.82],
+    [0.05, 0.88],
+    [0.0001, 0.9],
+  ];
+  const torsoGeo = own(
+    new THREE.LatheGeometry(
+      torsoProfile.map(([r, y]) => new THREE.Vector2(r, y)),
+      22,
+    ),
+  );
+  {
+    // Relief : les cotes ressortent sur les flancs et le devant, le ventre se creuse.
+    const pos = torsoGeo.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const r = Math.hypot(x, z);
+      if (r < 0.01) continue;
+      const front = z / r;
+      let d = 0;
+      if (y > 0.4 && y < 0.72) d += 0.011 * Math.max(0, Math.sin(((y - 0.4) / 0.32) * Math.PI * 6)) * (0.35 + 0.65 * Math.max(0, front + 0.3));
+      if (y > 0.1 && y < 0.38 && front > 0) d -= 0.022 * front * Math.sin(((y - 0.1) / 0.28) * Math.PI);
+      const k = (r + d) / r;
+      pos.setXYZ(i, x * k, y, z * k);
+    }
+    torsoGeo.computeVertexNormals();
+  }
+  const ribs = new THREE.Group();
+  const torso = new THREE.Mesh(torsoGeo, skin);
+  torso.scale.set(1, 1, 0.62);
+  ribs.add(torso);
+  chest.add(ribs);
+  // Vertebres saillantes le long du dos.
   const vertebrae: Piece[] = [];
   for (let i = 0; i < 17; i++) {
-    const y = 0.04 + i * 0.047;
-    vertebrae.push({ pos: [0, y, -0.065], size: [0.05 - i * 0.001, 0.028, 0.045], rot: [0.3, 0, 0] });
+    const y = 0.06 + i * 0.047;
+    vertebrae.push({ pos: [0, y, -0.06 - Math.sin((i / 16) * Math.PI) * 0.02], size: [0.034, 0.024, 0.04], rot: [0.3, 0, 0] });
   }
-  chest.add(cluster(unitBox, bone, vertebrae));
-
-  // Cage thoracique : des arcs de torus, etroits et creux, qui se voient a travers la peau.
-  const ribGeo = own(new THREE.TorusGeometry(1, 0.09, 5, 14, Math.PI * 0.85));
-  const ribPieces: Piece[] = [];
-  for (let i = 0; i < 7; i++) {
-    const y = 0.4 + i * 0.058;
-    const w = 0.11 + Math.sin((i / 6) * Math.PI) * 0.05;
-    for (const side of [-1, 1]) {
-      ribPieces.push({ pos: [0, y, -0.01], size: [w, w * 0.8, w * 0.12], rot: [Math.PI / 2 + 0.25, side > 0 ? 0 : Math.PI, side * 0.35] });
-    }
-  }
-  const ribs = cluster(ribGeo, bone, ribPieces);
-  chest.add(ribs);
-  // Sternum et clavicules.
-  chest.add(
-    cluster(unitBox, bone, [
-      { pos: [0, 0.58, 0.08], size: [0.03, 0.3, 0.025] },
-      { pos: [0.12, 0.82, 0.035], size: [0.22, 0.03, 0.03], rot: [0, 0.35, -0.2] },
-      { pos: [-0.12, 0.82, 0.035], size: [0.22, 0.03, 0.03], rot: [0, -0.35, 0.2] },
-    ]),
-  );
-  // Pointes le long du dos et des omoplates.
-  const spikes: Piece[] = [];
-  for (let i = 0; i < 22; i++) {
-    const y = 0.1 + i * 0.037;
-    const side = i % 2 === 0 ? 1 : -1;
-    spikes.push({
-      pos: [side * (0.015 + Math.random() * 0.06), y, -0.08],
-      size: [0.022, 0.1 + Math.random() * 0.26, 0.022],
-      rot: [-1.15 - Math.random() * 0.55, 0, side * (0.25 + Math.random() * 0.55)],
-    });
-  }
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 5; i++) {
-      spikes.push({
-        pos: [side * (0.14 + i * 0.012), 0.72 - i * 0.05, -0.07],
-        size: [0.02, 0.12 + Math.random() * 0.12, 0.02],
-        rot: [-1.3, 0, side * (0.9 + Math.random() * 0.4)],
-      });
-    }
-  }
-  chest.add(cluster(unitCone, skin, spikes));
+  chest.add(cluster(unitBox, skin, vertebrae));
+  // Clavicules et trapezes : le cou se raccorde aux epaules.
+  const trap = new THREE.Mesh(own(new THREE.SphereGeometry(1, 14, 10)), skin);
+  trap.scale.set(0.25, 0.05, 0.08);
+  trap.position.set(0, 0.8, -0.01);
+  chest.add(trap);
 
   // Cou demesure et tete allongee.
   const neck = new THREE.Group();
@@ -306,16 +269,16 @@ export function buildBacteria(): BacteriaParts {
       { pos: [-0.06, 0.02, 0.06], size: [0.03, 0.05, 0.03], rot: [0, -0.5, 0] },
     ]),
   );
-  // Quatre yeux, petits et enfonces.
-  const eyeGeo = own(new THREE.SphereGeometry(0.009, 8, 6));
-  for (const [x, y] of [
-    [0.03, 0.06],
-    [-0.03, 0.06],
-    [0.05, 0.1],
-    [-0.05, 0.1],
-  ]) {
+  // Orbites creuses et noires, et au fond deux points pales.
+  const socketGeo = own(new THREE.SphereGeometry(0.024, 10, 8));
+  const eyeGeo = own(new THREE.SphereGeometry(0.0075, 8, 6));
+  for (const side of [-1, 1]) {
+    const socket = new THREE.Mesh(socketGeo, mawMat);
+    socket.scale.set(1.15, 0.75, 0.45);
+    socket.position.set(side * 0.036, 0.085, 0.074);
+    head.add(socket);
     const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.set(x, y, 0.078);
+    eye.position.set(side * 0.036, 0.083, 0.082);
     head.add(eye);
   }
   // Gueule : fond noir, dents du haut sur le crane, machoire articulee.
@@ -354,17 +317,12 @@ export function buildBacteria(): BacteriaParts {
     });
   }
   jaw.add(cluster(unitCone, toothMat, lowerTeeth));
-  // Couronne de pointes.
-  const crown: Piece[] = [];
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    crown.push({
-      pos: [Math.cos(a) * 0.055, 0.22 + Math.random() * 0.1, Math.sin(a) * 0.06 - 0.02],
-      size: [0.026, 0.16 + Math.random() * 0.3, 0.026],
-      rot: [Math.sin(a) * 0.95 - 0.35, 0, -Math.cos(a) * 0.95],
-    });
-  }
-  head.add(cluster(unitCone, skin, crown));
+  // Arriere du crane etire vers le haut et l'arriere, lisse.
+  const occiput = new THREE.Mesh(own(new THREE.SphereGeometry(0.085, 14, 10)), skin);
+  occiput.scale.set(0.8, 1.5, 1.2);
+  occiput.position.set(0, 0.22, -0.05);
+  occiput.rotation.x = -0.45;
+  head.add(occiput);
 
   // Bras : epaule, avant-bras, et quatre doigts de trois phalanges chacun.
   const fingerSeg = [0.13, 0.11, 0.09];
@@ -377,6 +335,11 @@ export function buildBacteria(): BacteriaParts {
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.24, 0.8, 0);
     chest.add(shoulder);
+    // Moignon d'epaule : le bras sort du tronc, il ne flotte plus a cote.
+    const deltoid = new THREE.Mesh(own(new THREE.SphereGeometry(0.05, 10, 8)), skin);
+    deltoid.scale.set(1, 1.2, 0.85);
+    deltoid.position.y = -0.02;
+    shoulder.add(deltoid);
     shoulder.add(limb(0.038, 0.024, 0.74, 0.012));
     const elbow = new THREE.Group();
     elbow.position.y = -0.74;
@@ -525,12 +488,218 @@ export function poseBacteria(p: BacteriaParts, pose: BacteriaPose) {
 // ---------------------------------------------------------------------------
 // Le Souriant
 // ---------------------------------------------------------------------------
+//
+// Fidele aux Backrooms : on ne voit jamais son corps. Dans le noir, deux yeux
+// blancs et un sourire immense, trop large et trop plein de dents, flottent a
+// hauteur de visage. Autour, une masse d'ombre qui avale la lumiere de la lampe.
+// Tout est peint au canvas et pose sur des plans face au joueur.
+
+/** Oeil du Souriant : globe blanc luisant, veines, pupille minuscule, halo. */
+function makeSmilerEyeTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const { canvas, ctx } = canvas2d(S, S);
+  const halo = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+  halo.addColorStop(0, "rgba(255,250,235,0.5)");
+  halo.addColorStop(0.45, "rgba(255,245,220,0.16)");
+  halo.addColorStop(1, "rgba(255,245,220,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, S, S);
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(64, 64, 30, 21, 0, 0, Math.PI * 2);
+  ctx.clip();
+  const white = ctx.createRadialGradient(60, 60, 4, 64, 64, 32);
+  white.addColorStop(0, "#fffdf4");
+  white.addColorStop(0.7, "#eee4cc");
+  white.addColorStop(1, "#b3a283");
+  ctx.fillStyle = white;
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(165,25,25,0.55)";
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2;
+    let x = 64 + Math.cos(a) * 30;
+    let y = 64 + Math.sin(a) * 21;
+    ctx.lineWidth = 0.5 + Math.random() * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 4; k++) {
+      x += (64 - x) * 0.2 + (Math.random() - 0.5) * 6;
+      y += (64 - y) * 0.2 + (Math.random() - 0.5) * 6;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Pupille : un point noir qui ne cligne jamais.
+  ctx.fillStyle = "#050303";
+  ctx.beginPath();
+  ctx.arc(64, 64, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Point d'une courbe de Bezier cubique. */
+function bezier(p: [number, number][], t: number): [number, number] {
+  const u = 1 - t;
+  const a = u * u * u;
+  const b = 3 * u * u * t;
+  const c = 3 * u * t * t;
+  const d = t * t * t;
+  return [a * p[0][0] + b * p[1][0] + c * p[2][0] + d * p[3][0], a * p[0][1] + b * p[1][1] + c * p[2][1] + d * p[3][1]];
+}
+
+/** Le sourire : d'une joue a l'autre, coins dechires, dents serrees et inegales. */
+function makeSmilerGrinTexture(): THREE.CanvasTexture {
+  const W = 1024;
+  const H = 512;
+  const { canvas, ctx } = canvas2d(W, H);
+  const upper: [number, number][] = [
+    [W * 0.03, H * 0.2],
+    [W * 0.22, H * 0.52],
+    [W * 0.78, H * 0.52],
+    [W * 0.97, H * 0.2],
+  ];
+  const lower: [number, number][] = [
+    [W * 0.97, H * 0.2],
+    [W * 0.84, H * 0.98],
+    [W * 0.16, H * 0.98],
+    [W * 0.03, H * 0.2],
+  ];
+  const mouth = new Path2D();
+  mouth.moveTo(upper[0][0], upper[0][1]);
+  mouth.bezierCurveTo(upper[1][0], upper[1][1], upper[2][0], upper[2][1], upper[3][0], upper[3][1]);
+  mouth.bezierCurveTo(lower[1][0], lower[1][1], lower[2][0], lower[2][1], lower[3][0], lower[3][1]);
+  mouth.closePath();
+
+  // Halo pale autour de la bouche, puis le fond noir.
+  ctx.save();
+  ctx.shadowColor = "rgba(255,240,210,0.55)";
+  ctx.shadowBlur = 40;
+  ctx.fillStyle = "#070303";
+  ctx.fill(mouth);
+  ctx.restore();
+
+  ctx.save();
+  ctx.clip(mouth);
+  // Gencives sombres le long des deux levres.
+  ctx.lineCap = "round";
+  for (const [curve, width] of [
+    [upper, 34],
+    [lower, 30],
+  ] as const) {
+    ctx.strokeStyle = "#3b080c";
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(curve[0][0], curve[0][1]);
+    ctx.bezierCurveTo(curve[1][0], curve[1][1], curve[2][0], curve[2][1], curve[3][0], curve[3][1]);
+    ctx.stroke();
+  }
+
+  // Dents : longues au milieu, plus courtes vers les coins, certaines cassees.
+  const drawRow = (curve: [number, number][], count: number, down: boolean) => {
+    for (let i = 0; i < count; i++) {
+      const t0 = (i + 0.08) / count;
+      const t1 = (i + 0.92) / count;
+      if (Math.random() < 0.04) continue; // une dent manquante
+      const [x0, y0] = bezier(curve, t0);
+      const [x1, y1] = bezier(curve, t1);
+      const mid = (t0 + t1) / 2;
+      const taper = Math.sin(mid * Math.PI);
+      const broken = Math.random() < 0.12;
+      const len = H * (0.05 + taper * (down ? 0.13 : 0.1)) * (broken ? 0.45 : 0.85 + Math.random() * 0.3);
+      const dir = down ? 1 : -1;
+      const inset = dir * 8;
+      const tipX = (x0 + x1) / 2 + (Math.random() - 0.5) * 6;
+      const tipY = (y0 + y1) / 2 + inset + dir * len;
+      const g = ctx.createLinearGradient(0, (y0 + y1) / 2, 0, tipY);
+      const shade = 205 + Math.random() * 35;
+      g.addColorStop(0, `rgb(${shade - 90},${shade - 100},${shade - 130})`);
+      g.addColorStop(0.35, `rgb(${shade},${shade - 10},${shade - 45})`);
+      g.addColorStop(1, `rgb(${Math.min(255, shade + 20)},${shade + 8},${shade - 20})`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0 + inset - dir * 6);
+      ctx.lineTo(x1, y1 + inset - dir * 6);
+      ctx.quadraticCurveTo(x1 - (x1 - x0) * 0.1, tipY - dir * len * 0.25, tipX + (x1 - x0) * 0.12, tipY);
+      ctx.lineTo(tipX - (x1 - x0) * 0.12, tipY);
+      ctx.quadraticCurveTo(x0 + (x1 - x0) * 0.1, tipY - dir * len * 0.25, x0, y0 + inset - dir * 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(35,18,10,0.75)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  };
+  drawRow(upper, 30, true);
+  drawRow(lower.slice().reverse() as [number, number][], 28, false);
+  ctx.restore();
+
+  // Levres gercees, et les coins dechires qui remontent vers les yeux.
+  ctx.strokeStyle = "rgba(18,4,4,0.9)";
+  ctx.lineWidth = 7;
+  ctx.stroke(mouth);
+  ctx.strokeStyle = "rgba(70,10,12,0.85)";
+  ctx.lineWidth = 4;
+  for (const [x, dir] of [
+    [W * 0.03, 1],
+    [W * 0.97, -1],
+  ] as const) {
+    ctx.beginPath();
+    ctx.moveTo(x, H * 0.2);
+    ctx.lineTo(x + dir * 10, H * 0.12);
+    ctx.lineTo(x + dir * 2, H * 0.04);
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+/** Tache d'ombre douce et irreguliere (noir, transparence sur les bords). */
+function makeShadowTexture(dense: boolean): THREE.CanvasTexture {
+  const S = 128;
+  const { canvas, ctx } = canvas2d(S, S);
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, `rgba(2,2,3,${dense ? 0.95 : 0.7})`);
+  g.addColorStop(dense ? 0.55 : 0.4, `rgba(2,2,3,${dense ? 0.8 : 0.35})`);
+  g.addColorStop(1, "rgba(2,2,3,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  if (!dense) {
+    // Volutes : la fumee n'est jamais ronde.
+    for (let i = 0; i < 14; i++) {
+      const x = 20 + Math.random() * 88;
+      const y = 20 + Math.random() * 88;
+      const r = 8 + Math.random() * 22;
+      const b = ctx.createRadialGradient(x, y, 0, x, y, r);
+      b.addColorStop(0, "rgba(0,0,0,0.35)");
+      b.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = b;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Hauteur du visage et du sourire, en metres. */
+const SMILER_FACE_Y = 1.58;
+const SMILER_GRIN_Y = -0.17;
 
 export interface SmilerParts {
   group: THREE.Group;
+  /** Ombre du visage, yeux et sourire : penche, tressaille. */
+  face: THREE.Group;
   eyes: THREE.Mesh[];
-  grin: THREE.Group;
-  materials: THREE.Material[];
+  grin: THREE.Mesh;
+  smoke: THREE.Mesh[];
+  /** Chaque materiau et son opacite a pleine apparition. */
+  materials: { mat: THREE.Material; base: number }[];
+  twitch: { until: number; roll: number; x: number };
   dispose: () => void;
 }
 
@@ -540,67 +709,75 @@ export function buildSmiler(): SmilerParts {
     owned.push(x);
     return x;
   };
-  // fog: false — dans le noir, seules ces formes existent, meme au loin.
-  const eyeMat = own(new THREE.MeshBasicMaterial({ map: own(makeEyeTexture()), fog: false, transparent: true }));
-  const toothMat = own(new THREE.MeshBasicMaterial({ color: 0xe6dcc0, fog: false, transparent: true }));
-  const gumMat = own(new THREE.MeshBasicMaterial({ color: 0x3a0a0e, fog: false, transparent: true }));
-  const shadowMat = own(new THREE.MeshBasicMaterial({ color: 0x010101, transparent: true, depthWrite: false }));
-  const materials: THREE.Material[] = [eyeMat, toothMat, gumMat, shadowMat];
+  // fog: false pour le visage — au bout d'un couloir noir, le sourire reste
+  // visible. La fumee, elle, se perd dans le brouillard.
+  const glow = (map: THREE.Texture) =>
+    own(new THREE.MeshBasicMaterial({ map, fog: false, transparent: true, depthWrite: false }));
+  const eyeMat = glow(own(makeSmilerEyeTexture()));
+  const grinMat = glow(own(makeSmilerGrinTexture()));
+  const voidMat = own(new THREE.MeshBasicMaterial({ map: own(makeShadowTexture(true)), fog: false, transparent: true, depthWrite: false }));
+  const smokeMat = own(new THREE.MeshBasicMaterial({ map: own(makeShadowTexture(false)), transparent: true, depthWrite: false }));
+  const materials = [
+    { mat: eyeMat, base: 1 },
+    { mat: grinMat, base: 1 },
+    { mat: voidMat, base: 0.9 },
+    { mat: smokeMat, base: 0.75 },
+  ];
 
   const group = new THREE.Group();
-  // Silhouette a peine visible contre un fond eclaire.
-  const silhouette = new THREE.Mesh(own(new THREE.CapsuleGeometry(0.34, 1.3, 6, 12)), shadowMat);
-  silhouette.position.y = 1.15;
-  silhouette.scale.set(1, 1, 0.5);
-  group.add(silhouette);
+  const plane = own(new THREE.PlaneGeometry(1, 1));
 
-  const eyeGeo = own(new THREE.SphereGeometry(0.075, 16, 12));
+  // La masse d'ombre : des volutes empilees, plus larges vers le haut.
+  const smoke: THREE.Mesh[] = [];
+  for (let i = 0; i < 7; i++) {
+    const m = new THREE.Mesh(plane, smokeMat);
+    const t = i / 6;
+    const size = 0.75 + t * 0.55 + Math.random() * 0.2;
+    m.position.set((Math.random() - 0.5) * 0.2, 0.35 + t * 1.45, -0.12 - Math.random() * 0.2);
+    m.scale.set(size, size * 1.15, 1);
+    m.rotation.z = Math.random() * Math.PI * 2;
+    m.userData.spin = (Math.random() < 0.5 ? -1 : 1) * (0.05 + Math.random() * 0.12);
+    m.userData.size = size;
+    m.userData.angle = m.rotation.z;
+    m.renderOrder = 1;
+    group.add(m);
+    smoke.push(m);
+  }
+
+  const face = new THREE.Group();
+  face.position.y = SMILER_FACE_Y;
+  // Un visage plus grand qu'un visage humain : on le reconnait de loin.
+  face.scale.setScalar(1.25);
+  group.add(face);
+  const shade = new THREE.Mesh(plane, voidMat);
+  shade.scale.set(1.25, 1.35, 1);
+  shade.position.set(0, -0.06, -0.02);
+  shade.renderOrder = 2;
+  face.add(shade);
+
   const eyes: THREE.Mesh[] = [];
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.set(side * 0.19, 1.62, 0.12);
-    // L'iris est peinte a u = 0.25, qui regarde deja vers +Z (vers le joueur).
-    eye.scale.set(1, 0.72, 1);
-    group.add(eye);
+    const eye = new THREE.Mesh(plane, eyeMat);
+    eye.position.set(side * 0.14, 0.08, 0.01);
+    eye.scale.set(0.3, 0.3, 1);
+    eye.renderOrder = 3;
+    face.add(eye);
     eyes.push(eye);
   }
-
-  // Sourire : dents irregulieres, certaines cassees, gencives sombres.
-  const grin = new THREE.Group();
-  grin.position.set(0, 1.36, 0.12);
-  const unitBox = own(new THREE.BoxGeometry(1, 1, 1));
-  const teeth: Piece[] = [];
-  const count = 26;
-  for (let i = 0; i < count; i++) {
-    const t = i / (count - 1) - 0.5;
-    const x = t * 0.82;
-    const y = -Math.cos(t * Math.PI) * 0.12 + 0.12;
-    const broken = Math.random() < 0.15;
-    const hTop = (0.08 - Math.abs(t) * 0.05) * (broken ? 0.45 : 0.85 + Math.random() * 0.3);
-    const hBot = (0.065 - Math.abs(t) * 0.04) * (0.8 + Math.random() * 0.35);
-    const lean = t * 0.7 + (Math.random() - 0.5) * 0.25;
-    teeth.push({ pos: [x, y + 0.012 + hTop / 2, 0], size: [0.026 + Math.random() * 0.008, hTop, 0.018], rot: [0, 0, lean] });
-    teeth.push({ pos: [x, y - 0.012 - hBot / 2, 0], size: [0.024 + Math.random() * 0.008, hBot, 0.018], rot: [0, 0, lean] });
-  }
-  grin.add(cluster(unitBox, toothMat, teeth));
-  const gumGeo = own(new THREE.TorusGeometry(0.43, 0.018, 6, 30, Math.PI * 0.95));
-  for (const [y, flip] of [
-    [0.1, 1],
-    [0.02, -1],
-  ] as const) {
-    const gum = new THREE.Mesh(gumGeo, gumMat);
-    gum.rotation.z = flip > 0 ? Math.PI + 0.08 : 0.08;
-    gum.scale.set(1, 0.32, 1);
-    gum.position.set(0, y + (flip > 0 ? 0.13 : -0.02), -0.01);
-    grin.add(gum);
-  }
-  group.add(grin);
+  const grin = new THREE.Mesh(plane, grinMat);
+  grin.position.set(0, SMILER_GRIN_Y, 0.02);
+  grin.scale.set(0.95, 0.475, 1);
+  grin.renderOrder = 3;
+  face.add(grin);
 
   return {
     group,
+    face,
     eyes,
     grin,
+    smoke,
     materials,
+    twitch: { until: 0, roll: 0, x: 0 },
     dispose: () => {
       for (const o of owned) o.dispose();
     },
@@ -608,17 +785,34 @@ export function buildSmiler(): SmilerParts {
 }
 
 export function poseSmiler(s: SmilerParts, time: number, rush: number, opacity: number) {
-  s.materials.forEach((m, i) => {
-    m.opacity = i === 3 ? opacity * 0.55 : opacity;
-  });
+  for (const { mat, base } of s.materials) mat.opacity = opacity * base;
   s.group.visible = opacity > 0.01;
   const jitter = rush * 0.035;
   s.group.position.y = Math.sin(time * 1.3) * 0.04 + (Math.random() - 0.5) * jitter;
-  s.grin.scale.set(1 + rush * 0.6, 1 + rush * 1.1, 1);
-  for (const eye of s.eyes) {
-    eye.scale.set(1 + rush * 0.35, 0.72 + rush * 0.45, 1 + rush * 0.35);
-    // Les yeux tremblent dans leurs orbites.
-    eye.rotation.x = Math.sin(time * 23 + eye.position.x * 10) * 0.05 * (0.3 + rush);
+
+  // La tete penche et oscille lentement ; quand il fonce, des tics secs.
+  if (time > s.twitch.until) {
+    s.twitch.until = time + (rush > 0.2 ? 0.05 + Math.random() * 0.12 : 0.7 + Math.random() * 2.2);
+    const amp = 0.06 + rush * 0.32;
+    s.twitch.roll = (Math.random() - 0.5) * amp;
+    s.twitch.x = (Math.random() - 0.5) * amp * 0.25;
+  }
+  s.face.rotation.z = 0.12 + Math.sin(time * 0.55) * 0.1 + s.twitch.roll;
+  s.face.position.x = s.twitch.x;
+
+  // Le sourire s'etire en foncant : plus large, et surtout plus ouvert.
+  s.grin.scale.set(0.95 * (1 + rush * 0.3), 0.475 * (1 + rush * 0.9), 1);
+  s.grin.position.y = SMILER_GRIN_Y - rush * 0.1;
+  s.eyes.forEach((eye, i) => {
+    const k = 0.3 * (1 + rush * 0.4 + Math.sin(time * 23 + i * 2) * 0.03);
+    eye.scale.set(k, k, 1);
+  });
+
+  // La fumee tourne sur elle-meme et gonfle quand il approche.
+  for (const m of s.smoke) {
+    m.rotation.z = m.userData.angle + time * m.userData.spin;
+    const size = m.userData.size * (1 + Math.sin(time * 0.9 + m.userData.angle) * 0.06 + rush * 0.3);
+    m.scale.set(size, size * 1.15, 1);
   }
 }
 

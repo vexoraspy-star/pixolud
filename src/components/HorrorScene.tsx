@@ -2670,7 +2670,8 @@ export default function HorrorScene({
     let lastTime = performance.now();
     let frameMsAvg = 16;
     let resolutionTimer = 0;
-    let smoothFrames = 0;
+    let slowChecks = 0;
+    let resolutionChangedAt = -Infinity;
     let batteryUiTimer = 0;
 
     function step() {
@@ -2685,34 +2686,25 @@ export default function HorrorScene({
       }
       elapsed += delta;
 
-      // --- Resolution adaptative ---
-      // La boucle tourne a setInterval(16) : tant que le rendu tient, l'image
-      // arrive toutes les 16 ms. Si le GPU peine (lampe allumee sur un
-      // portable, plein ecran), l'intervalle s'allonge. On le mesure, et on
-      // baisse la resolution plutot que de laisser le jeu saccader ; on la
-      // remonte, plus prudemment, quand ca respire de nouveau.
+      // Resolution adaptative. Changer la taille du canvas fige l'image (plus
+      // d'une seconde sur une puce Intel sous Windows) : l'ancienne version
+      // montait et descendait toutes les quelques secondes, et chaque palier
+      // gelait le jeu. On regle librement pendant les premieres secondes.
+      // Ensuite on ne baisse qu'en cas de vraie peine, au plus une fois toutes
+      // les 45 s, et on ne remonte plus.
       if (rawFrameMs < 250) frameMsAvg += (rawFrameMs - frameMsAvg) * 0.08;
       resolutionTimer += delta;
-      if (resolutionTimer >= 1.5) {
+      const calibrating = elapsed < 5;
+      if (resolutionTimer >= (calibrating ? 1 : 1.5)) {
         resolutionTimer = 0;
-        let next = pixelRatio;
-        if (frameMsAvg > 21 && pixelRatio > PIXEL_RATIO_FLOOR) {
-          next = Math.max(PIXEL_RATIO_FLOOR, Math.round((pixelRatio - 0.15) * 100) / 100);
-          smoothFrames = 0;
-        } else if (frameMsAvg < 17.5 && pixelRatio < PIXEL_RATIO_CAP) {
-          // On attend 6 s de fluidite avant de remonter : sinon on oscille
-          // entre deux resolutions et l'image clignote.
-          smoothFrames += 1;
-          if (smoothFrames >= 4) {
-            next = Math.min(PIXEL_RATIO_CAP, Math.round((pixelRatio + 0.1) * 100) / 100);
-            smoothFrames = 0;
-          }
-        } else {
-          smoothFrames = 0;
-        }
-        if (Math.abs(next - pixelRatio) > 0.001) {
-          pixelRatio = next;
+        slowChecks = frameMsAvg > (calibrating ? 21 : 24) ? slowChecks + 1 : 0;
+        const lower = calibrating ? slowChecks >= 1 : slowChecks >= 3 && elapsed - resolutionChangedAt > 45;
+        if (lower && pixelRatio > PIXEL_RATIO_FLOOR) {
+          pixelRatio = Math.max(PIXEL_RATIO_FLOOR, Math.round((pixelRatio - (calibrating ? 0.2 : 0.15)) * 100) / 100);
           renderer.setPixelRatio(pixelRatio);
+          resolutionChangedAt = elapsed;
+          slowChecks = 0;
+          frameMsAvg = 16;
         }
       }
 
@@ -3580,7 +3572,10 @@ export default function HorrorScene({
               data.width,
               data.height,
             );
-            monster.pathIndex = 0;
+            // Le chemin commence par sa propre case : la viser la faisait
+            // reculer jusqu'au centre a chaque recalcul. On vise directement la
+            // case suivante, ce qui reste entre deux cases libres.
+            monster.pathIndex = monster.path && monster.path.length > 1 ? 1 : 0;
           }
         }
 
@@ -3648,6 +3643,13 @@ export default function HorrorScene({
             moved = true;
           }
         } else if (canMove && monster.path && monster.pathIndex < monster.path.length) {
+          // Case atteinte : on vise aussitot la suivante, sans marquer d'arret.
+          while (
+            monster.pathIndex < monster.path.length - 1 &&
+            Math.hypot(monster.path[monster.pathIndex][0] + 0.5 - monster.x, monster.path[monster.pathIndex][1] + 0.5 - monster.z) < 0.08
+          ) {
+            monster.pathIndex++;
+          }
           const [tx, ty] = monster.path[monster.pathIndex];
           const targetX = tx + 0.5;
           const targetZ = ty + 0.5;

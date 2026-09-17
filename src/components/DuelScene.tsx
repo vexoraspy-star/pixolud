@@ -1723,7 +1723,9 @@ export default function DuelScene({
             [Math.floor(f.x), Math.floor(f.z)],
             [Math.floor(target.x), Math.floor(target.z)],
           );
-          f.pathIndex = 0;
+          // Le chemin commence par la case du bot : la viser le ramenait au
+          // centre a chaque recalcul (toutes les 0,5 s), d'ou des allers-retours.
+          f.pathIndex = f.path && f.path.length > 1 ? 1 : 0;
         }
         if (f.path && f.pathIndex < f.path.length) {
           const [tx, ty] = f.path[f.pathIndex];

@@ -59,12 +59,6 @@ const DEATH_TEXT: Record<DeathCause, { title: string; text: string }> = {
   },
 };
 
-/** Aux bureaux (niveau 4), ce n'est pas la Bacterie qui chasse : c'est le Masque. */
-const MASQUE_DEATH_TEXT = {
-  title: "Il t'a trouvé",
-  text: "Un masque blanc, la tête penchée, tout contre ton visage. Il ne dit rien. Il ne s'arrête jamais.",
-};
-
 function loadProgress(): number {
   try {
     const v = Number(window.localStorage.getItem(PROGRESS_KEY));
@@ -640,8 +634,8 @@ export default function BackroomsGame({
   }
 
   if (phase === "dead" && death) {
+    const d = DEATH_TEXT[death.cause];
     const lvl = LEVELS[levelIndex];
-    const d = lvl.id === "niveau-4" && death.cause === "bacterie" ? MASQUE_DEATH_TEXT : DEATH_TEXT[death.cause];
     return (
       <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-black px-6 text-center font-mono text-[#e9dfc0]">
         <div className="pointer-events-none absolute inset-0 opacity-[0.12]" style={{ backgroundImage: "repeating-linear-gradient(0deg, #000 0 1px, transparent 1px 3px)" }} />
