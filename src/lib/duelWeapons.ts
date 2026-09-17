@@ -22,6 +22,7 @@ import {
  */
 
 export type WeaponId =
+  | "poings"
   | "pistolet"
   | "revolver"
   | "pm"
@@ -60,9 +61,31 @@ export interface WeaponSpec {
   zoomFov?: number;
   /** Couleur du traceur, pour distinguer les armes en combat. */
   tracer: number;
+  /** Corps a corps : pas de munitions, pas de rechargement, portee d'un bras. */
+  melee?: boolean;
 }
 
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
+  poings: {
+    id: "poings",
+    name: "Poings",
+    short: "POINGS",
+    // En battle royale on atterrit les mains vides : les poings servent a se
+    // defendre le temps de trouver une arme, pas a gagner un combat.
+    damage: 20,
+    headshot: 1,
+    fireInterval: 0.45,
+    auto: false,
+    magSize: 0,
+    reloadSeconds: 0,
+    pellets: 1,
+    spread: 0,
+    recoil: 0.35,
+    range: 1.35,
+    moveFactor: 1.12,
+    tracer: 0xffffff,
+    melee: true,
+  },
   pistolet: {
     id: "pistolet",
     name: "Pistolet",
@@ -257,6 +280,32 @@ export const SHOP_ORDER: WeaponId[] = [
   "mitrailleuse",
   "sniper",
 ];
+
+/**
+ * Rarete au sol en battle royale : elle colore le faisceau de l'arme (gris,
+ * bleu, violet, or) et fixe sa frequence. Un sniper doit rester une trouvaille.
+ */
+export type WeaponRarity = "commun" | "rare" | "epique" | "legendaire";
+export const WEAPON_RARITY: Record<WeaponId, WeaponRarity> = {
+  poings: "commun",
+  pistolet: "commun",
+  pm: "commun",
+  mitraillette: "commun",
+  revolver: "rare",
+  pompe: "rare",
+  fusil: "rare",
+  carabine: "epique",
+  mitrailleuse: "epique",
+  sniper: "legendaire",
+};
+
+/** Tirage d'une arme au sol : commune 46 %, rare 32 %, epique 16 %, legendaire 6 %. */
+export function rollLootWeapon(rand: () => number): WeaponId {
+  const r = rand();
+  const tier: WeaponRarity = r < 0.46 ? "commun" : r < 0.78 ? "rare" : r < 0.94 ? "epique" : "legendaire";
+  const pool = SHOP_ORDER.filter((id) => WEAPON_RARITY[id] === tier);
+  return pool[Math.floor(rand() * pool.length)];
+}
 
 /** Ce qu'on trouve au sol en Battle Royale, du plus commun au plus rare. */
 export const LOOT_TABLE: WeaponId[] = [
@@ -463,6 +512,15 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   }
 
   switch (id) {
+    case "poings": {
+      // Deux poings en garde, le droit devant : c'est lui qui frappe.
+      put(body, rightHand, 0.02, -0.06, -0.08).rotation.set(0.35, -0.25, -0.2);
+      put(body, leftHand, -0.34, -0.1, 0.02).rotation.set(0.45, 0.35, 0.25);
+      muzzleZ = -0.2;
+      sightY = 0.05;
+      break;
+    }
+
     case "pistolet": {
       // --- Culasse mobile ---
       slide = new THREE.Group();
@@ -872,6 +930,11 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       body.position.set(0, Math.sin(anim.time * 1.3) * 0.004 * calm + anim.aim * (0.2069 - sightY), 0);
     }
     rightHand.position.copy(rightBase);
+    if (id === "poings") {
+      // Le coup part en avant et un peu vers le centre, puis revient en garde.
+      rightHand.position.set(rightBase.x - cycle * 0.12, rightBase.y + cycle * 0.06, rightBase.z - cycle * 0.34);
+      leftHand.position.set(leftBase.x, leftBase.y + Math.sin(anim.time * 3) * 0.01, leftBase.z);
+    }
   }
   update({ time: 0, recoil: 0, reload: 0, aim: 0, sprint: 0 });
 

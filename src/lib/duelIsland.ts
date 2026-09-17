@@ -51,25 +51,31 @@ export interface IslandMap {
   radius: number;
 }
 
-export const ISLAND_SIZE = 76;
+/**
+ * 150 cases de cote (pres de 300 m) pour trente joueurs : assez grand pour
+ * atterrir loin de tout le monde, assez petit pour que la zone finisse par
+ * les reunir.
+ */
+export const ISLAND_SIZE = 150;
 /** Duree totale de la fermeture de la zone, a partir de l'atterrissage. */
-export const ISLAND_SHRINK_SECONDS = 330;
+export const ISLAND_SHRINK_SECONDS = 540;
 /** La zone ne bouge pas pendant ce temps : on s'equipe. */
-export const ISLAND_GRACE_SECONDS = 50;
-export const ISLAND_FINAL_RADIUS = 5;
+export const ISLAND_GRACE_SECONDS = 75;
+export const ISLAND_FINAL_RADIUS = 6;
 /** Au-dela, on saute automatiquement sur un lieu au hasard. */
 export const ISLAND_DROP_SECONDS = 20;
 /** Hauteur du saut, en metres. */
-export const ISLAND_DROP_HEIGHT = 55;
+export const ISLAND_DROP_HEIGHT = 70;
 
-const POI_NAMES: Record<PoiKind, string> = {
-  place: "Place Centrale",
-  village: "Les Hameaux",
-  docks: "Docks Rouillés",
-  ferme: "Ferme Tranquille",
-  chantier: "Chantier Nord",
-  villa: "Villa des Pins",
-  marche: "Marché Couvert",
+/** Un nom par lieu : chaque type de lieu peut apparaitre jusqu'a trois fois. */
+const POI_NAMES: Record<PoiKind, string[]> = {
+  place: ["Place Centrale"],
+  village: ["Les Hameaux", "Cité Blanche", "Vieux Bourg"],
+  docks: ["Docks Rouillés", "Port de Pêche", "Quai Sud"],
+  ferme: ["Ferme Tranquille", "Vieux Moulin", "Haras des Prés"],
+  chantier: ["Chantier Nord", "Carrière Grise", "Scierie"],
+  villa: ["Villa des Pins", "Manoir Doré", "Relais de Chasse"],
+  marche: ["Marché Couvert", "Station-Service", "Entrepôt Est"],
 };
 
 function mulberry32(seed: number): () => number {
@@ -97,8 +103,8 @@ export function buildIsland(seed: number): IslandMap {
 
   // --- La cote : un cercle bossele par trois sinusoides ---
   const ph = [rng() * 6.28, rng() * 6.28, rng() * 6.28];
-  const radius = 31;
-  const coastAt = (a: number) => radius + Math.sin(a * 3 + ph[0]) * 2.2 + Math.sin(a * 5 + ph[1]) * 1.3 + Math.sin(a * 2 + ph[2]) * 1.8;
+  const radius = 66;
+  const coastAt = (a: number) => radius + Math.sin(a * 3 + ph[0]) * 4.4 + Math.sin(a * 5 + ph[1]) * 2.6 + Math.sin(a * 2 + ph[2]) * 3.6;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
@@ -138,6 +144,8 @@ export function buildIsland(seed: number): IslandMap {
         setGround(x, y, floor);
       }
     }
+    // Chaque batiment cache au moins quelque chose : on y entre pour ca.
+    addLoot(x0 + 1 + Math.floor(rng() * Math.max(1, w - 2)), y0 + 1 + Math.floor(rng() * Math.max(1, h - 2)));
     const sides = [0, 1, 2, 3].sort(() => rng() - 0.5).slice(0, doors);
     for (const side of sides) {
       const size = randInt(2, 3);
@@ -267,19 +275,25 @@ export function buildIsland(seed: number): IslandMap {
     },
   };
 
-  // --- Les lieux : la place au centre, six autres en couronne ---
+  // --- Les lieux : la place au centre, une couronne de six, puis huit pres des cotes ---
   stamp.place(Math.floor(cx), Math.floor(cy));
-  pois.push({ name: POI_NAMES.place, kind: "place", x: Math.floor(cx), y: Math.floor(cy) });
-  const ring: PoiKind[] = ["village", "docks", "ferme", "chantier", "villa", "marche"].sort(() => rng() - 0.5) as PoiKind[];
-  const base = rng() * Math.PI * 2;
-  ring.forEach((kind, k) => {
-    const a = base + (k * Math.PI * 2) / ring.length + (rng() - 0.5) * 0.3;
-    const dist = 19 + rng() * 2.5;
-    const px = Math.floor(cx + Math.cos(a) * dist);
-    const py = Math.floor(cy + Math.sin(a) * dist);
-    stamp[kind](px, py);
-    pois.push({ name: POI_NAMES[kind], kind, x: px, y: py });
-  });
+  pois.push({ name: POI_NAMES.place[0], kind: "place", x: Math.floor(cx), y: Math.floor(cy) });
+  const used: Record<PoiKind, number> = { place: 1, village: 0, docks: 0, ferme: 0, chantier: 0, villa: 0, marche: 0 };
+  const placeRing = (kinds: PoiKind[], dist: number, spread: number) => {
+    const base = rng() * Math.PI * 2;
+    kinds.forEach((kind, k) => {
+      const a = base + (k * Math.PI * 2) / kinds.length + (rng() - 0.5) * 0.25;
+      const d = dist + rng() * spread;
+      const px = Math.floor(cx + Math.cos(a) * d);
+      const py = Math.floor(cy + Math.sin(a) * d);
+      stamp[kind](px, py);
+      pois.push({ name: POI_NAMES[kind][used[kind]++ % POI_NAMES[kind].length], kind, x: px, y: py });
+    });
+  };
+  const shuffle = <T,>(list: T[]) => list.sort(() => rng() - 0.5);
+  placeRing(shuffle<PoiKind>(["village", "ferme", "chantier", "villa", "marche", "village"]), 27, 3);
+  // Les docks vont pres de l'eau : c'est la que les bateaux accosteraient.
+  placeRing(shuffle<PoiKind>(["docks", "docks", "ferme", "chantier", "villa", "marche", "chantier", "villa"]), 47, 4);
 
   // --- Chemins de terre de la place vers chaque lieu ---
   for (const poi of pois.slice(1)) {
@@ -307,7 +321,7 @@ export function buildIsland(seed: number): IslandMap {
     for (let x = 2; x < W - 2; x++) {
       if (cells[idx(x, y)] !== ILE_LIBRE || ground[idx(x, y)] !== SOL_HERBE || isReserved(x, y)) continue;
       const forest = Math.sin(x * 0.23 + fx) * Math.sin(y * 0.19 + fy);
-      const chance = forest > 0.12 ? 0.5 : 0.05;
+      const chance = forest > 0.12 ? 0.4 : 0.04;
       if (rng() > chance) continue;
       // Un arbre n'a que des voisins libres : il ne peut jamais couper un passage.
       let free = true;
@@ -426,16 +440,16 @@ export function buildIsland(seed: number): IslandMap {
     }
     return [Math.floor(cx), Math.floor(cy)];
   };
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < 45; k++) {
     const a = rng() * Math.PI * 2;
-    const d = 8 + rng() * 20;
+    const d = 8 + Math.sqrt(rng()) * (radius - 12);
     finalLoot.push(nearestOpen(Math.floor(cx + Math.cos(a) * d), Math.floor(cy + Math.sin(a) * d)));
   }
 
   const spawns: [number, number][] = pois.map((p) => nearestOpen(p.x, p.y));
-  for (let k = 0; k < 16; k++) {
-    const a = (k / 16) * Math.PI * 2;
-    spawns.push(nearestOpen(Math.floor(cx + Math.cos(a) * 25), Math.floor(cy + Math.sin(a) * 25)));
+  for (let k = 0; k < 32; k++) {
+    const a = (k / 32) * Math.PI * 2;
+    spawns.push(nearestOpen(Math.floor(cx + Math.cos(a) * 40), Math.floor(cy + Math.sin(a) * 40)));
   }
 
   return {

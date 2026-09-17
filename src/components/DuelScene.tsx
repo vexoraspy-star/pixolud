@@ -20,7 +20,8 @@ import {
   type DuelTheme,
 } from "@/lib/duel";
 import { buildDuelDecor } from "@/lib/duelDecor";
-import { SKINS, type SkinId } from "@/lib/duelProfile";
+import { RARITY, SKINS, type SkinId } from "@/lib/duelProfile";
+import { createGridPather } from "@/lib/duelPath";
 import {
   buildIsland,
   nearestOpenCell,
@@ -42,7 +43,9 @@ import {
   GUN_GAME_ORDER,
   LOOT_TABLE,
   SHOP_ORDER,
+  WEAPON_RARITY,
   buildWeaponModel,
+  rollLootWeapon,
   type WeaponId,
   type WeaponLook,
   type WeaponModel,
@@ -123,7 +126,37 @@ const BOT_NAMES = [
   "Brasier",
   "Nomade",
   "Vortex",
+  "Comète",
+  "Taïga",
+  "Mirage",
+  "Granit",
+  "Sirocco",
+  "Blizzard",
+  "Cobra",
+  "Falcon",
+  "Onyx",
+  "Pixel",
+  "Rafale",
+  "Zénith",
+  "Kraken",
+  "Nova",
+  "Titan",
+  "Loup",
+  "Éclipse",
+  "Raptor",
 ];
+
+/** Un emplacement d'inventaire : l'arme, et son chargeur tel qu'on l'a laisse. */
+interface Slot {
+  weapon: WeaponId;
+  mag: number;
+}
+/** Trois armes au plus ; les mains vides, ce sont les poings. */
+const MAX_SLOTS = 3;
+/** Temps pour sortir une autre arme : on ne tire pas pendant le geste. */
+const SWAP_SECONDS = 0.32;
+/** Armes de poing : en Economie, elles ont leur propre emplacement. */
+const isSidearm = (id: WeaponId) => id === "pistolet" || id === "revolver";
 
 // La battle royale se joue sur l'ile : ses durees remplacent celles de
 // l'ancien terrain de la Zone.
@@ -154,6 +187,12 @@ const BOT_REACTION = 0.5;
 function hitLockFor(attackers: number) {
   return 0.12 + 0.11 * Math.max(0, attackers - 1);
 }
+/**
+ * Entre bots, les coups portent moins : reglee sur le joueur, leur precision
+ * vidait une battle royale de trente en une minute. Le joueur, lui, subit les
+ * degats pleins — la difficulte choisie reste la sienne.
+ */
+const BOT_VS_BOT_DAMAGE = 0.4;
 /** Il change de direction de pas de cote a peu pres tous ces temps-la. */
 const BOT_STRAFE_SECONDS = 1.1;
 /**
@@ -208,6 +247,10 @@ export default function DuelScene({
   const [locked, setLocked] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [pickupToast, setPickupToast] = useState<string | null>(null);
+  /** Les armes portees (1 a 3) et celle en main ; -1 = mains nues. */
+  const [inventory, setInventory] = useState<{ slots: WeaponId[]; cur: number }>({ slots: [], cur: -1 });
+  /** Arme ou soin au sol quand l'inventaire est plein : « E pour echanger ». */
+  const [pickupHint, setPickupHint] = useState<string | null>(null);
   /** Battle royale : combattants encore en vie, et si on est hors zone. */
   const [alive, setAlive] = useState(mode.bots + 1);
   const [outsideZone, setOutsideZone] = useState(false);
@@ -305,9 +348,14 @@ export default function DuelScene({
     // L'habillage suit la carte : metal bleute, hangar, roche ou gres.
     const theme: DuelTheme = island ? "ile" : (duelMap?.theme ?? "arene");
     const crateSet = new Set((duelMap?.crates ?? []).map(([x, y]) => `${x},${y}`));
-    const wallSet = new Set(mapWalls.map(([x, y]) => `${x},${y}`));
+    // Grille pleine en octets : les collisions, lignes de vue et chemins la
+    // lisent des milliers de fois par image. Un Set de cles texte suffisait
+    // sur l'arene, pas sur une ile de 150 cases avec trente combattants.
+    const solidGrid = new Uint8Array(mapW * mapH);
+    for (const [wx, wy] of mapWalls) solidGrid[wy * mapW + wx] = 1;
     const isSolid = (cx: number, cy: number) =>
-      cx < 0 || cy < 0 || cx >= mapW || cy >= mapH || wallSet.has(`${cx},${cy}`);
+      cx < 0 || cy < 0 || cx >= mapW || cy >= mapH || solidGrid[cy * mapW + cx] === 1;
+    const pather = createGridPather(mapW, mapH, solidGrid);
 
     /**
      * Points d'apparition bien repartis.
@@ -354,7 +402,21 @@ export default function DuelScene({
 
     // -------------------------------------------------------------- le joueur
     const firstSpawn = mySpawnPool[0];
+    /**
+     * Inventaire de depart. Arme principale et pistolet dans les modes
+     * classiques ; une seule arme en course a l'armement (c'est le principe) ;
+     * rien du tout en battle royale.
+     */
+    function startingInventory(): Slot[] {
+      if (mode.startWeapon === "poings") return [];
+      const inv: Slot[] = [{ weapon: mode.startWeapon, mag: WEAPONS[mode.startWeapon].magSize }];
+      if (!mode.gunGame && mode.startWeapon !== "pistolet") inv.push({ weapon: "pistolet", mag: WEAPONS.pistolet.magSize });
+      return inv;
+    }
     const me = {
+      inv: startingInventory(),
+      /** Emplacement tenu en main. */
+      cur: 0,
       x: firstSpawn[0] + 0.5,
       z: firstSpawn[1] + 0.5,
       yaw: side === "a" ? -Math.PI * 0.75 : Math.PI * 0.25,
@@ -574,56 +636,123 @@ export default function DuelScene({
     applyWeaponTransform();
     const currentModel = () => weaponModels[me.weapon];
 
-    function setMyWeapon(id: WeaponId, announce = true) {
-      me.weapon = id;
-      const spec = WEAPONS[id];
-      me.mag = spec.magSize;
-      me.reloadUntil = 0;
-      me.nextShotAt = 0;
-      applyWeaponTransform();
-      setAmmo(spec.magSize);
+    /** L'arme tenue et l'inventaire, tels que l'interface les affiche. */
+    function syncWeaponUi() {
+      const spec = WEAPONS[me.weapon];
+      setAmmo(me.mag);
       setMagSize(spec.magSize);
       setWeaponName(spec.short);
-      setReloading(false);
-      if (announce) {
-        setPickupToast(spec.name);
-        window.setTimeout(() => setPickupToast(null), 1600);
+      setReloading(me.reloadUntil > 0);
+      setInventory({ slots: me.inv.map((s) => s.weapon), cur: me.inv.length > 0 ? me.cur : -1 });
+    }
+
+    function announceWeapon(id: WeaponId) {
+      setPickupToast(WEAPONS[id].name);
+      window.setTimeout(() => setPickupToast(null), 1600);
+    }
+
+    /**
+     * Sort l'arme d'un emplacement (les poings si l'inventaire est vide). Le
+     * chargeur de l'arme rangee est garde : changer d'arme n'est pas recharger.
+     */
+    function equipSlot(index: number, announce = false, saveCurrent = true) {
+      if (saveCurrent && me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      const slot = me.inv[index];
+      me.cur = slot ? index : 0;
+      me.weapon = slot ? slot.weapon : "poings";
+      me.mag = slot ? slot.mag : 0;
+      me.reloadUntil = 0;
+      me.nextShotAt = Math.max(me.nextShotAt, elapsed + SWAP_SECONDS);
+      if (isZoomed) toggleZoom(false);
+      applyWeaponTransform();
+      syncWeaponUi();
+      if (announce) announceWeapon(me.weapon);
+    }
+
+    function cycleWeapon(dir: number) {
+      if (me.inv.length < 2) return;
+      equipSlot((me.cur + dir + me.inv.length) % me.inv.length);
+    }
+
+    /**
+     * Une arme ramassee ou recue. Deja dans l'inventaire : on recharge son
+     * chargeur. Une place libre : elle y va, en main. Inventaire plein : rien
+     * (le joueur choisit avec E ce qu'il lache).
+     */
+    function giveWeapon(id: WeaponId): "ajout" | "recharge" | "plein" {
+      if (id === "poings") return "plein";
+      const spec = WEAPONS[id];
+      const have = me.inv.findIndex((s) => s.weapon === id);
+      if (have >= 0) {
+        me.inv[have].mag = spec.magSize;
+        if (have === me.cur) me.mag = spec.magSize;
+        syncWeaponUi();
+        return "recharge";
       }
+      if (me.inv.length >= MAX_SLOTS) return "plein";
+      if (me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      me.inv.push({ weapon: id, mag: spec.magSize });
+      equipSlot(me.inv.length - 1, true, false);
+      return "ajout";
+    }
+
+    /** Remplace l'arme en main par une autre (echange au sol, achat). */
+    function replaceCurrent(id: WeaponId, announce = true) {
+      const slot = { weapon: id, mag: WEAPONS[id].magSize };
+      if (me.inv.length === 0) me.inv.push(slot);
+      else me.inv[me.cur] = slot;
+      equipSlot(me.inv.indexOf(slot), announce, false);
+    }
+
+    /** Une seule arme, tout le reste oublie (course a l'armement, mort en Economie). */
+    function setOnlyWeapon(id: WeaponId, announce = true) {
+      me.inv = id === "poings" ? [] : [{ weapon: id, mag: WEAPONS[id].magSize }];
+      equipSlot(0, announce, false);
     }
 
     // --------------------------------------------------- armes au sol (loot)
     /**
-     * Une arme au sol se lit de loin ou elle ne sert a rien. Un simple cube
-     * pose par terre passait pour un debris ; ici chaque arme est signalee
-     * par un faisceau lumineux colore selon le type, surmonte de sa
-     * silhouette qui tourne.
+     * Le butin : des armes et, en battle royale, des soins.
      *
-     * Les trois elements sont instancies : la carte de la Zone en compte
-     * onze, soit trente-trois appels de rendu en meshes separes.
+     * Le faisceau prend la couleur de la rarete (gris commun, bleu rare,
+     * violet epique, or legendaire) : on sait de loin si le detour vaut le
+     * coup. Les soins sont verts, et leur icone est un petit cube.
      */
-    const LOOT_TINT: Record<WeaponId, number> = {
-      pistolet: 0x9fb4c4,
-      revolver: 0xd9b27a,
-      pm: 0x9ff08a,
-      mitraillette: 0x6ef0c0,
-      pompe: 0xc07aff,
-      fusil: 0x58b6ff,
-      carabine: 0x7ad0ff,
-      mitrailleuse: 0xff8a5a,
-      sniper: 0xffc94a,
-    };
+    type LootKind = "arme" | "soin";
     interface LootDrop {
       x: number;
       z: number;
+      kind: LootKind;
       weapon: WeaponId;
+      /** Points de vie rendus par un soin (0 pour une arme). */
+      heal: number;
       taken: boolean;
       phase: number;
     }
-    const lootSpots: [number, number, WeaponId][] = [];
+    // Tirage du butin propre a la partie : la meme graine que l'ile.
+    let lootSeed = (seed * 2654435761) >>> 0;
+    const lootRand = () => {
+      lootSeed = (lootSeed + 0x6d2b79f5) >>> 0;
+      let t = lootSeed;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const loots: LootDrop[] = [];
+    const addStartLoot = (lx: number, lz: number, kind: LootKind, weapon: WeaponId, heal = 0) => {
+      loots.push({ x: lx + 0.5, z: lz + 0.5, kind, weapon, heal, taken: false, phase: loots.length * 1.7 });
+    };
     if (mode.loot) {
       if (zoneMap) {
         zoneMap.loot.forEach(([lx, lz], i) => {
-          lootSpots.push([lx, lz, LOOT_TABLE[i % LOOT_TABLE.length]]);
+          if (!island) {
+            addStartLoot(lx, lz, "arme", LOOT_TABLE[i % LOOT_TABLE.length]);
+            return;
+          }
+          // Un quart de soins (bandages surtout, quelques trousses), le reste en armes.
+          const r = lootRand();
+          if (r < 0.25) addStartLoot(lx, lz, "soin", "poings", r < 0.07 ? 75 : 30);
+          else addStartLoot(lx, lz, "arme", rollLootWeapon(lootRand));
         });
       } else {
         const spots: [number, number, WeaponId][] = [
@@ -632,18 +761,12 @@ export default function DuelScene({
           [3, 9, "mitraillette"],
           [15, 9, "mitraillette"],
         ];
-        for (const sp of spots) if (!isSolid(sp[0], sp[1])) lootSpots.push(sp);
+        for (const sp of spots) if (!isSolid(sp[0], sp[1])) addStartLoot(sp[0], sp[1], "arme", sp[2]);
       }
     }
-    const loots: LootDrop[] = lootSpots.map(([lx, lz, w], i) => ({
-      x: lx + 0.5,
-      z: lz + 0.5,
-      weapon: w,
-      taken: false,
-      phase: i * 1.7,
-    }));
+    // Place pour les armes lachees par les elimines en cours de partie.
+    const lootCapacity = mode.loot ? loots.length + (mode.respawn ? 12 : (mode.bots + 1) * MAX_SLOTS + 12) : 1;
 
-    const lootCount = Math.max(1, loots.length);
     const beamGeo = new THREE.CylinderGeometry(0.17, 0.3, 2.8, 8, 1, true);
     const beamMat = new THREE.MeshBasicMaterial({
       transparent: true,
@@ -661,16 +784,15 @@ export default function DuelScene({
     });
     const iconGeo = new THREE.BoxGeometry(0.42, 0.09, 0.11);
     const iconMat = new THREE.MeshBasicMaterial({});
-    const beamMesh = new THREE.InstancedMesh(beamGeo, beamMat, lootCount);
-    const ringMesh = new THREE.InstancedMesh(ringGeo, ringMat, lootCount);
-    const iconMesh = new THREE.InstancedMesh(iconGeo, iconMat, lootCount);
-    for (const m of [beamMesh, ringMesh, iconMesh]) {
+    const beamMesh = new THREE.InstancedMesh(beamGeo, beamMat, lootCapacity);
+    const ringMesh = new THREE.InstancedMesh(ringGeo, ringMat, lootCapacity);
+    const iconMesh = new THREE.InstancedMesh(iconGeo, iconMat, lootCapacity);
+    const lootMeshes = [beamMesh, ringMesh, iconMesh];
+    for (const m of lootMeshes) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      m.instanceColor = new THREE.InstancedBufferAttribute(
-        new Float32Array(lootCount * 3).fill(1),
-        3,
-      );
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(lootCapacity * 3).fill(1), 3);
       m.frustumCulled = false;
+      m.count = loots.length;
       m.visible = loots.length > 0;
       scene.add(m);
     }
@@ -681,13 +803,40 @@ export default function DuelScene({
     const lootScale = new THREE.Vector3(1, 1, 1);
     const lootColor = new THREE.Color();
     const lootHidden = new THREE.Matrix4().makeScale(0, 0, 0);
-    loots.forEach((l, i) => {
-      lootColor.setHex(LOOT_TINT[l.weapon]);
-      beamMesh.instanceColor!.setXYZ(i, lootColor.r, lootColor.g, lootColor.b);
-      ringMesh.instanceColor!.setXYZ(i, lootColor.r, lootColor.g, lootColor.b);
-      iconMesh.instanceColor!.setXYZ(i, lootColor.r, lootColor.g, lootColor.b);
-    });
-    for (const m of [beamMesh, ringMesh, iconMesh]) m.instanceColor!.needsUpdate = true;
+    function paintLoot(i: number) {
+      const l = loots[i];
+      if (l.kind === "soin") lootColor.setHex(l.heal >= 60 ? 0x3cff8a : 0xc6ffd8);
+      else lootColor.set(RARITY[WEAPON_RARITY[l.weapon]].color);
+      for (const m of lootMeshes) m.instanceColor!.setXYZ(i, lootColor.r, lootColor.g, lootColor.b);
+    }
+    loots.forEach((_, i) => paintLoot(i));
+    for (const m of lootMeshes) m.instanceColor!.needsUpdate = true;
+
+    /** Pose un objet au sol (arme lachee par un elimine ou par un echange). */
+    function dropLoot(x: number, z: number, kind: LootKind, weapon: WeaponId, heal = 0) {
+      if (!mode.loot || (kind === "arme" && weapon === "poings")) return;
+      // Jamais dans un mur : on retombe sur la case de celui qui lache.
+      if (isSolid(Math.floor(x), Math.floor(z))) {
+        x = Math.floor(x) + 0.5;
+        z = Math.floor(z) + 0.5;
+        if (isSolid(Math.floor(x), Math.floor(z))) return;
+      }
+      const drop: LootDrop = { x, z, kind, weapon, heal, taken: false, phase: Math.random() * 6 };
+      let i = loots.findIndex((l) => l.taken);
+      if (i < 0) {
+        if (loots.length >= lootCapacity) return;
+        i = loots.length;
+        loots.push(drop);
+      } else {
+        loots[i] = drop;
+      }
+      paintLoot(i);
+      for (const m of lootMeshes) {
+        m.instanceColor!.needsUpdate = true;
+        m.count = loots.length;
+        m.visible = true;
+      }
+    }
 
     /** Repositionne les faisceaux : appele a chaque image, cout negligeable. */
     function updateLootVisuals(time: number) {
@@ -703,19 +852,23 @@ export default function DuelScene({
         const wz = l.z * DUEL_CELL;
         lootQuat.identity();
         lootPos.set(wx, 1.4, wz);
-        lootScale.set(1, 1, 1);
+        lootScale.set(1, l.kind === "soin" ? 0.6 : 1, 1);
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         beamMesh.setMatrixAt(i, lootMatrix);
 
         lootEuler.set(-Math.PI / 2, 0, 0);
         lootQuat.setFromEuler(lootEuler);
         lootPos.set(wx, 0.03, wz);
+        lootScale.set(1, 1, 1);
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         ringMesh.setMatrixAt(i, lootMatrix);
 
-        lootEuler.set(0, time * 1.5 + l.phase, 0.25);
+        lootEuler.set(0, time * 1.5 + l.phase, l.kind === "soin" ? 0 : 0.25);
         lootQuat.setFromEuler(lootEuler);
         lootPos.set(wx, 0.62 + Math.sin(time * 2 + l.phase) * 0.09, wz);
+        // Un soin : un petit cube vert. Une arme : une silhouette allongee.
+        if (l.kind === "soin") lootScale.set(0.5, 2.4, 1.9);
+        else lootScale.set(1, 1, 1);
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         iconMesh.setMatrixAt(i, lootMatrix);
       });
@@ -745,6 +898,11 @@ export default function DuelScene({
       rank: number;
       weapon: WeaponId;
       mag: number;
+      /** Ses armes (trois au plus), comme le joueur ; vide = poings. */
+      inv: Slot[];
+      cur: number;
+      /** Fin du geste de changement d'arme : il ne tire pas avant. */
+      swapUntil: number;
       reloadUntil: number;
       nextShotAt: number;
       isBot: boolean;
@@ -753,8 +911,26 @@ export default function DuelScene({
       path: [number, number][] | null;
       pathIndex: number;
       repathTimer: number;
+      /** Case visee par le chemin en cours (indice de grille). */
+      pathGoal: number;
       seenFor: number;
       targetId: number;
+      /** Prochaine reflexion : choix de la cible et de l'arme, a intervalles. */
+      thinkAt: number;
+      /** Cible de combat : le joueur, un autre bot, ou personne. */
+      targetIsMe: boolean;
+      targetRef: Fighter | null;
+      /** Il voit sa cible (ligne de vue verifiee a la derniere reflexion). */
+      sees: boolean;
+      /** L'objet au sol qu'il va chercher. */
+      lootTarget: LootDrop | null;
+      /** Temperament : au-dessus de 1 il engage de loin, en dessous il evite les combats. */
+      aggro: number;
+      /** Jusqu'a quand il riposte a celui qui l'a touche, quelle que soit la distance. */
+      provokedUntil: number;
+      /** Battle royale : point de balade quand il n'a ni cible ni objet a aller chercher. */
+      wanderX: number;
+      wanderZ: number;
       strafeDir: number;
       strafeUntil: number;
       // rendu
@@ -772,6 +948,8 @@ export default function DuelScene({
       /** Soldat anime (SWAT) : remplace le soldat dessine en code une fois charge. */
       anim: AnimatedModel | null;
       animFlash: THREE.Mesh | null;
+      /** L'arme tenue par le modele anime : cachee quand il se bat aux poings. */
+      animGun: THREE.Group | null;
       lastAnimX: number;
       lastAnimZ: number;
     }
@@ -790,7 +968,22 @@ export default function DuelScene({
       const color = ENEMY_COLORS[i % ENEMY_COLORS.length];
       const model = buildSoldier(color);
       scene.add(model.group);
+      const startInv = startingInventory();
       fighters.push({
+        inv: startInv,
+        cur: 0,
+        swapUntil: 0,
+        pathGoal: -1,
+        thinkAt: Math.random() * 0.3,
+        targetIsMe: false,
+        targetRef: null,
+        sees: false,
+        lootTarget: null,
+        aggro: 0.55 + Math.random() * 0.9,
+        provokedUntil: 0,
+        wanderX: NaN,
+        wanderZ: NaN,
+        animGun: null,
         id: i,
         name: bot || i > 0 ? BOT_NAMES[i % BOT_NAMES.length] : opponentName,
         color,
@@ -806,8 +999,8 @@ export default function DuelScene({
         deathT: 0,
         score: 0,
         rank: 0,
-        weapon: mode.startWeapon,
-        mag: WEAPONS[mode.startWeapon].magSize,
+        weapon: startInv[0]?.weapon ?? "poings",
+        mag: startInv[0]?.mag ?? 0,
         reloadUntil: 0,
         nextShotAt: 2,
         // En ligne, le premier combattant est le vrai joueur d'en face.
@@ -870,10 +1063,101 @@ export default function DuelScene({
           m.attach("Wrist.R", gun, "Idle_Gun_Pointing");
           f.anim = m;
           f.animFlash = flash;
+          f.animGun = gun;
           m.root.visible = false;
           scene.add(m.root);
         })
         .catch(() => {});
+    }
+
+    // --- Inventaire des bots : les memes regles que le joueur ---
+    function botEquip(f: Fighter, index: number, saveCurrent = true) {
+      if (saveCurrent && f.inv[f.cur]) f.inv[f.cur].mag = f.mag;
+      const slot = f.inv[index];
+      f.cur = slot ? index : 0;
+      f.weapon = slot ? slot.weapon : "poings";
+      f.mag = slot ? slot.mag : 0;
+      f.reloadUntil = 0;
+      f.swapUntil = elapsed + SWAP_SECONDS + 0.15;
+    }
+
+    function botSetOnly(f: Fighter, id: WeaponId) {
+      f.inv = id === "poings" ? [] : [{ weapon: id, mag: WEAPONS[id].magSize }];
+      botEquip(f, 0, false);
+    }
+
+    const RARITY_RANK: Record<string, number> = { commun: 0, rare: 1, epique: 2, legendaire: 3 };
+    /**
+     * Il ramasse une arme : dans une place libre, en munitions si c'est un
+     * doublon, ou a la place de sa moins bonne si elle est plus rare.
+     */
+    function botTakeWeapon(f: Fighter, id: WeaponId): boolean {
+      const magSize = WEAPONS[id].magSize;
+      const have = f.inv.findIndex((s) => s.weapon === id);
+      if (have >= 0) {
+        f.inv[have].mag = magSize;
+        if (have === f.cur) f.mag = magSize;
+        return true;
+      }
+      if (f.inv[f.cur]) f.inv[f.cur].mag = f.mag;
+      if (f.inv.length < MAX_SLOTS) {
+        f.inv.push({ weapon: id, mag: magSize });
+        if (f.inv.length === 1) botEquip(f, 0, false);
+        return true;
+      }
+      let worst = 0;
+      f.inv.forEach((s, k) => {
+        if (RARITY_RANK[WEAPON_RARITY[s.weapon]] < RARITY_RANK[WEAPON_RARITY[f.inv[worst].weapon]]) worst = k;
+      });
+      if (RARITY_RANK[WEAPON_RARITY[id]] <= RARITY_RANK[WEAPON_RARITY[f.inv[worst].weapon]]) return false;
+      dropLoot(f.x, f.z, "arme", f.inv[worst].weapon);
+      f.inv[worst] = { weapon: id, mag: magSize };
+      if (worst === f.cur) {
+        f.weapon = id;
+        f.mag = magSize;
+        f.reloadUntil = 0;
+      }
+      return true;
+    }
+
+    /**
+     * Ce que vaut une arme a une distance donnee : degats par seconde, tenus
+     * par la portee et par la dispersion (un fusil a pompe ne touche rien a
+     * dix metres, un sniper ne sert a rien dans un couloir).
+     */
+    function weaponValueAt(id: WeaponId, dist: number): number {
+      const w = WEAPONS[id];
+      if (w.melee) return dist < 1.8 ? 60 : 0.5;
+      const reach = dist <= w.range ? 1 : dist <= w.range * 1.6 ? 0.45 : 0.08;
+      const hit =
+        w.pellets > 1
+          ? dist < 3
+            ? 0.9
+            : dist < 6
+              ? 0.5
+              : dist < 9
+                ? 0.2
+                : 0.05
+          : THREE.MathUtils.clamp(1 - ((w.spread * dist) / DUEL_BODY_RADIUS) * 0.5, 0.15, 1);
+      return ((w.damage * w.pellets) / w.fireInterval) * reach * hit;
+    }
+
+    /** Il sort l'arme la plus utile pour la distance, et change plutot que recharger. */
+    function botPickWeapon(f: Fighter, dist: number) {
+      if (f.inv.length < 2) return;
+      let best = f.cur;
+      let bestValue = -1;
+      f.inv.forEach((s, k) => {
+        const mag = k === f.cur ? f.mag : s.mag;
+        let value = weaponValueAt(s.weapon, dist);
+        if (mag <= 0) value *= 0.3;
+        if (k === f.cur) value *= 1.2; // un peu d'inertie : pas de valse des armes
+        if (value > bestValue) {
+          bestValue = value;
+          best = k;
+        }
+      });
+      if (best !== f.cur) botEquip(f, best);
     }
 
     const audio = createDuelAudio();
@@ -994,44 +1278,6 @@ export default function DuelScene({
       return best;
     }
 
-    function bfsPath(from: [number, number], to: [number, number]): [number, number][] | null {
-      if (from[0] === to[0] && from[1] === to[1]) return [from];
-      const key = (x: number, y: number) => `${x},${y}`;
-      const visited = new Set([key(...from)]);
-      const prev = new Map<string, [number, number]>();
-      const queue: [number, number][] = [from];
-      let qi = 0;
-      while (qi < queue.length) {
-        const [x, y] = queue[qi++];
-        for (const [dx, dy] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (isSolid(nx, ny)) continue;
-          const nk = key(nx, ny);
-          if (visited.has(nk)) continue;
-          visited.add(nk);
-          prev.set(nk, [x, y]);
-          if (nx === to[0] && ny === to[1]) {
-            const path: [number, number][] = [[nx, ny]];
-            let k = nk;
-            while (prev.has(k)) {
-              const p = prev.get(k)!;
-              path.unshift(p);
-              k = key(...p);
-            }
-            return path;
-          }
-          queue.push([nx, ny]);
-        }
-      }
-      return null;
-    }
-
     function panFor(x: number, z: number) {
       const dx = x - me.x;
       const dz = z - me.z;
@@ -1056,14 +1302,25 @@ export default function DuelScene({
     function buyWeapon(id: WeaponId) {
       if (!eco || !buying() || me.dead) return;
       const price = WEAPON_PRICES[id];
-      if (id === me.weapon) return;
+      if (me.inv.some((s) => s.weapon === id)) {
+        // Deja achetee : on la sort, sans repayer.
+        equipSlot(me.inv.findIndex((s) => s.weapon === id));
+        return;
+      }
       if (price > myMoney) {
         playDryFire(audio.ctx, audio.master);
         return;
       }
       myMoney -= price;
       setMoney(myMoney);
-      setMyWeapon(id);
+      // Comme dans Counter-Strike : une arme principale et une arme de poing.
+      // Une arme achetee remplace celle de sa categorie.
+      if (me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      const bought = { weapon: id, mag: WEAPONS[id].magSize };
+      const primary = me.inv.find((s) => !isSidearm(s.weapon));
+      const sidearm = me.inv.find((s) => isSidearm(s.weapon));
+      me.inv = isSidearm(id) ? [...(primary ? [primary] : []), bought] : [bought, ...(sidearm ? [sidearm] : [])];
+      equipSlot(me.inv.indexOf(bought), true, false);
       playReload(audio.ctx, audio.master);
     }
 
@@ -1075,11 +1332,11 @@ export default function DuelScene({
           ? ["sniper", "mitrailleuse", "fusil"]
           : ["fusil", "carabine", "pompe", "mitraillette", "pm", "revolver"];
       for (const w of wishes) {
-        if (f.weapon === w) return;
+        if (f.inv.some((s) => s.weapon === w)) return;
         if (WEAPON_PRICES[w] <= botMoney) {
           botMoney -= WEAPON_PRICES[w];
-          f.weapon = w;
-          f.mag = WEAPONS[w].magSize;
+          f.inv = [{ weapon: w, mag: WEAPONS[w].magSize }, { weapon: "pistolet", mag: WEAPONS.pistolet.magSize }];
+          botEquip(f, 0, false);
           return;
         }
       }
@@ -1120,12 +1377,12 @@ export default function DuelScene({
       me.hp = DUEL_MAX_HP;
       me.dead = false;
       me.safeUntil = buyUntil;
-      if (iDiedLastRound) setMyWeapon("pistolet", false);
+      if (iDiedLastRound) setOnlyWeapon("pistolet", false);
       else {
+        for (const s of me.inv) s.mag = WEAPONS[s.weapon].magSize;
         me.mag = WEAPONS[me.weapon].magSize;
         me.reloadUntil = 0;
-        setAmmo(me.mag);
-        setReloading(false);
+        syncWeaponUi();
       }
       fighters.forEach((f, i) => {
         const spawn = enemySpawnPool[i % enemySpawnPool.length];
@@ -1137,7 +1394,8 @@ export default function DuelScene({
         f.path = null;
         f.safeUntil = buyUntil;
         f.nextShotAt = buyUntil + BOT_REACTION;
-        if (botDiedLastRound) f.weapon = "pistolet";
+        if (botDiedLastRound) botSetOnly(f, "pistolet");
+        for (const s of f.inv) s.mag = WEAPONS[s.weapon].magSize;
         f.mag = WEAPONS[f.weapon].magSize;
         botBuy(f);
       });
@@ -1192,14 +1450,13 @@ export default function DuelScene({
       me.z = s[1] + 0.5;
       me.hp = DUEL_MAX_HP;
       me.dead = false;
-      const spec = WEAPONS[me.weapon];
-      me.mag = spec.magSize;
+      for (const s of me.inv) s.mag = WEAPONS[s.weapon].magSize;
+      me.mag = WEAPONS[me.weapon].magSize;
       me.reloadUntil = 0;
       me.safeUntil = elapsed + SPAWN_PROTECT;
       playRespawn(audio.ctx, audio.master);
       setHp(DUEL_MAX_HP);
-      setAmmo(spec.magSize);
-      setReloading(false);
+      syncWeaponUi();
     }
 
     function registerMyDeath(killerName: string, killer: Fighter | null) {
@@ -1213,7 +1470,11 @@ export default function DuelScene({
       effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 26);
       if (killer) {
         killer.score += 1;
-        if (mode.gunGame) killer.rank = Math.min(GUN_GAME_ORDER.length, killer.rank + 1);
+        if (mode.gunGame) {
+          killer.rank = Math.min(GUN_GAME_ORDER.length, killer.rank + 1);
+          // Comme le joueur : l'arme suivante tout de suite, pas a la prochaine mort.
+          if (killer.isBot && killer.rank < GUN_GAME_ORDER.length) botSetOnly(killer, GUN_GAME_ORDER[killer.rank]);
+        }
       }
       addFeed(`${killerName} t'a éliminé`, false);
       if (!bot) link.current.send("died", {});
@@ -1239,7 +1500,7 @@ export default function DuelScene({
         setMyScore(me.score);
         if (mode.gunGame) {
           me.rank = Math.min(GUN_GAME_ORDER.length, me.rank + 1);
-          if (me.rank < GUN_GAME_ORDER.length) setMyWeapon(GUN_GAME_ORDER[me.rank]);
+          if (me.rank < GUN_GAME_ORDER.length) setOnlyWeapon(GUN_GAME_ORDER[me.rank]);
         }
         addFeed(`Tu as éliminé ${f.name}`, true);
       } else {
@@ -1248,6 +1509,12 @@ export default function DuelScene({
       if (!mode.respawn) {
         f.alive = false;
         setAlive(livingCount());
+        // Battle royale : son equipement tombe au sol, pour qui passera par la.
+        f.inv.forEach((s, k) => {
+          const a = (k / Math.max(1, f.inv.length)) * Math.PI * 2 + Math.random();
+          dropLoot(f.x + Math.cos(a) * 0.55, f.z + Math.sin(a) * 0.55, "arme", s.weapon);
+        });
+        f.inv = [];
       }
       checkVictory();
       if (byMe) endRound(true);
@@ -1273,10 +1540,16 @@ export default function DuelScene({
       if (me.hp <= 0) registerMyDeath(killer?.name ?? opponentName, killer ?? null);
     }
 
-    function damageFighter(f: Fighter, amount: number, byMe: boolean, killerName: string) {
+    function damageFighter(f: Fighter, amount: number, byMe: boolean, killerName: string, attacker?: Fighter) {
       if (f.dead || !f.alive || ended) return;
       if (elapsed < f.safeUntil) return;
       f.hp = Math.max(0, f.hp - amount);
+      // Touche : il se retourne contre son agresseur, ou qu'il soit.
+      if (f.isBot && (byMe || attacker)) {
+        f.targetIsMe = byMe;
+        f.targetRef = byMe ? null : (attacker ?? null);
+        f.provokedUntil = elapsed + 6;
+      }
       if (f.hp <= 0) registerFighterDeath(f, killerName, byMe);
     }
 
@@ -1339,10 +1612,43 @@ export default function DuelScene({
       return hitDist;
     }
 
+    /** Coup de poing : le combattant le plus proche devant soi, a portee de bras. */
+    function punch(spec: (typeof WEAPONS)[WeaponId]) {
+      me.nextShotAt = elapsed + spec.fireInterval;
+      recoil = 1;
+      const fx = -Math.sin(me.yaw);
+      const fz = -Math.cos(me.yaw);
+      let target: Fighter | null = null;
+      let best = spec.range + DUEL_BODY_RADIUS;
+      for (const f of fighters) {
+        if (f.dead || !f.alive) continue;
+        const dx = f.x - me.x;
+        const dz = f.z - me.z;
+        const d = Math.hypot(dx, dz);
+        // Devant soi seulement : un cone d'une quarantaine de degres.
+        if (d > best || (dx * fx + dz * fz) / (d || 1) < 0.75) continue;
+        best = d;
+        target = f;
+      }
+      if (!target) {
+        playDryFire(audio.ctx, audio.master);
+        return;
+      }
+      hitMarkerLevel = 1;
+      playHitmarker(audio.ctx, audio.master);
+      effects.blood(target.x * DUEL_CELL, 1.3, target.z * DUEL_CELL, 6);
+      if (target.isBot) damageFighter(target, spec.damage, true, "Toi");
+      else link.current.send("hit", { damage: spec.damage });
+    }
+
     function fire() {
       if (me.dead || ended || !me.alive || buying() || roundResetAt > 0) return;
       const spec = WEAPONS[me.weapon];
       if (elapsed < me.nextShotAt) return;
+      if (spec.melee) {
+        punch(spec);
+        return;
+      }
       if (me.reloadUntil > 0) return;
       if (me.mag <= 0) {
         playDryFire(audio.ctx, audio.master);
@@ -1404,7 +1710,7 @@ export default function DuelScene({
 
     function startReload() {
       const spec = WEAPONS[me.weapon];
-      if (me.dead || me.reloadUntil > 0 || me.mag >= spec.magSize) return;
+      if (spec.melee || me.dead || me.reloadUntil > 0 || me.mag >= spec.magSize) return;
       me.reloadUntil = elapsed + spec.reloadSeconds;
       setReloading(true);
       playReload(audio.ctx, audio.master);
@@ -1462,11 +1768,27 @@ export default function DuelScene({
       }
       // M : la grande carte de l'ile.
       if (e.key.toLowerCase() === "m" && !e.repeat && island) setBigMap((o) => !o);
+      // Les chiffres se lisent sur la touche physique (e.code) : en AZERTY,
+      // la touche 1 envoie « & » et l'ancien achat au clavier ne marchait pas.
+      const digit = /^(Digit|Numpad)([0-9])$/.exec(e.code);
+      const n = digit ? Number(digit[2]) : NaN;
       if (eco && buying()) {
-        const n = Number(e.key);
         if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
         if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
+      } else if (!e.repeat && n >= 1 && n <= MAX_SLOTS && me.inv[n - 1] && n - 1 !== me.cur) {
+        equipSlot(n - 1);
       }
+      // E : echanger l'arme en main contre celle qui est au sol.
+      if (e.key.toLowerCase() === "e" && !e.repeat) swapWithGround();
+    }
+    // Molette : arme suivante ou precedente, avec un temps mort pour ne pas
+    // faire defiler tout l'inventaire d'un seul coup de molette.
+    let wheelReadyAt = 0;
+    function onWheel(e: WheelEvent) {
+      if (document.pointerLockElement !== renderer.domElement || Math.abs(e.deltaY) < 1) return;
+      if (performance.now() < wheelReadyAt) return;
+      wheelReadyAt = performance.now() + 140;
+      cycleWeapon(e.deltaY > 0 ? 1 : -1);
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
@@ -1527,10 +1849,23 @@ export default function DuelScene({
       me.pitch = -0.75;
       fall = ISLAND_DROP_HEIGHT;
       dropPhase = "chute";
-      // Chaque bot saute sur un lieu nomme, parfois le meme que toi.
+      // Six sur dix sautent sur un lieu nomme (parfois le meme que toi), les
+      // autres en pleine nature : si tout le monde vise les memes maisons, la
+      // moitie de la partie est eliminee dans la premiere minute.
       for (const f of fighters) {
-        const poi = island.pois[Math.floor(Math.random() * island.pois.length)];
-        const [bx, bz] = nearestOpenCell(island, poi.x + (Math.random() - 0.5) * 12, poi.y + (Math.random() - 0.5) * 12);
+        let aimX: number;
+        let aimZ: number;
+        if (Math.random() < 0.6) {
+          const poi = island.pois[Math.floor(Math.random() * island.pois.length)];
+          aimX = poi.x + (Math.random() - 0.5) * 16;
+          aimZ = poi.y + (Math.random() - 0.5) * 16;
+        } else {
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(Math.random()) * island.radius * 0.85;
+          aimX = island.width / 2 + Math.cos(a) * r;
+          aimZ = island.height / 2 + Math.sin(a) * r;
+        }
+        const [bx, bz] = nearestOpenCell(island, aimX, aimZ);
         f.x = bx + 0.5;
         f.z = bz + 0.5;
         f.tx = f.x;
@@ -1558,6 +1893,7 @@ export default function DuelScene({
     document.addEventListener("pointerlockchange", onPointerLockChange);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("wheel", onWheel, { passive: true });
     renderer.domElement.addEventListener("contextmenu", onContextMenu);
 
     // Alt+Tab en pleine course laissait la touche "enfoncee" : on revenait
@@ -1643,25 +1979,155 @@ export default function DuelScene({
     }
 
     // ---------------------------------------------------------------- l'IA
-    /** Tous les ennemis d'un bot : le joueur, et les autres bots en melee. */
-    function enemiesOf(f: Fighter) {
-      const list: { x: number; z: number; isMe: boolean; ref: Fighter | null }[] = [];
+    //
+    // Un bot pense en deux temps. A intervalles (un quart de seconde), il
+    // choisit QUI combattre (le plus proche qu'il voit), QUOI ramasser et
+    // QUELLE arme sortir. A chaque image, il decide OU aller et tire s'il voit
+    // sa cible — meme en courant vers la zone ou vers une arme.
+    //
+    // L'ancienne IA confondait les deux : un bot envoye vers la zone ou vers
+    // une arme « ne voyait » plus personne, et en battle royale, ou il y a
+    // toujours une zone ou une arme a rejoindre, les bots ne tiraient presque
+    // jamais.
+
+    /** Sur l'ile, chacun ne s'occupe que de ce qui l'entoure. */
+    const SIGHT_CELLS = island ? 36 : 80;
+
+    function chooseTarget(f: Fighter) {
+      // Il vient d'etre touche : il garde son agresseur tant qu'il le voit.
+      if (elapsed < f.provokedUntil) {
+        const t = targetOf(f);
+        if (t && hasLineOfSight(f.x, f.z, t.x, t.z)) {
+          f.sees = true;
+          return;
+        }
+      }
+      const near: { d: number; isMe: boolean; ref: Fighter | null; x: number; z: number }[] = [];
       // On ne prend pas pour cible quelqu'un qui vient d'apparaitre : sinon
       // les bots l'attendent au bord de sa protection et le tuent a la seconde
       // ou elle expire.
-      if (!me.dead && me.alive && elapsed >= me.safeUntil)
-        list.push({ x: me.x, z: me.z, isMe: true, ref: null });
+      if (!me.dead && me.alive && elapsed >= me.safeUntil) {
+        const d = Math.hypot(me.x - f.x, me.z - f.z);
+        if (d <= SIGHT_CELLS) near.push({ d, isMe: true, ref: null, x: me.x, z: me.z });
+      }
       // En duel classique il n'y a qu'un adversaire : pas de tir ami a gerer.
       if (mode.bots > 1) {
         for (const o of fighters) {
-          if (o === f || o.dead || !o.alive || elapsed < o.safeUntil) continue;
-          list.push({ x: o.x, z: o.z, isMe: false, ref: o });
+          if (o === f || o.dead || !o.alive || elapsed < o.safeUntil || o.air > 0) continue;
+          const d = Math.hypot(o.x - f.x, o.z - f.z);
+          if (d <= SIGHT_CELLS) near.push({ d, isMe: false, ref: o, x: o.x, z: o.z });
         }
       }
-      return list;
+      near.sort((a, b) => a.d - b.d);
+      f.sees = false;
+      f.targetIsMe = false;
+      f.targetRef = null;
+      // Les lignes de vue coutent cher : les quatre plus proches suffisent.
+      for (let k = 0; k < near.length && k < 4; k++) {
+        const c = near[k];
+        if (hasLineOfSight(f.x, f.z, c.x, c.z)) {
+          f.sees = true;
+          f.targetIsMe = c.isMe;
+          f.targetRef = c.ref;
+          return;
+        }
+      }
+      // Personne en vue : dans l'arene on se cherche ; sur l'ile, seul un
+      // adversaire tout proche (on l'entend) merite qu'on aille le debusquer.
+      if (near.length > 0 && (!island || near[0].d < 12)) {
+        f.targetIsMe = near[0].isMe;
+        f.targetRef = near[0].ref;
+      }
     }
 
-    function updateBot(f: Fighter, delta: number, goTo?: { x: number; z: number }) {
+    /** Position de la cible a cette image, ou null si elle n'existe plus. */
+    function targetOf(f: Fighter): { x: number; z: number; moving: boolean } | null {
+      if (f.targetIsMe) return !me.dead && me.alive ? { x: me.x, z: me.z, moving: movingNow } : null;
+      const o = f.targetRef;
+      return o && !o.dead && o.alive ? { x: o.x, z: o.z, moving: o.speed > 0.5 } : null;
+    }
+
+    /** L'objet qui vaut le detour : une arme s'il en manque, un soin s'il est blesse. */
+    function lootGoalFor(f: Fighter): LootDrop | null {
+      const needWeapon = f.inv.length === 0 || (Boolean(island) && f.inv.length < MAX_SLOTS);
+      const needHeal = f.hp < 70;
+      if (!needWeapon && !needHeal) return null;
+      let best: LootDrop | null = null;
+      let bestD = f.inv.length === 0 ? 40 : 18;
+      for (const l of loots) {
+        if (l.taken) continue;
+        if (l.kind === "soin" ? !needHeal : !needWeapon || f.inv.some((s) => s.weapon === l.weapon)) continue;
+        const d = Math.abs(l.x - f.x) + Math.abs(l.z - f.z);
+        if (d < bestD) {
+          bestD = d;
+          best = l;
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Avance vers (gx, gz) en suivant un chemin sur la grille. Le chemin est
+     * recalcule de temps en temps, et au plus tous les tiers de seconde quand
+     * la destination bouge : une cible qui court change de case sans arret.
+     */
+    function moveTowards(f: Fighter, gx: number, gz: number, speed: number, delta: number) {
+      const cgx = THREE.MathUtils.clamp(Math.floor(gx), 0, mapW - 1);
+      const cgz = THREE.MathUtils.clamp(Math.floor(gz), 0, mapH - 1);
+      const goal = cgz * mapW + cgx;
+      f.repathTimer -= delta;
+      if (f.repathTimer <= 0 || (goal !== f.pathGoal && f.repathTimer < 0.55)) {
+        f.repathTimer = 0.85 + Math.random() * 0.3;
+        f.pathGoal = goal;
+        f.path = pather.find(Math.floor(f.x), Math.floor(f.z), cgx, cgz, island ? 14000 : undefined);
+        f.pathIndex = 0;
+      }
+      let tx = gx;
+      let tz = gz;
+      if (f.path && f.path.length > 0) {
+        // Case atteinte : on vise aussitot la suivante, sans marquer d'arret.
+        while (
+          f.pathIndex < f.path.length - 1 &&
+          Math.hypot(f.path[f.pathIndex][0] + 0.5 - f.x, f.path[f.pathIndex][1] + 0.5 - f.z) < 0.14
+        ) {
+          f.pathIndex++;
+        }
+        const node = f.path[Math.min(f.pathIndex, f.path.length - 1)];
+        tx = node[0] + 0.5;
+        tz = node[1] + 0.5;
+      }
+      const dx = tx - f.x;
+      const dz = tz - f.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.05) return;
+      const step = Math.min(d, speed * delta);
+      const nx = f.x + (dx / d) * step;
+      const nz = f.z + (dz / d) * step;
+      if (!isSolid(Math.floor(nx), Math.floor(f.z))) f.x = nx;
+      if (!isSolid(Math.floor(f.x), Math.floor(nz))) f.z = nz;
+    }
+
+    /** Battle royale : un point de balade dans la zone, quand il n'a rien d'autre a faire. */
+    function wander(f: Fighter, zone: { x: number; z: number; r: number }, speed: number, delta: number) {
+      const stale =
+        Number.isNaN(f.wanderX) ||
+        Math.hypot(f.wanderX - f.x, f.wanderZ - f.z) < 1.5 ||
+        Math.hypot(f.wanderX - zone.x, f.wanderZ - zone.z) > zone.r * 0.8;
+      if (stale && island) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * zone.r * 0.65;
+        const [ox, oz] = nearestOpenCell(island, zone.x + Math.cos(a) * r, zone.z + Math.sin(a) * r);
+        f.wanderX = ox + 0.5;
+        f.wanderZ = oz + 0.5;
+      }
+      moveTowards(f, f.wanderX, f.wanderZ, speed * 0.8, delta);
+    }
+
+    /**
+     * Un bot, une image. `zone` (battle royale) : le cercle a rejoindre en
+     * priorite quand il s'en eloigne.
+     */
+    function updateBot(f: Fighter, delta: number, zone: { x: number; z: number; r: number } | null) {
       if (!f.alive) return;
       if (f.dead) {
         f.deathT = Math.min(1, f.deathT + delta * (f.anim ? 0.35 : 2.6));
@@ -1673,125 +2139,143 @@ export default function DuelScene({
           f.dead = false;
           f.deathT = 0;
           f.safeUntil = elapsed + SPAWN_PROTECT;
+          f.path = null;
+          if (mode.gunGame) botSetOnly(f, GUN_GAME_ORDER[Math.min(f.rank, GUN_GAME_ORDER.length - 1)]);
+          for (const s of f.inv) s.mag = WEAPONS[s.weapon].magSize;
           f.mag = WEAPONS[f.weapon].magSize;
-          if (mode.gunGame) f.weapon = GUN_GAME_ORDER[Math.min(f.rank, GUN_GAME_ORDER.length - 1)];
         }
         return;
       }
 
+      const botCfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
+      f.thinkAt -= delta;
+      if (f.thinkAt <= 0) {
+        f.thinkAt = 0.22 + Math.random() * 0.14;
+        chooseTarget(f);
+        if (mode.loot) f.lootTarget = lootGoalFor(f);
+        const t = targetOf(f);
+        botPickWeapon(f, t ? Math.hypot(t.x - f.x, t.z - f.z) : 12);
+      }
+
       const spec = WEAPONS[f.weapon];
-      const targets = enemiesOf(f);
-      if (targets.length === 0) return;
-
-      // Cible la plus proche VISIBLE ; sinon la plus proche tout court.
-      let target = targets[0];
-      let bestScore = Infinity;
-      for (const t of targets) {
-        const d = Math.hypot(t.x - f.x, t.z - f.z);
-        const visible = hasLineOfSight(f.x, f.z, t.x, t.z);
-        const score = visible ? d : d + 40;
-        if (score < bestScore) {
-          bestScore = score;
-          target = t;
-        }
-      }
-
-      // Rejoindre la zone passe avant tout le reste : un bot qui poursuit
-      // sa cible pendant que le cercle se ferme meurt betement dehors.
-      if (goTo) {
-        target = { x: goTo.x, z: goTo.z, isMe: false, ref: null };
-      }
-      const dist = Math.hypot(target.x - f.x, target.z - f.z);
-      const sees =
-        !goTo && dist < spec.range * 1.4 && hasLineOfSight(f.x, f.z, target.x, target.z);
-      f.seenFor = sees ? f.seenFor + delta : 0;
-      if (sees && target.isMe) engagingMe += 1;
+      const target = targetOf(f);
+      if (!target) f.sees = false;
+      const dist = target ? Math.hypot(target.x - f.x, target.z - f.z) : Infinity;
+      f.seenFor = f.sees ? f.seenFor + delta : 0;
+      if (f.sees && f.targetIsMe) engagingMe += 1;
 
       const prevX = f.x;
       const prevZ = f.z;
       const speed = DUEL_MOVE_SPEED * 0.76 * spec.moveFactor;
+      const zoneDist = zone ? Math.hypot(f.x - zone.x, f.z - zone.z) : 0;
+      // Priorite 1 : rentrer dans le cercle des 80 % du rayon. Attendre d'etre
+      // dehors pour reagir revenait a le condamner.
+      const mustReachZone = zone !== null && zoneDist > zone.r * 0.8;
+      // Jusqu'ou il accepte le combat : la portee de son arme, son temperament,
+      // et sur l'ile un debut de partie calme (on s'equipe avant de chasser).
+      // Touche, il riposte quoi qu'il arrive. Aux poings, seulement de tres pres.
+      const provoked = elapsed < f.provokedUntil;
+      let engage = spec.melee ? 4.5 : spec.range * 1.3 * f.aggro;
+      if (island && !provoked) {
+        engage = Math.min(engage, 26);
+        // Les quatre-vingt-dix premieres secondes au sol, on s'equipe : on ne
+        // tire que sur qui s'approche vraiment, et on ne se bat pas aux poings.
+        if (elapsed - dropAt < 90) engage = spec.melee ? 0 : Math.min(engage, 6);
+      }
+      if (provoked && !spec.melee) engage = Math.max(engage, spec.range * 1.6);
+      const fights = target !== null && f.sees && dist <= engage;
 
-      // Distance a laquelle il se sent bien : au pompe il colle, au sniper
-      // il garde ses distances. C'est ce qui donne aux bots des caracteres.
-      const ideal = goTo ? 0.5 : spec.id === "pompe" ? 2.5 : spec.id === "sniper" ? 11 : 6;
-
-      if (!sees || dist > ideal + 1.5) {
-        f.repathTimer -= delta;
-        if (f.repathTimer <= 0) {
-          f.repathTimer = 0.5;
-          f.path = bfsPath(
-            [Math.floor(f.x), Math.floor(f.z)],
-            [Math.floor(target.x), Math.floor(target.z)],
-          );
-          // Le chemin commence par la case du bot : la viser le ramenait au
-          // centre a chaque recalcul (toutes les 0,5 s), d'ou des allers-retours.
-          f.pathIndex = f.path && f.path.length > 1 ? 1 : 0;
-        }
-        if (f.path && f.pathIndex < f.path.length) {
-          const [tx, ty] = f.path[f.pathIndex];
-          const dx = tx + 0.5 - f.x;
-          const dz = ty + 0.5 - f.z;
-          const d = Math.hypot(dx, dz);
-          if (d < 0.14) f.pathIndex++;
-          else {
-            const nx = f.x + (dx / d) * speed * delta;
-            const nz = f.z + (dz / d) * speed * delta;
-            if (!isSolid(Math.floor(nx), Math.floor(f.z))) f.x = nx;
-            if (!isSolid(Math.floor(f.x), Math.floor(nz))) f.z = nz;
+      if (mustReachZone && zone) {
+        moveTowards(f, zone.x, zone.z, speed * 1.05, delta);
+      } else if (fights && target) {
+        // Distance a laquelle il se sent bien : au pompe il colle, au sniper il
+        // garde ses distances. C'est ce qui donne aux bots des caracteres.
+        const ideal = spec.melee ? 0.8 : spec.id === "pompe" ? 2.5 : spec.id === "sniper" ? 11 : spec.id === "carabine" ? 9 : 6;
+        if (dist > ideal + 1.5) {
+          moveTowards(f, target.x, target.z, speed, delta);
+        } else if (dist < ideal - 1) {
+          // Trop pres : il recule en gardant la cible en vue.
+          const dx = f.x - target.x;
+          const dz = f.z - target.z;
+          const d = Math.hypot(dx, dz) || 1;
+          const nx = f.x + (dx / d) * speed * delta;
+          const nz = f.z + (dz / d) * speed * delta;
+          if (!isSolid(Math.floor(nx), Math.floor(nz))) {
+            f.x = nx;
+            f.z = nz;
+          }
+        } else {
+          // A bonne distance il fait des pas de cote : un bot immobile est une
+          // cible gratuite, et c'est ce qui rendait les duels ternes.
+          if (elapsed > f.strafeUntil) {
+            f.strafeUntil = elapsed + (BOT_STRAFE_SECONDS * (0.6 + Math.random() * 0.8)) / botCfg.strafe;
+            f.strafeDir = Math.random() < 0.5 ? -1 : 1;
+          }
+          const sideA = Math.atan2(target.x - f.x, target.z - f.z) + (Math.PI / 2) * f.strafeDir;
+          const nx = f.x + Math.sin(sideA) * speed * 0.9 * delta;
+          const nz = f.z + Math.cos(sideA) * speed * 0.9 * delta;
+          if (!isSolid(Math.floor(nx), Math.floor(nz))) {
+            f.x = nx;
+            f.z = nz;
+          } else {
+            // Il a touche un mur : il repartira de l'autre cote.
+            f.strafeUntil = 0;
           }
         }
-      } else if (dist < ideal - 1) {
-        // Trop pres : il recule en gardant la cible en vue.
-        const dx = f.x - target.x;
-        const dz = f.z - target.z;
-        const d = Math.hypot(dx, dz) || 1;
-        const nx = f.x + (dx / d) * speed * delta;
-        const nz = f.z + (dz / d) * speed * delta;
-        if (!isSolid(Math.floor(nx), Math.floor(nz))) {
-          f.x = nx;
-          f.z = nz;
-        }
-      } else {
-        // A bonne distance il fait des pas de cote : un bot immobile est une
-        // cible gratuite, et c'est ce qui rendait les duels ternes.
-        if (elapsed > f.strafeUntil) {
-          f.strafeUntil =
-            elapsed +
-            (BOT_STRAFE_SECONDS * (0.6 + Math.random() * 0.8)) /
-              (BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal).strafe;
-          f.strafeDir = Math.random() < 0.5 ? -1 : 1;
-        }
-        const side = Math.atan2(target.x - f.x, target.z - f.z) + (Math.PI / 2) * f.strafeDir;
-        const nx = f.x + Math.sin(side) * speed * 0.9 * delta;
-        const nz = f.z + Math.cos(side) * speed * 0.9 * delta;
-        if (!isSolid(Math.floor(nx), Math.floor(nz))) {
-          f.x = nx;
-          f.z = nz;
-        } else {
-          // Il a touche un mur : il repartira de l'autre cote.
-          f.strafeUntil = 0;
-        }
+      } else if (f.lootTarget && !f.lootTarget.taken) {
+        moveTowards(f, f.lootTarget.x, f.lootTarget.z, speed, delta);
+      } else if (target && !island) {
+        // Dans l'arene, on se cherche.
+        moveTowards(f, target.x, target.z, speed, delta);
+      } else if (zone) {
+        wander(f, zone, speed, delta);
       }
 
       // Il ramasse ce qu'il traverse : sans ca, seul le joueur progresse et
-      // la fin de partie oppose un sniper a cinq pistolets.
+      // la fin de partie oppose un sniper a des pistolets.
       for (const l of loots) {
-        if (l.taken) continue;
-        if (Math.hypot(f.x - l.x, f.z - l.z) > 0.9) continue;
-        l.taken = true;
-        f.weapon = l.weapon;
-        f.mag = WEAPONS[l.weapon].magSize;
-        f.reloadUntil = 0;
+        if (l.taken || Math.abs(f.x - l.x) > 0.9 || Math.abs(f.z - l.z) > 0.9) continue;
+        if (l.kind === "soin") {
+          if (f.hp < DUEL_MAX_HP) {
+            f.hp = Math.min(DUEL_MAX_HP, f.hp + l.heal);
+            l.taken = true;
+          }
+        } else if (botTakeWeapon(f, l.weapon)) {
+          l.taken = true;
+        }
       }
 
-      const botCfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
-      f.yaw = Math.atan2(target.x - f.x, target.z - f.z);
+      // Il regarde sa cible s'il la voit, sinon la ou il va.
+      const mdx = f.x - prevX;
+      const mdz = f.z - prevZ;
+      if (f.sees && target) {
+        f.yaw = Math.atan2(target.x - f.x, target.z - f.z);
+      } else if (Math.hypot(mdx, mdz) > 1e-4) {
+        let turn = Math.atan2(mdx, mdz) - f.yaw;
+        while (turn > Math.PI) turn -= Math.PI * 2;
+        while (turn < -Math.PI) turn += Math.PI * 2;
+        f.yaw += turn * Math.min(1, delta * 8);
+      }
       f.pitch = 0;
-      f.speed = Math.hypot(f.x - prevX, f.z - prevZ) / Math.max(delta, 1e-4);
+      f.speed = Math.hypot(mdx, mdz) / Math.max(delta, 1e-4);
       f.walkPhase += f.speed * delta * 2.6;
 
-      // --- Il tire ---
-      if (!sees || f.seenFor < botCfg.reaction || elapsed < f.nextShotAt) return;
+      // --- Il frappe ou il tire ---
+      if (!target || !f.sees || f.seenFor < botCfg.reaction) return;
+      if (elapsed < f.nextShotAt || elapsed < f.swapUntil) return;
+
+      if (spec.melee) {
+        if (!fights || dist > spec.range + 0.3) return;
+        f.nextShotAt = elapsed + spec.fireInterval * (1.2 + Math.random() * 0.6) * botCfg.fireDelay;
+        const dmg = spec.damage * botCfg.damage;
+        if (f.targetIsMe) applyDamageToMe(dmg, f.x, f.z, f);
+        else if (f.targetRef) damageFighter(f.targetRef, dmg * BOT_VS_BOT_DAMAGE, false, f.name, f);
+        playImpact(audio.ctx, audio.master, panFor(f.x, f.z));
+        return;
+      }
+
+      // Hors de portee (ou pas encore decide a se battre) : il ne tire pas.
+      if (!fights || dist > spec.range * 1.6) return;
       if (f.reloadUntil > elapsed) return;
       if (f.mag <= 0) {
         f.reloadUntil = elapsed + spec.reloadSeconds;
@@ -1806,29 +2290,25 @@ export default function DuelScene({
       pingRadar(f.x, f.z);
 
       const from = new THREE.Vector3(f.x * DUEL_CELL, DUEL_EYE_HEIGHT, f.z * DUEL_CELL);
-      const to = new THREE.Vector3(
-        target.x * DUEL_CELL,
-        DUEL_EYE_HEIGHT - 0.15,
-        target.z * DUEL_CELL,
-      );
+      const to = new THREE.Vector3(target.x * DUEL_CELL, DUEL_EYE_HEIGHT - 0.15, target.z * DUEL_CELL);
       effects.tracer(from, to, spec.tracer, spec.pellets > 1);
 
       // Precision : elle chute avec la distance, et encore plus si la cible
       // se deplace. Rester immobile a couvert doit rester une mauvaise idee
       // uniquement quand on est a portee.
-      const movingTarget = target.isMe ? movingNow : (target.ref?.speed ?? 0) > 0.5;
       let accuracy = botCfg.accuracy - dist * 0.035;
-      if (movingTarget) accuracy -= 0.16;
+      if (target.moving) accuracy -= 0.16;
+      if (!f.targetIsMe) accuracy -= 0.12;
       if (dist > spec.range) accuracy *= 0.45;
       accuracy = Math.max(0.08, Math.min(0.85, accuracy));
 
       if (Math.random() < accuracy) {
         const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * botCfg.damage;
-        if (target.isMe) {
+        if (f.targetIsMe) {
           applyDamageToMe(dmg, f.x, f.z, f);
           effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 8);
-        } else if (target.ref) {
-          damageFighter(target.ref, dmg, false, f.name);
+        } else if (f.targetRef) {
+          damageFighter(f.targetRef, dmg * BOT_VS_BOT_DAMAGE, false, f.name, f);
         }
       } else {
         effects.sparks(to.x + (Math.random() - 0.5), to.y + Math.random() * 0.6, to.z + (Math.random() - 0.5), 6);
@@ -1837,6 +2317,25 @@ export default function DuelScene({
 
     // ------------------------------------------------------------ la boucle
     let movingNow = false;
+    /** Objet au sol sous les pieds qu'on ne peut pas prendre en passant. */
+    let groundLoot: LootDrop | null = null;
+    let lastHint: string | null = null;
+
+    /** E : l'arme en main tombe au sol, celle du sol vient en main. */
+    function swapWithGround() {
+      const l = groundLoot;
+      if (!l || l.taken || l.kind !== "arme" || me.dead || !me.alive) return;
+      l.taken = true;
+      if (me.inv.length === 0) {
+        giveWeapon(l.weapon);
+      } else {
+        const old = me.inv[me.cur].weapon;
+        replaceCurrent(l.weapon);
+        dropLoot(me.x, me.z, "arme", old);
+      }
+      groundLoot = null;
+      playReload(audio.ctx, audio.master);
+    }
 
     function tick() {
       const now = performance.now();
@@ -1977,15 +2476,47 @@ export default function DuelScene({
       wasFiring = wantFire;
 
       // -------------------------------------------------------- ramassage
+      // Une place libre, un doublon (munitions) ou un soin : on prend en
+      // passant. Inventaire plein : on propose l'echange, touche E.
+      groundLoot = null;
       if (canAct) {
         for (const l of loots) {
           if (l.taken) continue;
-          if (Math.hypot(me.x - l.x, me.z - l.z) < 0.8) {
+          if (Math.hypot(me.x - l.x, me.z - l.z) >= 0.8) continue;
+          if (l.kind === "soin") {
+            if (me.hp >= DUEL_MAX_HP) {
+              groundLoot ??= l;
+              continue;
+            }
             l.taken = true;
-            setMyWeapon(l.weapon);
+            me.hp = Math.min(DUEL_MAX_HP, me.hp + l.heal);
+            setHp(me.hp);
             playReload(audio.ctx, audio.master);
+            setPickupToast(`Soin +${l.heal}`);
+            window.setTimeout(() => setPickupToast(null), 1400);
+            continue;
+          }
+          const result = giveWeapon(l.weapon);
+          if (result === "plein") {
+            groundLoot = l;
+            continue;
+          }
+          l.taken = true;
+          playReload(audio.ctx, audio.master);
+          if (result === "recharge") {
+            setPickupToast(`Munitions · ${WEAPONS[l.weapon].name}`);
+            window.setTimeout(() => setPickupToast(null), 1400);
           }
         }
+      }
+      const hint = groundLoot
+        ? groundLoot.kind === "soin"
+          ? "Vie déjà pleine"
+          : `E : échanger contre ${WEAPONS[groundLoot.weapon].name}`
+        : null;
+      if (hint !== lastHint) {
+        lastHint = hint;
+        setPickupHint(hint);
       }
       updateLootVisuals(elapsed);
 
@@ -2026,6 +2557,7 @@ export default function DuelScene({
 
         // Les bots aussi doivent rentrer, sinon ils meurent tous dehors et la
         // partie se gagne toute seule.
+        const zonePlan = { x: zoneCenter.x, z: zoneCenter.z, r: zoneRadius };
         for (const f of fighters) {
           if (f.dead || !f.alive) continue;
           // Encore en l'air : il ne subit rien et ne fait rien.
@@ -2038,35 +2570,13 @@ export default function DuelScene({
             f.hp = Math.max(0, f.hp - ZONE_DAMAGE_PER_SECOND * delta);
             if (f.hp <= 0) registerFighterDeath(f, "La zone", false);
           }
-          // Priorite 1 : rentrer dans le cercle des 80 % du rayon. Attendre
-          // d'etre dehors pour reagir revenait a le condamner.
-          // Priorite 2 : pendant la periode de grace, aller chercher une arme
-          // plutot que foncer sur le joueur — c'est ce qui donne a tout le
-          // monde le temps de s'equiper, et ce qui fait qu'une battle royale
-          // ne se joue pas au pistolet.
-          let goal: { x: number; z: number } | undefined;
-          if (d > zoneRadius * 0.8) {
-            goal = zoneCenter;
-          } else if (zoneTime < ZONE_GRACE_SECONDS) {
-            let best: LootDrop | null = null;
-            let bestD = Infinity;
-            for (const l of loots) {
-              if (l.taken) continue;
-              const ld = Math.hypot(f.x - l.x, f.z - l.z);
-              if (ld < bestD) {
-                bestD = ld;
-                best = l;
-              }
-            }
-            if (best) goal = { x: best.x, z: best.z };
-          }
-          updateBot(f, delta, goal);
+          updateBot(f, delta, zonePlan);
         }
       } else {
         // En Economie, tout le monde est fige pendant les achats et la fin de manche.
         if (!buying() && roundResetAt < 0) {
           for (const f of fighters) {
-            if (f.isBot) updateBot(f, delta);
+            if (f.isBot) updateBot(f, delta, null);
           }
         }
       }
@@ -2163,10 +2673,15 @@ export default function DuelScene({
 
       // --------------------------------------------------- rendu des soldats
       for (const f of fighters) {
-        const visible = f.alive && (!f.dead || f.deathT < 1);
+        // Sur l'ile, au-dela du brouillard on ne voit personne : inutile de
+        // dessiner ou d'animer trente soldats.
+        const inFog = island !== null && Math.hypot(f.x - me.x, f.z - me.z) > 66;
+        const visible = f.alive && (!f.dead || f.deathT < 1) && !inFog;
         f.model.group.visible = visible && !f.anim;
         if (f.anim) f.anim.root.visible = visible;
         if (!visible) continue;
+        const bare = WEAPONS[f.weapon].melee === true;
+        if (f.animGun) f.animGun.visible = !bare;
         if (f.anim) {
           f.anim.root.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
           f.anim.root.rotation.y = f.yaw;
@@ -2184,7 +2699,10 @@ export default function DuelScene({
             const right = -mdx * Math.cos(f.yaw) + mdz * Math.sin(f.yaw);
             if (Math.abs(right) > Math.abs(forward) * 1.2) clip = right > 0 ? "Run_Right" : "Run_Left";
             else if (forward < 0) clip = "Run_Back";
-            else clip = shooting ? "Run_Shoot" : "Run";
+            else clip = shooting && !bare ? "Run_Shoot" : "Run";
+          } else if (bare) {
+            // Mains nues : pas de pose d'arme.
+            clip = "Idle_Neutral";
           } else {
             clip = shooting ? "Idle_Gun_Shoot" : f.seenFor > 0 ? "Idle_Gun_Pointing" : "Idle_Gun";
           }
@@ -2281,6 +2799,7 @@ export default function DuelScene({
 
       renderer.render(scene, camera);
     }
+    syncWeaponUi();
     const intervalId = window.setInterval(tick, 16);
     tick();
 
@@ -2297,6 +2816,7 @@ export default function DuelScene({
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("wheel", onWheel);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("mouseup", onMouseUp);
       renderer.domElement.removeEventListener("pointerdown", onTouchPointerDown);
@@ -2568,17 +3088,58 @@ export default function DuelScene({
         </div>
       </div>
 
-      {/* Arme + munitions */}
-      <div className="pointer-events-none absolute bottom-16 right-4 text-right sm:bottom-4">
+      {/* Arme + munitions, et l'inventaire : touches 1 a 3 ou molette */}
+      <div className="pointer-events-none absolute bottom-16 right-4 flex flex-col items-end gap-1.5 text-right sm:bottom-4">
+        {!mode.gunGame && (inventory.slots.length > 0 || island) && (
+          <div className="flex gap-1">
+            {Array.from({ length: 3 }).map((_, i) => {
+              const w = inventory.slots[i];
+              if (!w) {
+                return (
+                  <div key={i} className="flex h-10 min-w-[4.4rem] items-center justify-center rounded-md bg-black/35 ring-1 ring-white/10">
+                    <span className="font-mono text-[10px] text-zinc-600">{i + 1}</span>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className={`flex h-10 min-w-[4.4rem] flex-col items-start justify-center rounded-md px-2 ring-1 ${
+                    i === inventory.cur ? "bg-cyan-500/30 ring-cyan-300" : "bg-black/60 ring-white/10"
+                  }`}
+                  style={{ boxShadow: `inset 0 -3px 0 ${RARITY[WEAPON_RARITY[w]].color}` }}
+                >
+                  <span className="font-mono text-[9px] font-bold leading-none text-zinc-400">{i + 1}</span>
+                  <span className="text-[11px] font-black uppercase leading-tight text-white">{WEAPONS[w].short}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">{weaponName}</p>
-        <p className="font-mono text-3xl font-black text-white">
-          {reloading ? "—" : ammo}
-          <span className="ml-1 text-base text-zinc-500">/ {magSize}</span>
-        </p>
-        <p className="text-xs font-semibold text-zinc-400">
-          {reloading ? "Rechargement..." : ammo === 0 ? "R pour recharger" : "R : recharger"}
-        </p>
+        {magSize > 0 ? (
+          <>
+            <p className="font-mono text-3xl font-black text-white">
+              {reloading ? "—" : ammo}
+              <span className="ml-1 text-base text-zinc-500">/ {magSize}</span>
+            </p>
+            <p className="text-xs font-semibold text-zinc-400">
+              {reloading ? "Rechargement..." : ammo === 0 ? "R pour recharger" : "R : recharger"}
+            </p>
+          </>
+        ) : (
+          <p className="text-xs font-semibold text-amber-200">
+            {island ? "Mains nues · trouve une arme" : "Corps à corps"}
+          </p>
+        )}
       </div>
+
+      {/* Inventaire plein : l'objet au sol s'echange avec E */}
+      {pickupHint && (
+        <div className="pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-lg bg-black/75 px-4 py-2 text-sm font-bold text-yellow-200 ring-1 ring-yellow-400/40">
+          {pickupHint}
+        </div>
+      )}
 
       {/* Arme ramassee */}
       {pickupToast && (
@@ -2796,7 +3357,7 @@ export default function DuelScene({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
-            R : recharger · Échap : libérer la souris
+            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · Échap : libérer la souris
           </span>
         </div>
       )}

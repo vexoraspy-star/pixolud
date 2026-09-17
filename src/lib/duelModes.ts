@@ -40,6 +40,7 @@ export interface DuelEconomy {
 
 /** Prix de chaque arme en mode Economie. Le pistolet est toujours gratuit. */
 export const WEAPON_PRICES: Record<WeaponId, number> = {
+  poings: 0,
   pistolet: 0,
   revolver: 700,
   pm: 1050,
@@ -130,14 +131,14 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
   zone: {
     id: "zone",
     name: "Battle royale",
-    tagline: "Grande île · 12 joueurs",
+    tagline: "Île géante · 30 joueurs",
     detail:
-      "Une grande île avec sept lieux nommés. Tu choisis où atterrir sur la carte, tu sautes en parachute, tu ramasses tes armes et tu survis à la zone. Une seule vie, le dernier debout gagne.",
+      "Trente joueurs sur une île géante aux quinze lieux nommés. Tu atterris les mains vides : fouille les bâtiments, trouve des armes et des soins, change d'arme selon la distance et survis à la zone. Une seule vie, le dernier debout gagne.",
     arena: "zone",
-    bots: 11,
+    bots: 29,
     scoreToWin: 0,
     respawn: false,
-    startWeapon: "pistolet",
+    startWeapon: "poings",
     gunGame: false,
     shrinkingZone: true,
     loot: true,
