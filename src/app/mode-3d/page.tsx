@@ -31,7 +31,12 @@ function GameCard({ game, big }: { game: Game3D; big: boolean }) {
           big ? "h-44" : "h-32"
         }`}
       >
-        <span className={big ? "text-7xl" : "text-5xl"}>{game.emoji}</span>
+        {game.cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={game.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <span className={big ? "text-7xl" : "text-5xl"}>{game.emoji}</span>
+        )}
         {game.locked && (
           <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-black uppercase tracking-[0.3em] text-white">
             🔒 Bientôt

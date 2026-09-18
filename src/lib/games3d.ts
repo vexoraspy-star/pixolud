@@ -16,6 +16,8 @@ export interface Game3D {
   highlights: string[];
   /** Mis en avant en grand en haut de la galerie. */
   featured?: boolean;
+  /** Illustration de la vignette (fichier de public/, dessine maison) ; sinon l'emoji. */
+  cover?: string;
   /**
    * Annonce mais pas encore jouable : visible dans la galerie avec un badge
    * "Bientot", jamais cliquable, et sa page renvoie une 404. Le jeu n'existe
@@ -54,17 +56,18 @@ export const GAMES_3D: Game3D[] = [
     slug: "duel-1v1",
     title: "Duel — Arène de tir",
     description:
-      "Tir à la première personne : neuf armes, quatre cartes et cinq modes — duel en 1 contre 1 avec un code de salon, match à mort, course à l'armement, économie à la Counter-Strike et une vraie battle royale où tu choisis où atterrir.",
+      "Tir à la première personne : treize armes, cinq cartes et sept modes — battle royale à 30, 1v1 construction, duel en ligne avec un code, match à mort, course à l'armement, économie et stand d'entraînement.",
     emoji: "🎯",
+    cover: "/covers/duel.svg",
     gradient: "from-cyan-700 to-slate-950",
     genre: "Tir",
     players: "Solo ou 1 contre 1",
     duration: "5 à 15 min",
     highlights: [
-      "Battle royale : choisis où atterrir",
-      "9 armes et des skins",
+      "Battle royale à 30",
+      "1v1 construction",
+      "13 armes, skins et danses",
       "En ligne avec un code",
-      "Réticule et laser réglables",
     ],
     featured: true,
   },
