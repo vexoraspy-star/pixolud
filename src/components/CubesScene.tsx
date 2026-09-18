@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { AIR, BLOCKS, CHUNK, PALETTE, SOCLE, WORLD_HEIGHT, World, block, buildChunkMesh, decodeEdits, encodeEdits, raycast, spawnPoint, type MeshData, type SavedWorld } from "@/lib/voxel";
-import { createVoxelAtlas, TILE_COLORS } from "@/lib/voxelTextures";
+import { createVoxelAtlas } from "@/lib/voxelTextures";
+import { createVoxelAtmosphere } from "@/lib/voxelAtmosphere";
 import { VoxelAudio } from "@/lib/voxelAudio";
 import { CUBES_SAVE_KEY } from "@/lib/voxelSave";
-import { loadBrightness3D, loadLayout3D, loadQuality3D, loadSensitivity3D } from "@/lib/settings3d";
+import { loadBrightness3D, loadLayout3D, loadQuality3D, loadSensitivity3D, saveBrightness3D } from "@/lib/settings3d";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import Game3DSettings from "./Game3DSettings";
+import CubesBlockIcon from "./CubesBlockIcon";
 
 type Hud = { selected: number; hotbar: number[]; stock: Record<string, number>; health: number; target: string; progress: number; chunks: number; fps: number };
 type Command = { resume: () => void; resumeWithoutLock: () => void; pause: () => void; save: () => boolean; export: () => void; select: (slot: number) => void; assign: (id: number) => void; respawn: () => void };
@@ -24,6 +26,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
   const [fatal, setFatal] = useState(false);
   const [lockFailed, setLockFailed] = useState(false);
   const [terrainReady, setTerrainReady] = useState(false);
+  const [inventorySearch, setInventorySearch] = useState("");
   const [hud, setHud] = useState<Hud>({ selected: 0, hotbar: initial.hotbar, stock: initial.stock, health: 100, target: "", progress: 0, chunks: 0, fps: 0 });
 
   useEffect(() => {
@@ -37,19 +40,18 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     canvas.tabIndex = 0;
     canvas.setAttribute("aria-label", "Monde Cubes : clavier pour se déplacer, flèches pour regarder sans capture de souris");
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#a8d9ed");
-    scene.fog = new THREE.Fog("#a8d9ed", 25, 48);
-    const camera = new THREE.PerspectiveCamera(74, 1, .07, 100);
+    scene.background = new THREE.Color("#d7e8da");
+    scene.fog = new THREE.Fog("#d7e8da", 25, 48);
+    const camera = new THREE.PerspectiveCamera(72, 1, .07, 190);
     camera.rotation.order = "YXZ";
-    const ambient = new THREE.AmbientLight(0xffffff, loadBrightness3D() * 1.8);
+    const ambient = new THREE.HemisphereLight("#dceeff", "#889765", loadBrightness3D() * 1.65);
     scene.add(ambient);
-    const sunGeometry = new THREE.BoxGeometry(5, 5, 1);
-    const sunMaterial = new THREE.MeshLambertMaterial({ color: "#fff3bd", emissive: "#fff3bd", fog: false });
-    const sun = new THREE.Mesh(sunGeometry, sunMaterial);
-    scene.add(sun);
+    const sunlight = new THREE.DirectionalLight("#fff0cb", .95);
+    sunlight.position.set(-60, 90, -45); scene.add(sunlight);
+    const atmosphere = createVoxelAtmosphere(scene);
     const atlas = createVoxelAtlas();
     const material = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, alphaTest: .15 });
-    const waterMaterial = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: .62, depthWrite: false, side: THREE.DoubleSide });
+    const waterMaterial = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, color: "#b7fff0", transparent: true, opacity: .7, depthWrite: false, side: THREE.DoubleSide });
     const world = new World(initial.seed, decodeEdits(initial.edits));
     const meshes = new Map<string, THREE.Group>();
     const player = { ...initial.player };
@@ -286,7 +288,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       // Les reglages restent reactifs sans lire le stockage a chaque mouvement de souris.
       if (now - settingsAt > 500) {
         layout = loadLayout3D(); quality = loadQuality3D(); sensitivity = loadSensitivity3D();
-        ambient.intensity = loadBrightness3D() * 1.8; settingsAt = now;
+        ambient.intensity = loadBrightness3D() * 1.65; settingsAt = now;
       }
       // Un seul chunk genere et un seul maillage par tick pour repartir le cout.
       terrainStep();
@@ -377,7 +379,8 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       if (now - saveAt > 20000 && ready) { save(); saveAt = now; }
       frameCount++;
       if (now - metricsAt >= 1000) { fps = Math.round(frameCount * 1000 / (now - metricsAt)); frameCount = 0; metricsAt = now; }
-      sun.position.set(camera.position.x - 34, camera.position.y + 32, camera.position.z - 55);
+      atmosphere.update(camera, dt);
+      waterMaterial.opacity = .68 + Math.sin(now * .0007) * .035;
       renderer.render(scene, camera);
     }, 16);
     return () => {
@@ -389,43 +392,59 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       observer.disconnect(); for (const key of meshes.keys()) removeMesh(key);
       for (const enemy of enemies) removeEnemy(enemy);
-      sunGeometry.dispose(); sunMaterial.dispose();
+      atmosphere.dispose();
       enemyGeo.dispose(); enemyMat.dispose(); outlineGeometry.dispose(); outlineMaterial.dispose(); atlas.dispose(); material.dispose(); waterMaterial.dispose(); audio.dispose(); renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
     };
   }, [initial]);
 
-  return <div className="relative h-full w-full bg-slate-950 text-white">
+  const visibleBlocks = PALETTE.filter(id => block(id).name.toLocaleLowerCase("fr").includes(inventorySearch.toLocaleLowerCase("fr")));
+  return <div className="relative h-full w-full bg-[#152b23] text-[#faf7e8]">
     <div ref={host} className="absolute inset-0" />
     {!paused && <>
-      <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow">+</div>
-      <div className="absolute left-4 top-4 rounded-xl bg-black/55 px-3 py-2 text-xs">CUBES · {initial.mode === "creatif" ? "Créatif" : `Survie · Vie ${hud.health}/100`}<br />{hud.fps} i/s · {hud.chunks} zones chargées</div>
-      <button className="absolute right-4 top-4 rounded-xl bg-black/60 px-4 py-2" onClick={() => commands.current?.pause()}>Pause</button>
-      <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 text-center text-sm drop-shadow">{hud.target}{hud.progress > 0 && <progress className="block w-36" value={hud.progress} max={1} />}</div>
+      <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 size-5 -translate-x-1/2 -translate-y-1/2 drop-shadow"><span className="absolute left-2 top-0 h-5 w-px bg-white/90" /><span className="absolute left-0 top-2 h-px w-5 bg-white/90" /></div>
+      <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-white/15 bg-[#13251e]/80 px-4 py-3 shadow-lg">
+        <p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#d4e7b9]">Cubes <span className="ml-2 font-normal tracking-normal text-white/70">{initial.mode === "creatif" ? "Exploration créative" : "Survie"}</span></p>
+        {initial.mode === "survie" && <div className="mt-2 flex items-center gap-2"><span aria-hidden="true" className="text-rose-300">♥</span><div role="meter" aria-label="Vie" aria-valuenow={hud.health} aria-valuemin={0} aria-valuemax={100} className="h-1.5 w-28 overflow-hidden rounded-full bg-white/15"><div className="h-full rounded-full bg-gradient-to-r from-rose-400 to-amber-200 transition-[width]" style={{ width: `${hud.health}%` }} /></div><span className="text-xs tabular-nums">{hud.health}</span></div>}
+      </div>
+      <button className="absolute right-4 top-4 rounded-xl border border-white/20 bg-[#13251e]/80 px-4 py-2 text-sm shadow-lg hover:bg-[#13251e]" onClick={() => commands.current?.pause()}>Ⅱ <span className="ml-1">Pause</span><kbd className="ml-3 hidden rounded border border-white/20 px-1.5 text-[10px] text-white/60 sm:inline">Échap</kbd></button>
+      {hud.target && <div className="pointer-events-none absolute left-1/2 top-[56%] -translate-x-1/2 rounded-lg bg-[#142c21]/75 px-3 py-1.5 text-center text-xs shadow">{hud.target}{hud.progress > 0 && <div className="mt-1.5 h-1 w-28 overflow-hidden rounded bg-white/20"><div className="h-full bg-amber-200" style={{ width: `${Math.min(100, hud.progress * 100)}%` }} /></div>}</div>}
+      <div className="pointer-events-none absolute bottom-3 left-3 hidden text-[10px] text-white/75 drop-shadow sm:block">{hud.fps} i/s</div>
+      <div className="pointer-events-none absolute bottom-3 right-3 hidden text-[10px] text-white/75 drop-shadow lg:block">E · Inventaire &nbsp; {initial.mode === "creatif" ? "F · Vol" : "Maj · Courir"}</div>
     </>}
-    <div className="absolute bottom-4 left-1/2 flex max-w-full -translate-x-1/2 gap-1 rounded-2xl bg-black/65 p-2">
-      {hud.hotbar.map((id, slot) => <button key={slot} title={`${slot + 1} · ${block(id).name}`} aria-label={`Case ${slot + 1} : ${block(id).name}`} aria-pressed={hud.selected === slot} onClick={() => commands.current?.select(slot)} className={`relative h-14 w-12 rounded-lg border-2 ${hud.selected === slot ? "border-amber-300 bg-white/20" : "border-transparent"}`}>
-        <span className="absolute left-1 top-0 text-[10px]">{slot + 1}</span><span className="mx-auto block h-6 w-6 rounded-sm shadow" style={{ background: TILE_COLORS[block(id).tiles[0]] }} />
-        {initial.mode === "survie" && <span className="absolute bottom-0 right-1 text-xs">{hud.stock[id] ?? 0}</span>}
+    {!paused && <div className="absolute bottom-5 left-1/2 max-w-full -translate-x-1/2">
+      <p className="mb-2 text-center text-xs font-medium text-white drop-shadow">{block(hud.hotbar[hud.selected]).name}</p>
+      <div className="flex gap-1 rounded-2xl border border-white/15 bg-[#14261d]/90 p-1.5 shadow-2xl sm:gap-1.5 sm:p-2">
+      {hud.hotbar.map((id, slot) => <button key={slot} title={`${slot + 1} · ${block(id).name}`} aria-label={`Case ${slot + 1} : ${block(id).name}`} aria-pressed={hud.selected === slot} onClick={() => commands.current?.select(slot)} className={`relative flex h-12 w-9 items-center justify-center rounded-lg border transition-colors sm:h-14 sm:w-12 ${hud.selected === slot ? "border-[#eed896] bg-[#eed896]/20 shadow-[inset_0_0_12px_#eed89620]" : "border-white/5 bg-white/5 hover:bg-white/10"}`}>
+        <span className="absolute left-1 top-0.5 text-[9px] text-white/50">{slot + 1}</span><CubesBlockIcon id={id} size={30} />
+        {initial.mode === "survie" && <span className="absolute bottom-0.5 right-1 text-[10px] tabular-nums">{hud.stock[id] ?? 0}</span>}
       </button>)}
-    </div>
-    {paused && <div className="absolute inset-0 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-5 backdrop-blur-sm">
-      <div className="my-auto w-full max-w-xl rounded-3xl border border-white/15 bg-slate-900/95 p-6 shadow-2xl">
-        <p className="text-xs font-semibold uppercase tracking-[.3em] text-emerald-300">Ton monde, bloc par bloc</p>
-        <h2 className="mt-2 text-3xl font-bold">{inventory ? "Inventaire" : healthLabel(hud.health)}</h2>
-        <p role="status" className="mt-3 text-sm text-slate-300">{message}</p>
-        {inventory ? <><p className="mt-3 text-sm">Choisis un bloc pour la case {hud.selected + 1}.</p><div className="mt-3 grid max-h-64 grid-cols-4 gap-2 overflow-y-auto">{PALETTE.map(id => <button key={id} onClick={() => commands.current?.assign(id)} className="rounded-lg border border-white/15 p-2 text-xs hover:bg-white/10"><span className="mx-auto mb-1 block h-5 w-5" style={{ background: TILE_COLORS[block(id).tiles[0]] }} />{BLOCKS[id].name}{initial.mode === "survie" && ` (${hud.stock[id] ?? 0})`}</button>)}</div></> : <p className="mt-4 text-sm leading-6 text-slate-400">ZQSD / WASD : marcher · Souris : regarder<br />Espace : sauter / nager · Maj : courir · E : inventaire<br />Clic gauche maintenu : creuser ou frapper · Clic droit : poser<br />1–9 / molette : choisir · Échap : pause{initial.mode === "creatif" && <><br />F : activer le vol · Espace / Maj : monter / descendre</>}</p>}
+      </div>
+    </div>}
+    {paused && <div className="absolute inset-0 flex items-center justify-center overflow-y-auto bg-[#081c14]/60 p-4 backdrop-blur-sm">
+      <div className="relative my-auto w-full max-w-2xl rounded-3xl border border-[#d1ddb8]/20 bg-[#142a20]/95 p-5 shadow-2xl sm:p-8">
+        <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c8dba8]">Cubes · {initial.mode === "creatif" ? "Mode créatif" : "Mode survie"}</p>
+        <h2 className="mt-2 text-3xl font-bold tracking-tight">{inventory ? "À toi de construire." : healthLabel(hud.health)}</h2>
+        <p role="status" className="mt-3 text-xs leading-5 text-[#b9c9b9]">{message}</p>
+        {inventory ? <>
+          <div className="mt-4 flex items-center justify-between gap-3"><p className="text-xs text-[#b9c9b9]">Choisis une case, puis un bloc.</p><input aria-label="Rechercher un bloc" value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} placeholder="Rechercher…" className="w-40 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs outline-none focus:border-amber-200" /></div>
+          <div className="mt-3 flex gap-1">{hud.hotbar.map((id, slot) => <button key={slot} aria-label={`Modifier la case ${slot + 1}`} aria-pressed={hud.selected === slot} onClick={() => commands.current?.select(slot)} className={`flex flex-1 flex-col items-center rounded-lg border py-2 ${hud.selected === slot ? "border-amber-200 bg-amber-100/15" : "border-white/10 bg-white/5"}`}><CubesBlockIcon id={id} size={24} /><span className="text-[9px] text-white/50">{slot + 1}</span></button>)}</div>
+          <div className="mt-3 grid max-h-56 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5">{visibleBlocks.map(id => <button key={id} onClick={() => commands.current?.assign(id)} className="flex flex-col items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-2 text-[11px] transition-colors hover:border-amber-200/60 hover:bg-white/10"><CubesBlockIcon id={id} size={34} />{BLOCKS[id].name}{initial.mode === "survie" && <span className="text-amber-200">{hud.stock[id] ?? 0} en réserve</span>}</button>)}</div>
+          {visibleBlocks.length === 0 && <p className="mt-3 text-sm text-white/60">Aucun bloc trouvé.</p>}
+        </> : <div className="mt-5 grid gap-2 sm:grid-cols-2">{[
+          ["ZQSD / WASD", "Se déplacer"], ["Souris", "Regarder autour de soi"], ["Espace", "Sauter / nager"], ["Clic gauche", "Maintenir pour creuser"], ["Clic droit", "Poser un bloc"], ["E", "Ouvrir l’inventaire"], ["1–9 / molette", "Changer de bloc"], initial.mode === "creatif" ? ["F · Espace / Maj", "Vol · monter / descendre"] : ["Maj", "Courir"],
+        ].map(([key, action]) => <div key={key} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5 text-xs"><span className="text-[#b9c9b9]">{action}</span><kbd className="rounded border border-white/15 bg-black/10 px-2 py-1 text-[10px] text-[#f2df9f]">{key}</kbd></div>)}</div>}
         <div className="mt-5 flex flex-wrap gap-2">
-          {!fatal && <button disabled={!terrainReady} onClick={() => { if (hud.health <= 0) commands.current?.respawn(); else commands.current?.resume(); }} className="rounded-xl bg-emerald-400 px-5 py-3 font-bold text-slate-950 disabled:cursor-wait disabled:opacity-50">{!terrainReady ? "Préparation…" : hud.health <= 0 ? "Réapparaître" : "Jouer"}</button>}
+          {!fatal && <button disabled={!terrainReady} onClick={() => { if (hud.health <= 0) commands.current?.respawn(); else commands.current?.resume(); }} className="rounded-xl bg-[#e4d39a] px-6 py-3 font-bold text-[#172d20] shadow-lg hover:bg-[#f4e4ac] disabled:cursor-wait disabled:opacity-50">{!terrainReady ? "Préparation…" : hud.health <= 0 ? "Réapparaître" : "Jouer"}</button>}
           {lockFailed && hud.health > 0 && <button onClick={() => commands.current?.resumeWithoutLock()} className="rounded-xl bg-sky-300 px-4 py-2 font-semibold text-slate-950">Jouer sans capture</button>}
           <button onClick={() => { commands.current?.save(); }} className="rounded-xl border border-white/20 px-3 py-2">Sauvegarder</button>
           <button onClick={() => commands.current?.export()} className="rounded-xl border border-white/20 px-3 py-2">Exporter le monde</button>
           <button onClick={onExit} className="rounded-xl border border-white/20 px-3 py-2">Menu</button>
         </div>
-        <div className="mt-4"><Game3DSettings /></div>
-        <p className="mt-4 text-xs text-slate-500">Clavier et souris requis. Sauvegarde automatique sur cet appareil ; exporte ton monde pour en garder une copie.</p>
+        <Game3DSettings onQuality={() => {}} onBrightness={saveBrightness3D} />
+        <p className="mt-5 border-t border-white/10 pt-3 text-[10px] leading-5 text-[#9bae9f]">Sauvegarde automatique sur cet appareil · Exporte ton monde pour le conserver.<br />Clavier et souris requis · {hud.fps} i/s · {hud.chunks} zones chargées</p>
       </div>
     </div>}
   </div>;
 }
 
-function healthLabel(health: number) { return health <= 0 ? "Fin de l’expédition" : "Cubes"; }
+function healthLabel(health: number) { return health <= 0 ? "Fin de l’expédition" : "L’aventure t’attend."; }
