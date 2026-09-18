@@ -54,6 +54,10 @@ export interface DuelEffects {
   casing(x: number, y: number, z: number, yaw: number): void;
   /** Trait de balle, efface tout seul. */
   tracer(from: THREE.Vector3, to: THREE.Vector3, color: number, thin?: boolean): void;
+  /** Boule de feu de roquette : elle gonfle, palit et disparait. */
+  explosion(x: number, y: number, z: number, radius: number): void;
+  /** Eclats d'un panneau de construction brise. */
+  shatter(x: number, y: number, z: number): void;
   update(delta: number): void;
   dispose(): void;
 }
@@ -153,6 +157,26 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
   }));
   const tracerMatrices = Array.from({ length: TRACER_COUNT }, () => new THREE.Matrix4());
   let tracerCursor = 0;
+
+  // --- Explosions : quatre boules de feu recyclees, en melange additif ---
+  const BLAST_COUNT = 4;
+  const blastGeo = new THREE.SphereGeometry(1, 16, 12);
+  owned.push(blastGeo);
+  const blasts = Array.from({ length: BLAST_COUNT }, () => {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffa640,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    owned.push(mat);
+    const mesh = new THREE.Mesh(blastGeo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    return { mesh, mat, life: 0, maxLife: 0.5, radius: 1 };
+  });
+  let blastCursor = 0;
 
   const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
   for (let i = 0; i < TRACER_COUNT; i++) tracerMesh.setMatrixAt(i, hidden);
@@ -303,7 +327,33 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
       tracers[i].life = tracers[i].maxLife;
       tracerMesh.instanceMatrix.needsUpdate = true;
     },
+    explosion(x, y, z, radius) {
+      const b = blasts[blastCursor];
+      blastCursor = (blastCursor + 1) % BLAST_COUNT;
+      b.mesh.position.set(x, y, z);
+      b.radius = radius;
+      b.life = b.maxLife;
+      b.mesh.visible = true;
+      emit(sparkPool, sparkPos, sparkCol, x, y, z, 70, 9, 6, 0.55, 1, 0.62, 0.22);
+      emit(debrisPool, debrisPos, debrisCol, x, y, z, 45, 4.5, 4, 1.1, 0.3, 0.28, 0.27);
+    },
+    shatter(x, y, z) {
+      emit(debrisPool, debrisPos, debrisCol, x, y, z, 34, 3.2, 9, 0.9, 0.62, 0.46, 0.28);
+      emit(sparkPool, sparkPos, sparkCol, x, y, z, 12, 3, 6, 0.3, 0.9, 0.8, 0.6);
+    },
     update(delta) {
+      for (const b of blasts) {
+        if (b.life <= 0) continue;
+        b.life -= delta;
+        if (b.life <= 0) {
+          b.mesh.visible = false;
+          continue;
+        }
+        const k = 1 - b.life / b.maxLife;
+        b.mesh.scale.setScalar(b.radius * (0.35 + 0.75 * Math.sqrt(k)));
+        b.mat.opacity = 0.95 * (1 - k);
+        b.mat.color.setRGB(1, 0.75 - k * 0.45, 0.35 - k * 0.3);
+      }
       step(sparkPool, sparkPos, sparkCol, delta);
       step(debrisPool, debrisPos, debrisCol, delta);
       sparkGeo.attributes.position.needsUpdate = true;
@@ -355,6 +405,7 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
       scene.remove(debrisPoints);
       scene.remove(casingMesh);
       scene.remove(tracerMesh);
+      for (const b of blasts) scene.remove(b.mesh);
       for (const o of owned) o.dispose();
     },
   };

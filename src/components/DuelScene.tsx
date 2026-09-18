@@ -46,9 +46,12 @@ import {
   WEAPON_RARITY,
   buildWeaponModel,
   rollLootWeapon,
+  shopIndexFromKey,
+  shopKeyLabel,
   type WeaponId,
   type WeaponLook,
   type WeaponModel,
+  type WeaponSpec,
 } from "@/lib/duelWeapons";
 import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier";
 import { createDuelEffects } from "@/lib/duelEffects";
@@ -57,6 +60,7 @@ import {
   makeArenaFloorTexture,
   makeArenaCeilingTexture,
   makeIslandGroundTexture,
+  makeBuildTexture,
 } from "@/lib/duelTextures";
 import {
   createDuelAudio,
@@ -71,6 +75,10 @@ import {
   playDuelStep,
   playRespawn,
   playMatchEnd,
+  playExplosion,
+  playCrossbow,
+  playBuild,
+  playBreak,
 } from "@/lib/duelAudio";
 import { loadLayout3D, loadQuality3D, loadSensitivity3D, type Quality3D } from "@/lib/settings3d";
 import {
@@ -227,6 +235,7 @@ export default function DuelScene({
   devAllowed = false,
   drill = "fixes",
   dances = ["salut"],
+  infinite = false,
   onMatchEnd,
 }: {
   side: DuelSide;
@@ -249,6 +258,8 @@ export default function DuelScene({
   drill?: DrillId;
   /** Danses possedees, dans le menu des danses (G). */
   dances?: DanceId[];
+  /** Partie infinie : aucun score a atteindre, on quitte quand on veut. */
+  infinite?: boolean;
   onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number, extra?: MatchExtra) => void;
 }) {
   const mode = DUEL_MODES[modeId];
@@ -319,6 +330,8 @@ export default function DuelScene({
   const emoteMenuRef = useRef(false);
   const [emoting, setEmoting] = useState<DanceId | null>(null);
   const dancesRef = useRef<DanceId[]>(dances);
+  /** 1v1 construction : mode construction (touche F) et materiaux. */
+  const [buildHud, setBuildHud] = useState<{ on: boolean; mats: number }>({ on: false, mats: 0 });
 
   const onMatchEndRef = useRef(onMatchEnd);
   // La boucle 3D lit les reglages a chaque image : une ref, pas un etat, pour
@@ -336,6 +349,7 @@ export default function DuelScene({
     admin: (action: "tuer" | "soigner" | "zone" | "armes") => void;
     teleport: (x: number, z: number) => void;
     emote: (id: DanceId) => void;
+    quit: () => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
@@ -395,7 +409,7 @@ export default function DuelScene({
     const zoneMap = island
       ? { width: island.width, height: island.height, walls: island.walls, spawns: island.spawns, loot: island.loot }
       : null;
-    const duelMap = useZone ? null : buildDuelMap(mapId);
+    const duelMap = useZone ? null : buildDuelMap(mode.map ?? mapId);
     const mapW = zoneMap?.width ?? duelMap!.width;
     const mapH = zoneMap?.height ?? duelMap!.height;
     const mapWalls = zoneMap?.walls ?? duelMap!.walls;
@@ -503,6 +517,7 @@ export default function DuelScene({
      * rien du tout en battle royale.
      */
     function startingInventory(): Slot[] {
+      if (mode.loadout) return mode.loadout.map((w) => ({ weapon: w, mag: WEAPONS[w].magSize }));
       if (mode.startWeapon === "poings") return [];
       const inv: Slot[] = [{ weapon: mode.startWeapon, mag: WEAPONS[mode.startWeapon].magSize }];
       if (!mode.gunGame && mode.startWeapon !== "pistolet") inv.push({ weapon: "pistolet", mag: WEAPONS.pistolet.magSize });
@@ -633,6 +648,32 @@ export default function DuelScene({
     });
     wallMesh.count = plainWalls.length;
     scene.add(wallMesh);
+
+    // Constructions (1v1 construction) : des murs de planches poses d'un
+    // clic. Pour les collisions, les lignes de vue et les chemins des bots,
+    // ce sont des cases pleines comme les autres.
+    const BUILD_MAX = 180;
+    const BUILD_HP = 150;
+    const BUILD_COST = 10;
+    const BUILD_MATS_MAX = 500;
+    const buildTex = makeBuildTexture();
+    const buildGeo = new THREE.BoxGeometry(DUEL_CELL, DUEL_WALL_HEIGHT, DUEL_CELL);
+    const buildMat = new THREE.MeshLambertMaterial({ map: buildTex });
+    const buildMesh = new THREE.InstancedMesh(buildGeo, buildMat, BUILD_MAX);
+    buildMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BUILD_MAX * 3).fill(1), 3);
+    buildMesh.count = 0;
+    buildMesh.frustumCulled = false;
+    scene.add(buildMesh);
+    // Apercu translucide de la case ou le mur va tomber : bleu si c'est
+    // possible, rouge sinon.
+    const ghostMat = new THREE.MeshBasicMaterial({ color: 0x5ad1ff, transparent: true, opacity: 0.2, depthWrite: false });
+    const ghost = new THREE.Mesh(buildGeo, ghostMat);
+    // Un contour net : la couleur seule se perdait sur le sol clair.
+    const ghostEdgesGeo = new THREE.EdgesGeometry(buildGeo);
+    const ghostEdges = new THREE.LineSegments(ghostEdgesGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    ghost.add(ghostEdges);
+    ghost.visible = false;
+    scene.add(ghost);
 
     // Caisses empilees, bidons, sacs de sable et lettres de site peintes au
     // sol : c'est ce qui donne son caractere a chaque carte.
@@ -1034,6 +1075,9 @@ export default function DuelScene({
       aggro: number;
       /** Jusqu'a quand il riposte a celui qui l'a touche, quelle que soit la distance. */
       provokedUntil: number;
+      /** 1v1 construction : ses materiaux, et quand il pourra reconstruire. */
+      buildMats: number;
+      nextBuildAt: number;
       /** Battle royale : point de balade quand il n'a ni cible ni objet a aller chercher. */
       wanderX: number;
       wanderZ: number;
@@ -1091,6 +1135,8 @@ export default function DuelScene({
         dancer: null,
         aggro: 0.55 + Math.random() * 0.9,
         provokedUntil: 0,
+        buildMats: 200,
+        nextBuildAt: 0,
         wanderX: NaN,
         wanderZ: NaN,
         animGun: null,
@@ -1249,7 +1295,11 @@ export default function DuelScene({
                 ? 0.2
                 : 0.05
           : THREE.MathUtils.clamp(1 - ((w.spread * dist) / DUEL_BODY_RADIUS) * 0.5, 0.15, 1);
-      return ((w.damage * w.pellets) / w.fireInterval) * reach * hit;
+      // Une arme a un ou deux coups se recharge sans cesse : on compte le
+      // cycle complet, sinon l'arbalete passerait pour une mitrailleuse.
+      const cycle = w.magSize > 0 && w.magSize <= 2 ? (w.fireInterval * w.magSize + w.reloadSeconds) / w.magSize : w.fireInterval;
+      const perShot = w.damage * w.pellets * (w.burst ?? 1) + (w.explosive?.damage ?? 0);
+      return (perShot / cycle) * reach * hit;
     }
 
     /** Il sort l'arme la plus utile pour la distance, et change plutot que recharger. */
@@ -1573,6 +1623,10 @@ export default function DuelScene({
     const blips: { x: number; z: number; until: number }[] = [];
     const keys = new Set<string>();
     let firing = false;
+    /** Fusil a rafale : balles restantes de la rafale en cours. */
+    let burstLeft = 0;
+    let burstAt = 0;
+    let burstWeapon: WeaponId = "fusil";
     let wasFiring = false;
 
     function addFeed(text: string, mine: boolean) {
@@ -1770,19 +1824,30 @@ export default function DuelScene({
       return (me.alive ? 1 : 0) + fighters.filter((f) => f.alive).length;
     }
 
-    function finish(win: boolean, rank?: number) {
+    function finish(win: boolean, rank?: number, quitting = false) {
       if (ended) return;
       ended = true;
       playMatchEnd(audio.ctx, audio.master, win);
       const best = fighters.reduce((m, f) => Math.max(m, f.score), 0);
       const extra: MatchExtra = { cheated: usedCheats, training: training ? trainingResult() : undefined };
       // Victoire : on danse (la plus belle danse possedee) avant l'ecran de fin.
-      if (win && !training) {
+      const celebrate = win && !training && !quitting;
+      if (celebrate) {
         const owned = dancesRef.current;
         const favorite = owned[owned.length - 1];
         if (favorite) startMyEmote(favorite);
       }
-      window.setTimeout(() => onMatchEndRef.current(win, me.score, best, rank, extra), win && !training ? 2600 : 1300);
+      window.setTimeout(() => onMatchEndRef.current(win, me.score, best, rank, extra), celebrate ? 2600 : quitting ? 250 : 1300);
+    }
+
+    /**
+     * Quitter la partie. En partie infinie c'est la fin normale : on gagne si
+     * l'on mene au score. Ailleurs, c'est un abandon.
+     */
+    function quitMatch() {
+      if (ended) return;
+      const best = fighters.reduce((m, f) => Math.max(m, f.score), 0);
+      finish(infinite && me.score > best, mode.shrinkingZone ? livingCount() : undefined, true);
     }
 
     function checkVictory() {
@@ -1801,6 +1866,8 @@ export default function DuelScene({
         else if (fighters.some((f) => f.rank >= GUN_GAME_ORDER.length)) finish(false);
         return;
       }
+      // Partie infinie : personne ne gagne au score, on joue jusqu'a quitter.
+      if (infinite) return;
       if (me.score >= mode.scoreToWin) finish(true);
       else if (fighters.some((f) => f.score >= mode.scoreToWin)) finish(false);
     }
@@ -1930,6 +1997,213 @@ export default function DuelScene({
       if (f.hp <= 0) registerFighterDeath(f, killerName, byMe, attacker);
     }
 
+    // ----------------------------------------------------- constructions
+    interface Built {
+      cell: number;
+      x: number;
+      y: number;
+      hp: number;
+      bornAt: number;
+      /** Pose par le joueur : lui seul peut le retirer (clic droit). */
+      mine: boolean;
+    }
+    const builtList: Built[] = [];
+    const builtAt = new Map<number, Built>();
+    let builtDirty = false;
+    let materials = mode.build ? 300 : 0;
+    let buildMode = false;
+    let buildHeld = false;
+    let nextBuildAt = 0;
+    let matsTick = 0;
+    let lastBuildHud = "";
+
+    /** Un cercle (un combattant) deborde-t-il sur la case (cx, cy) ? */
+    function circleInCell(x: number, z: number, cx: number, cy: number, r: number) {
+      const nx = THREE.MathUtils.clamp(x, cx, cx + 1);
+      const nz = THREE.MathUtils.clamp(z, cy, cy + 1);
+      return Math.hypot(x - nx, z - nz) < r;
+    }
+    function canBuildAt(cx: number, cy: number) {
+      if (!mode.build || cx <= 0 || cy <= 0 || cx >= mapW - 1 || cy >= mapH - 1) return false;
+      if (isSolid(cx, cy) || builtList.length >= BUILD_MAX) return false;
+      // Jamais de mur sur quelqu'un : on s'y retrouverait emmure vivant.
+      if (me.alive && !me.dead && circleInCell(me.x, me.z, cx, cy, DUEL_PLAYER_RADIUS + 0.03)) return false;
+      for (const f of fighters) {
+        if (!f.dead && f.alive && circleInCell(f.x, f.z, cx, cy, DUEL_PLAYER_RADIUS + 0.03)) return false;
+      }
+      return true;
+    }
+    function placeBuild(cx: number, cy: number, mine: boolean): boolean {
+      if (!canBuildAt(cx, cy)) return false;
+      const b: Built = { cell: cy * mapW + cx, x: cx, y: cy, hp: BUILD_HP, bornAt: elapsed, mine };
+      builtList.push(b);
+      builtAt.set(b.cell, b);
+      solidGrid[b.cell] = 1;
+      builtDirty = true;
+      // Les chemins en cours passaient peut-etre par la : on les recalcule.
+      for (const f of fighters) f.repathTimer = 0;
+      playBuild(audio.ctx, audio.master, panFor(cx + 0.5, cy + 0.5));
+      return true;
+    }
+    function removeBuild(b: Built, broken: boolean) {
+      const i = builtList.indexOf(b);
+      if (i < 0) return;
+      builtList.splice(i, 1);
+      builtAt.delete(b.cell);
+      solidGrid[b.cell] = 0;
+      builtDirty = true;
+      for (const f of fighters) f.repathTimer = 0;
+      if (broken) {
+        effects.shatter((b.x + 0.5) * DUEL_CELL, 1.3, (b.y + 0.5) * DUEL_CELL);
+        playBreak(audio.ctx, audio.master, panFor(b.x + 0.5, b.y + 0.5));
+      }
+    }
+    function damageBuild(b: Built, amount: number) {
+      b.hp -= amount;
+      builtDirty = true;
+      if (b.hp <= 0) removeBuild(b, true);
+    }
+    /** Le mur construit qui arrete une ligne de tir, s'il n'y a rien de plus dur avant. */
+    function firstBuiltBetween(ax: number, az: number, bx: number, bz: number): Built | null {
+      const dist = Math.hypot(bx - ax, bz - az);
+      const steps = Math.ceil(dist * 4);
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const cx = Math.floor(ax + (bx - ax) * t);
+        const cz = Math.floor(az + (bz - az) * t);
+        if (!isSolid(cx, cz)) continue;
+        return builtAt.get(cz * mapW + cx) ?? null;
+      }
+      return null;
+    }
+    /** La case ou poser le mur : devant soi, a un pas et demi. */
+    function buildTargetCell(): [number, number] {
+      const fx = -Math.sin(me.yaw);
+      const fz = -Math.cos(me.yaw);
+      let cx = Math.floor(me.x + fx * 1.35);
+      let cy = Math.floor(me.z + fz * 1.35);
+      if (cx === Math.floor(me.x) && cy === Math.floor(me.z)) {
+        cx = Math.floor(me.x + fx * 1.9);
+        cy = Math.floor(me.z + fz * 1.9);
+      }
+      return [cx, cy];
+    }
+    function setBuildMode(on: boolean) {
+      if (!mode.build) return;
+      buildMode = on && !me.dead && me.alive;
+      buildHeld = false;
+      firing = false;
+      if (buildMode && isZoomed) toggleZoom(false);
+      lastBuildHud = "";
+    }
+    /** Clic droit en construction : on retire son propre mur (moitie des materiaux rendue). */
+    function removeAhead() {
+      const [cx, cy] = buildTargetCell();
+      const b = builtAt.get(cy * mapW + cx);
+      if (!b || !b.mine) return;
+      removeBuild(b, false);
+      materials = Math.min(BUILD_MATS_MAX, materials + BUILD_COST / 2);
+      lastBuildHud = "";
+    }
+    function updateBuilds(delta: number, canAct: boolean) {
+      if (!mode.build) return;
+      if (buildMode && (me.dead || !me.alive)) setBuildMode(false);
+      // Les materiaux reviennent peu a peu, pour tout le monde.
+      matsTick += delta;
+      if (matsTick >= 1.2) {
+        matsTick -= 1.2;
+        materials = Math.min(BUILD_MATS_MAX, materials + 10);
+        for (const f of fighters) f.buildMats = Math.min(BUILD_MATS_MAX, f.buildMats + 10);
+      }
+      const showGhost = buildMode && canAct;
+      ghost.visible = showGhost;
+      if (showGhost) {
+        const [cx, cy] = buildTargetCell();
+        const ok = canBuildAt(cx, cy) && (materials >= BUILD_COST || cheatsRef.current.infiniteAmmo);
+        ghost.position.set((cx + 0.5) * DUEL_CELL, DUEL_WALL_HEIGHT / 2, (cy + 0.5) * DUEL_CELL);
+        ghostMat.color.setHex(ok ? 0x5ad1ff : 0xff5a5a);
+        (ghostEdges.material as THREE.LineBasicMaterial).color.setHex(ok ? 0xcff4ff : 0xffb4b4);
+        // Clic tenu : on pose en marchant, un mur par case traversee.
+        if (buildHeld && ok && elapsed >= nextBuildAt && placeBuild(cx, cy, true)) {
+          if (!cheatsRef.current.infiniteAmmo) materials -= BUILD_COST;
+          nextBuildAt = elapsed + 0.14;
+        }
+      }
+      // Les murs sortent du sol en un instant, puis foncent a mesure qu'on les abime.
+      const growing = builtList.some((b) => elapsed - b.bornAt < 0.2);
+      if (builtDirty || growing) {
+        builtList.forEach((b, i) => {
+          const h = Math.max(0.05, Math.min(1, (elapsed - b.bornAt) / 0.18));
+          mat4.makeScale(1, h, 1);
+          mat4.setPosition((b.x + 0.5) * DUEL_CELL, (DUEL_WALL_HEIGHT / 2) * h, (b.y + 0.5) * DUEL_CELL);
+          buildMesh.setMatrixAt(i, mat4);
+          const k = Math.max(0, b.hp / BUILD_HP);
+          buildMesh.instanceColor!.setXYZ(i, 0.6 + 0.4 * k, 0.4 + 0.6 * k, 0.34 + 0.66 * k);
+        });
+        buildMesh.count = builtList.length;
+        buildMesh.instanceMatrix.needsUpdate = true;
+        buildMesh.instanceColor!.needsUpdate = true;
+        builtDirty = false;
+      }
+      const hud = `${buildMode ? 1 : 0}:${materials}`;
+      if (hud !== lastBuildHud) {
+        lastBuildHud = hud;
+        setBuildHud({ on: buildMode, mats: materials });
+      }
+    }
+
+    /**
+     * Roquette : explosion au point (ex, ez). Les murs construits autour
+     * volent en eclats, les combattants a vue prennent des degats qui
+     * baissent avec la distance. `attacker` null : c'est le joueur qui tire.
+     * Renvoie vrai si quelqu'un a ete touche.
+     */
+    function explode(
+      ex: number,
+      ez: number,
+      spec: WeaponSpec,
+      direct: Fighter | "moi" | null,
+      attacker: Fighter | null,
+      mult = 1,
+    ): boolean {
+      const blast = spec.explosive;
+      if (!blast) return false;
+      const r = blast.radius;
+      effects.explosion(ex * DUEL_CELL, 1.1, ez * DUEL_CELL, r * DUEL_CELL * 0.55);
+      playExplosion(audio.ctx, audio.master, panFor(ex, ez));
+      for (let cy = Math.floor(ez - r); cy <= Math.floor(ez + r); cy++) {
+        for (let cx = Math.floor(ex - r); cx <= Math.floor(ex + r); cx++) {
+          const b = builtAt.get(cy * mapW + cx);
+          if (b && Math.hypot(cx + 0.5 - ex, cy + 0.5 - ez) < r + 0.35) damageBuild(b, spec.damage * (spec.buildDamage ?? 1));
+        }
+      }
+      const splash = (x: number, z: number) => {
+        const d = Math.hypot(x - ex, z - ez);
+        if (d > r || !hasLineOfSight(ex, ez, x, z)) return 0;
+        return blast.damage * (1 - (d / r) * 0.6);
+      };
+      let touched = false;
+      for (const f of fighters) {
+        if (f.dead || !f.alive || f === attacker) continue;
+        const dmg = (splash(f.x, f.z) + (f === direct ? spec.damage : 0)) * mult;
+        if (dmg <= 0) continue;
+        touched = true;
+        effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
+        if (attacker) damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, attacker.name, attacker);
+        else if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
+        else link.current.send("hit", { damage: dmg });
+      }
+      // Pas de degats sur soi : seul un tir ennemi blesse le joueur.
+      if (attacker && !me.dead && me.alive) {
+        const dmg = (splash(me.x, me.z) + (direct === "moi" ? spec.damage : 0)) * mult;
+        if (dmg > 0) {
+          touched = true;
+          applyDamageToMe(dmg, ex, ez, attacker);
+        }
+      }
+      return touched;
+    }
+
     // ------------------------------------------------------------- le tir
     /**
      * Un projectile : mur d'abord, puis chaque combattant. Le fusil a pompe
@@ -1968,6 +2242,17 @@ export default function DuelScene({
       );
       effects.tracer(start, end, spec.tracer, spec.pellets > 1);
 
+      if (spec.explosive) {
+        // Juste avant l'impact : l'explosion part du bon cote du mur.
+        const back = Math.max(0, hitDist - 0.1);
+        if (explode(me.x + dir.x * back, me.z + dir.z * back, spec, hitTarget, null)) {
+          shotHit = true;
+          hitMarkerLevel = 1;
+          playHitmarker(audio.ctx, audio.master);
+        }
+        return hitDist;
+      }
+
       if (hitTarget) {
         // Les degats tombent au-dela de la portee utile : c'est ce qui
         // empeche la mitraillette de valoir un sniper a trente metres.
@@ -1987,7 +2272,10 @@ export default function DuelScene({
           link.current.send("hit", { damage: dmg });
         }
       } else {
-        effects.sparks(end.x, end.y, end.z, spec.pellets > 1 ? 6 : 14);
+        // Un mur construit encaisse la balle : il finira par ceder.
+        const b = builtAt.get(Math.floor(me.z + dir.z * hitDist) * mapW + Math.floor(me.x + dir.x * hitDist));
+        if (b) damageBuild(b, spec.damage * (spec.buildDamage ?? 1) * (hitDist > spec.range ? 0.5 : 1));
+        effects.sparks(end.x, end.y, end.z, spec.pellets > 1 ? 6 : 14, b ? [0.9, 0.62, 0.34] : undefined);
         playImpact(audio.ctx, audio.master, panFor(me.x + dir.x * hitDist, me.z + dir.z * hitDist));
       }
       return hitDist;
@@ -2023,16 +2311,18 @@ export default function DuelScene({
       else link.current.send("hit", { damage: dmg });
     }
 
-    function fire() {
-      if (me.dead || ended || !me.alive || buying() || roundResetAt > 0) return;
+    function fire(fromBurst = false) {
+      if (me.dead || ended || !me.alive || buying() || roundResetAt > 0 || buildMode) return;
       const spec = WEAPONS[me.weapon];
-      if (elapsed < me.nextShotAt) return;
+      if (!fromBurst && elapsed < me.nextShotAt) return;
       if (spec.melee) {
         punch(spec);
         return;
       }
       if (me.reloadUntil > 0) return;
       if (me.mag <= 0) {
+        burstLeft = 0;
+        if (fromBurst) return;
         playDryFire(audio.ctx, audio.master);
         me.nextShotAt = elapsed + 0.3;
         return;
@@ -2040,9 +2330,18 @@ export default function DuelScene({
       const ch = cheatsRef.current;
       // Entrainement et munitions infinies : le chargeur ne se vide pas.
       if (!training && !ch.infiniteAmmo) me.mag -= 1;
-      me.nextShotAt = elapsed + spec.fireInterval * (ch.rapidFire ? 0.25 : 1);
+      if (!fromBurst) {
+        me.nextShotAt = elapsed + spec.fireInterval * (ch.rapidFire ? 0.25 : 1);
+        // Fusil a rafale : les balles suivantes partent seules, a intervalles.
+        if (spec.burst) {
+          burstLeft = spec.burst - 1;
+          burstAt = elapsed + (spec.burstGap ?? 0.07);
+          burstWeapon = me.weapon;
+        }
+      }
       setAmmo(me.mag);
-      playShot(audio.ctx, audio.master);
+      if (spec.silent) playCrossbow(audio.ctx, audio.master);
+      else playShot(audio.ctx, audio.master);
       recoil = 1;
       // Le recul de la camera est propre a l'arme : le sniper secoue, la
       // mitraillette chatouille.
@@ -2051,10 +2350,11 @@ export default function DuelScene({
       model.flash.visible = true;
       model.flash.rotation.z = Math.random() * Math.PI;
       muzzleUntil = elapsed + 0.045;
-      pingRadar(me.x, me.z);
+      // L'arbalete ne s'entend pas : elle n'apparait pas sur le radar.
+      if (!spec.silent) pingRadar(me.x, me.z);
 
-      // Douille ejectee a hauteur d'arme, sur la droite.
-      effects.casing(
+      // Douille ejectee a hauteur d'arme, sur la droite (pas pour un carreau ni une roquette).
+      if (!spec.silent && !spec.explosive) effects.casing(
         me.x * DUEL_CELL + Math.sin(me.yaw - Math.PI / 2) * 0.3,
         DUEL_EYE_HEIGHT - 0.2,
         me.z * DUEL_CELL + Math.cos(me.yaw - Math.PI / 2) * 0.3,
@@ -2140,14 +2440,19 @@ export default function DuelScene({
         return;
       }
       if (e.button === 0) {
-        firing = true;
+        if (buildMode) buildHeld = true;
+        else firing = true;
       } else if (e.button === 2) {
-        toggleZoom(true);
+        if (buildMode) removeAhead();
+        else toggleZoom(true);
       }
     }
     function onMouseUp(e: MouseEvent) {
       if (e.button === 2) toggleZoom(false);
-      else firing = false;
+      else {
+        firing = false;
+        buildHeld = false;
+      }
     }
     const SHOP_KEYS: WeaponId[] = SHOP_ORDER;
     function onKeyDown(e: KeyboardEvent) {
@@ -2170,6 +2475,11 @@ export default function DuelScene({
         if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
         return;
       }
+      // F : construire (1v1 construction). Une touche d'arme en fait sortir.
+      if (e.code === "KeyF" && !e.repeat && mode.build) {
+        setBuildMode(!buildMode);
+        return;
+      }
       // G : le menu des danses ; un chiffre choisit la danse.
       if (e.key.toLowerCase() === "g" && !e.repeat) {
         if (myEmote) stopMyEmote();
@@ -2181,17 +2491,25 @@ export default function DuelScene({
         if (e.key === "Escape") toggleEmoteMenu(false);
         return;
       }
-      // Entrainement et triche « toutes les armes » : 1 a 9 choisit l'arme.
-      if ((training || cheatsRef.current.allWeapons) && n >= 1 && n <= SHOP_ORDER.length && !e.repeat) {
-        if (cheatsRef.current.allWeapons) usedCheats = true;
-        setOnlyWeapon(SHOP_ORDER[n - 1]);
-        return;
+      // Entrainement et triche « toutes les armes » : 1 a 9 puis 0 choisit
+      // l'arme, Maj + chiffre les suivantes.
+      if ((training || cheatsRef.current.allWeapons) && digit && !e.repeat) {
+        const idx = shopIndexFromKey(n, e.shiftKey);
+        if (idx >= 0 && idx < SHOP_ORDER.length) {
+          if (cheatsRef.current.allWeapons) usedCheats = true;
+          setOnlyWeapon(SHOP_ORDER[idx]);
+          return;
+        }
       }
       if (eco && buying()) {
-        if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
+        if (digit) {
+          const idx = shopIndexFromKey(n, e.shiftKey);
+          if (idx >= 0 && idx < SHOP_KEYS.length) buyWeapon(SHOP_KEYS[idx]);
+        }
         if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
-      } else if (!e.repeat && n >= 1 && n <= MAX_SLOTS && me.inv[n - 1] && n - 1 !== me.cur) {
-        equipSlot(n - 1);
+      } else if (!e.repeat && n >= 1 && n <= MAX_SLOTS && me.inv[n - 1]) {
+        if (buildMode) setBuildMode(false);
+        if (n - 1 !== me.cur) equipSlot(n - 1);
       }
       // E : echanger l'arme en main contre celle qui est au sol.
       if (e.key.toLowerCase() === "e" && !e.repeat) swapWithGround();
@@ -2203,6 +2521,10 @@ export default function DuelScene({
       if (document.pointerLockElement !== renderer.domElement || Math.abs(e.deltaY) < 1) return;
       if (performance.now() < wheelReadyAt) return;
       wheelReadyAt = performance.now() + 140;
+      if (buildMode) {
+        setBuildMode(false);
+        return;
+      }
       cycleWeapon(e.deltaY > 0 ? 1 : -1);
     }
     function onKeyUp(e: KeyboardEvent) {
@@ -2303,6 +2625,7 @@ export default function DuelScene({
       admin: (action) => adminAction(action),
       teleport: (x, z) => teleportTo(x, z),
       emote: (id) => startMyEmote(id),
+      quit: () => quitMatch(),
     };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
@@ -2617,7 +2940,17 @@ export default function DuelScene({
       } else if (fights && target) {
         // Distance a laquelle il se sent bien : au pompe il colle, au sniper il
         // garde ses distances. C'est ce qui donne aux bots des caracteres.
-        const ideal = spec.melee ? 0.8 : spec.id === "pompe" ? 2.5 : spec.id === "sniper" ? 11 : spec.id === "carabine" ? 9 : 6;
+        const ideal = spec.melee
+          ? 0.8
+          : spec.pellets > 1
+            ? 2.5
+            : spec.id === "sniper"
+              ? 11
+              : spec.id === "carabine" || spec.id === "arbalete"
+                ? 9
+                : spec.explosive
+                  ? 8
+                  : 6;
         if (dist > ideal + 1.5) {
           moveTowards(f, target.x, target.z, speed, delta);
         } else if (dist < ideal - 1) {
@@ -2687,6 +3020,54 @@ export default function DuelScene({
       f.speed = Math.hypot(mdx, mdz) / Math.max(delta, 1e-4);
       f.walkPhase += f.speed * delta * 2.6;
 
+      // --- 1v1 construction ---
+      if (mode.build && target) {
+        // Touche, ou en plein rechargement : il se met a l'abri derriere un mur.
+        const threatened = elapsed < f.provokedUntil || f.reloadUntil > elapsed;
+        if (threatened && f.sees && f.buildMats >= BUILD_COST && elapsed >= f.nextBuildAt && dist > 2.2) {
+          const a = Math.atan2(target.x - f.x, target.z - f.z);
+          if (placeBuild(Math.floor(f.x + Math.sin(a) * 1.3), Math.floor(f.z + Math.cos(a) * 1.3), false)) {
+            f.buildMats -= BUILD_COST;
+            f.nextBuildAt = elapsed + 1.6 + Math.random() * 1.6;
+          } else {
+            f.nextBuildAt = elapsed + 0.4;
+          }
+        }
+        // Sa cible s'est emmuree : il tire dans le mur jusqu'a le casser.
+        if (
+          !f.sees &&
+          !spec.melee &&
+          dist < spec.range * 1.4 &&
+          elapsed >= f.nextShotAt &&
+          elapsed >= f.swapUntil &&
+          f.reloadUntil <= elapsed
+        ) {
+          const wall = firstBuiltBetween(f.x, f.z, target.x, target.z);
+          if (wall) {
+            if (f.mag <= 0) {
+              f.reloadUntil = elapsed + spec.reloadSeconds;
+              f.mag = spec.magSize;
+              f.nextShotAt = elapsed + spec.reloadSeconds;
+              return;
+            }
+            f.mag -= 1;
+            f.nextShotAt = elapsed + spec.fireInterval * (1.3 + Math.random() * 0.5) * botCfg.fireDelay;
+            f.flashUntil = elapsed + 0.05;
+            f.yaw = Math.atan2(wall.x + 0.5 - f.x, wall.y + 0.5 - f.z);
+            playShot(audio.ctx, audio.master, panFor(f.x, f.z));
+            effects.tracer(
+              new THREE.Vector3(f.x * DUEL_CELL, DUEL_EYE_HEIGHT, f.z * DUEL_CELL),
+              new THREE.Vector3((wall.x + 0.5) * DUEL_CELL, DUEL_EYE_HEIGHT - 0.2, (wall.y + 0.5) * DUEL_CELL),
+              spec.tracer,
+              spec.pellets > 1,
+            );
+            if (spec.explosive) explode(wall.x + 0.5, wall.y + 0.5, spec, null, f, botCfg.damage);
+            else damageBuild(wall, spec.damage * spec.pellets * (spec.burst ?? 1) * (spec.buildDamage ?? 1) * 0.85);
+            return;
+          }
+        }
+      }
+
       // --- Il frappe ou il tire ---
       if (!target || !f.sees || f.seenFor < botCfg.reaction) return;
       if (elapsed < f.nextShotAt || elapsed < f.swapUntil) return;
@@ -2710,11 +3091,12 @@ export default function DuelScene({
         f.nextShotAt = elapsed + spec.reloadSeconds;
         return;
       }
-      f.mag -= 1;
+      f.mag = Math.max(0, f.mag - (spec.burst ?? 1));
       f.nextShotAt = elapsed + spec.fireInterval * (1.7 + Math.random() * 0.8) * botCfg.fireDelay;
       f.flashUntil = elapsed + 0.05;
-      playShot(audio.ctx, audio.master, panFor(f.x, f.z));
-      pingRadar(f.x, f.z);
+      if (spec.silent) playCrossbow(audio.ctx, audio.master, panFor(f.x, f.z));
+      else playShot(audio.ctx, audio.master, panFor(f.x, f.z));
+      if (!spec.silent) pingRadar(f.x, f.z);
 
       const from = new THREE.Vector3(f.x * DUEL_CELL, DUEL_EYE_HEIGHT, f.z * DUEL_CELL);
       const to = new THREE.Vector3(target.x * DUEL_CELL, DUEL_EYE_HEIGHT - 0.15, target.z * DUEL_CELL);
@@ -2729,8 +3111,17 @@ export default function DuelScene({
       if (dist > spec.range) accuracy *= 0.45;
       accuracy = Math.max(0.08, Math.min(0.85, accuracy));
 
+      if (spec.explosive) {
+        // Ratee, la roquette explose quand meme a cote de la cible.
+        const hit = Math.random() < accuracy;
+        const ox = hit ? 0 : (Math.random() - 0.5) * 3.2;
+        const oz = hit ? 0 : (Math.random() - 0.5) * 3.2;
+        explode(target.x + ox, target.z + oz, spec, hit ? (f.targetIsMe ? "moi" : f.targetRef) : null, f, botCfg.damage);
+        return;
+      }
       if (Math.random() < accuracy) {
-        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * botCfg.damage;
+        // Une rafale qui touche, c'est plusieurs balles d'un coup.
+        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * (spec.burst ? spec.burst * 0.75 : 1) * botCfg.damage;
         if (f.targetIsMe) {
           applyDamageToMe(dmg, f.x, f.z, f);
           effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 8);
@@ -2922,10 +3313,20 @@ export default function DuelScene({
           camera.rotation.set(me.pitch + recoilKick, me.yaw, 0);
         }
       }
-      let wantFire = (firing || touchRef.current.firing) && !myEmote;
+      let wantFire = (firing || touchRef.current.firing) && !myEmote && !buildMode;
       if (canAct && ch.triggerbot && !myEmote && fighterUnderCrosshair()) wantFire = true;
       if (spec.auto ? wantFire : wantFire && !wasFiring) fire();
       wasFiring = wantFire;
+      if (burstLeft > 0 && elapsed >= burstAt) {
+        if (me.weapon === burstWeapon && !me.dead && !buildMode) {
+          burstLeft -= 1;
+          burstAt = elapsed + (WEAPONS[burstWeapon].burstGap ?? 0.07);
+          fire(true);
+        } else {
+          burstLeft = 0;
+        }
+      }
+      updateBuilds(delta, canAct);
 
       // -------------------------------------------------------- ramassage
       // Une place libre, un doublon (munitions) ou un soin : on prend en
@@ -3087,7 +3488,9 @@ export default function DuelScene({
       model.group.rotation.x = recoil * 0.28 + (sprinting ? 0.38 : 0);
       model.group.rotation.y = THREE.MathUtils.lerp(-0.06, 0, aimLerp);
       model.group.rotation.z = sprinting ? 0.3 : 0;
-      model.group.visible = !me.dead && me.alive;
+      // Dans la lunette, l'arme disparait : sinon sa hausse et son canon
+      // bouchaient le centre de la vue, la ou l'on vise.
+      model.group.visible = !me.dead && me.alive && !(isZoomed && aimBlend > 0.55) && !buildMode;
       // Pieces mobiles et mains : culasse, pompe, verrou, chargeur qui tombe.
       const reloadProgress =
         me.reloadUntil > 0
@@ -3405,6 +3808,12 @@ export default function DuelScene({
       wallGeo.dispose();
       wallMat.dispose();
       wallTex.dispose();
+      buildGeo.dispose();
+      buildMat.dispose();
+      buildTex.dispose();
+      ghostMat.dispose();
+      ghostEdgesGeo.dispose();
+      (ghostEdges.material as THREE.Material).dispose();
       zoneGeo.dispose();
       zoneMat.dispose();
       beamGeo.dispose();
@@ -3427,7 +3836,7 @@ export default function DuelScene({
   }, [side, bot, modeId]);
 
   const hpPct = Math.max(0, Math.round(hp));
-  const scoreGoal = mode.gunGame ? GUN_GAME_ORDER.length : mode.scoreToWin;
+  const scoreGoal = infinite ? "∞" : mode.gunGame ? GUN_GAME_ORDER.length : mode.scoreToWin;
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black select-none">
@@ -3766,6 +4175,33 @@ export default function DuelScene({
         )}
       </div>
 
+      {/* 1v1 construction : materiaux, et le mode construction quand il est actif */}
+      {mode.build && (
+        <div className="pointer-events-none absolute bottom-14 left-4 flex flex-col items-start gap-1.5">
+          <div className="flex items-center gap-2 rounded-md bg-black/60 px-2.5 py-1 ring-1 ring-amber-300/40">
+            <span className="text-base">🧱</span>
+            <span className="font-mono text-sm font-black text-amber-200">{buildHud.mats}</span>
+            <span className="text-[10px] font-bold uppercase text-zinc-400">F : construire</span>
+          </div>
+          {buildHud.on && (
+            <div className="rounded-md bg-amber-500/90 px-3 py-1.5 text-xs font-black uppercase text-black shadow-lg">
+              Construction · clic : poser (tenir pour enchaîner) · clic droit : retirer · 1-3 : armes
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quitter : toujours possible, c'est la seule fin d'une partie infinie */}
+      {(!locked || touchDevice) && !dropOpen && (
+        <button
+          type="button"
+          onClick={() => sceneApiRef.current?.quit()}
+          className="absolute left-1/2 top-14 z-30 -translate-x-1/2 rounded-full bg-black/75 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-zinc-100 ring-1 ring-white/25 backdrop-blur transition hover:bg-red-600/80"
+        >
+          {infinite ? "⏹ Terminer la partie" : "Quitter la partie"}
+        </button>
+      )}
+
       {/* Inventaire plein : l'objet au sol s'echange avec E */}
       {pickupHint && (
         <div className="pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-lg bg-black/75 px-4 py-2 text-sm font-bold text-yellow-200 ring-1 ring-yellow-400/40">
@@ -3851,7 +4287,7 @@ export default function DuelScene({
           <div className="pointer-events-none flex items-center gap-3 rounded-full bg-black/75 px-4 py-1.5 backdrop-blur">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Phase d&apos;achat</span>
             <span className="font-mono text-sm font-black text-white">{buyLeft.toFixed(1)}s</span>
-            <span className="text-[11px] text-zinc-400">1-9 acheter · B boutique</span>
+            <span className="text-[11px] text-zinc-400">1-9, 0, Maj+chiffre : acheter · B boutique</span>
           </div>
           {shopOpen && (
             <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-zinc-950/92 p-3 shadow-2xl backdrop-blur">
@@ -3859,7 +4295,7 @@ export default function DuelScene({
                 <p className="text-sm font-black uppercase tracking-wider text-white">Boutique</p>
                 <p className="font-mono text-lg font-black text-emerald-300">${money}</p>
               </div>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-7">
                 {SHOP_ORDER.map((id, i) => {
                   const w = WEAPONS[id];
                   const price = WEAPON_PRICES[id];
@@ -3879,7 +4315,7 @@ export default function DuelScene({
                             : "cursor-not-allowed bg-white/[0.02] opacity-40 ring-white/5"
                       }`}
                     >
-                      <span className="text-[10px] font-bold text-zinc-500">{i + 1}</span>
+                      <span className="text-[10px] font-bold text-zinc-500">{shopKeyLabel(i)}</span>
                       <span className="text-xs font-bold text-white">{w.name}</span>
                       <span className={`font-mono text-xs font-bold ${price === 0 ? "text-zinc-400" : "text-emerald-300"}`}>
                         {owned ? "Équipée" : price === 0 ? "Gratuit" : `$${price}`}
@@ -3989,7 +4425,8 @@ export default function DuelScene({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
-            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses · Échap : libérer la souris
+            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
+            {mode.build ? " · F : construire" : ""} · Échap : libérer la souris
           </span>
         </div>
       )}

@@ -11,7 +11,7 @@
 // assume au contraire une construction a la Counter-Strike : deux couloirs
 // lateraux, un milieu ouvert, deux sites encombres de caisses.
 
-export type DuelMapId = "arene" | "entrepot" | "gouffre" | "poussiere";
+export type DuelMapId = "arene" | "entrepot" | "gouffre" | "poussiere" | "chantier";
 
 /** Habillage d'une carte : textures et decor changent completement avec. */
 export type DuelTheme = "arene" | "entrepot" | "gouffre" | "poussiere" | "ile";
@@ -112,15 +112,37 @@ const MAPS: Record<DuelMapId, string[]> = {
     "#.........#.......#.........#",
     "#############################",
   ],
+  // Chantier : un terrain presque vide, a symetrie centrale. Pour le 1v1
+  // construction, les murs, c'est chacun qui les pose.
+  chantier: [
+    "#########################",
+    "#.......................#",
+    "#.A.......C.............#",
+    "#.........C.........CC..#",
+    "#...................CC..#",
+    "#.....CC................#",
+    "#.....CC........C.......#",
+    "#...............C.......#",
+    "#.......................#",
+    "#.......C...............#",
+    "#.......C........CC.....#",
+    "#................CC.....#",
+    "#..CC...................#",
+    "#..CC.........C.........#",
+    "#.............C.......B.#",
+    "#.......................#",
+    "#########################",
+  ],
 };
 
-export const DUEL_MAP_ORDER: DuelMapId[] = ["arene", "entrepot", "gouffre", "poussiere"];
+export const DUEL_MAP_ORDER: DuelMapId[] = ["arene", "entrepot", "gouffre", "poussiere", "chantier"];
 
 export const DUEL_MAP_INFO: Record<DuelMapId, { name: string; tagline: string; theme: DuelTheme }> = {
   arene: { name: "Arène", tagline: "Symétrique, corridors serrés", theme: "arene" },
   entrepot: { name: "Entrepôt", tagline: "Hangar, caisses empilées", theme: "entrepot" },
   gouffre: { name: "Gouffre", tagline: "Roche, couloirs coudés", theme: "gouffre" },
   poussiere: { name: "Poussière", tagline: "Deux sites, milieu ouvert", theme: "poussiere" },
+  chantier: { name: "Chantier", tagline: "Terrain ouvert, à toi de bâtir", theme: "entrepot" },
 };
 
 export const DUEL_WIDTH = MAPS.arene[0].length;

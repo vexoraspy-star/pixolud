@@ -553,6 +553,41 @@ export function makeCrateTexture(): THREE.CanvasTexture {
   return finish(canvas);
 }
 
+/**
+ * Mur construit (1v1 construction) : un panneau de planches clouees sur un
+ * cadre, pour qu'on le distingue au premier regard des murs de la carte.
+ */
+export function makeBuildTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#2c4868";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 5; i++) {
+    const y = 6 + i * 24;
+    const v = 214 + ((i * 37) % 26);
+    ctx.fillStyle = `rgb(${v},${v - 34},${v - 92})`;
+    ctx.fillRect(6, y, S - 12, 21);
+    // Veinage du bois.
+    ctx.fillStyle = "rgba(92,56,24,0.35)";
+    for (let k = 0; k < 5; k++) ctx.fillRect(10 + ((k * 29 + i * 13) % 96), y + 5 + (k % 3) * 5, 16, 1);
+    // Clous aux deux bouts de chaque planche.
+    ctx.fillStyle = "#4a4a4a";
+    ctx.fillRect(12, y + 9, 3, 3);
+    ctx.fillRect(S - 15, y + 9, 3, 3);
+  }
+  // Cadre et traverse en acier bleu : les caisses de la carte sont en bois
+  // sombre, un mur construit doit se reconnaitre au premier coup d'oeil.
+  ctx.strokeStyle = "#2f5d8c";
+  ctx.lineWidth = 7;
+  ctx.strokeRect(3.5, 3.5, S - 7, S - 7);
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(8, S - 8);
+  ctx.lineTo(S - 8, 8);
+  ctx.stroke();
+  return finish(canvas);
+}
+
 /** Bidon metallique : cerclages, rouille et un pictogramme inflammable. */
 export function makeBarrelTexture(): THREE.CanvasTexture {
   const W = 128;

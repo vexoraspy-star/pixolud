@@ -31,7 +31,11 @@ export type WeaponId =
   | "fusil"
   | "carabine"
   | "mitrailleuse"
-  | "sniper";
+  | "sniper"
+  | "rafale"
+  | "double"
+  | "arbalete"
+  | "roquettes";
 
 export interface WeaponSpec {
   id: WeaponId;
@@ -63,6 +67,16 @@ export interface WeaponSpec {
   tracer: number;
   /** Corps a corps : pas de munitions, pas de rechargement, portee d'un bras. */
   melee?: boolean;
+  /** Tir en rafale : une pression envoie ce nombre de balles. */
+  burst?: number;
+  /** Secondes entre deux balles d'une meme rafale. */
+  burstGap?: number;
+  /** Pas de detonation : le tir n'apparait pas sur le radar des autres. */
+  silent?: boolean;
+  /** Projectile explosif : degats de zone autour de l'impact (rayon en cases). */
+  explosive?: { radius: number; damage: number };
+  /** Multiplicateur de degats contre les constructions (1 par defaut). */
+  buildDamage?: number;
 }
 
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
@@ -253,6 +267,87 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     zoomFov: 26,
     tracer: 0xbfe9ff,
   },
+  rafale: {
+    id: "rafale",
+    name: "Fusil à rafale",
+    short: "RAFALE",
+    // Trois balles par pression, puis une pause : precis tant qu'on dose,
+    // il ne pardonne pas de rater la premiere rafale.
+    damage: 29,
+    headshot: 2,
+    fireInterval: 0.42,
+    auto: false,
+    magSize: 24,
+    reloadSeconds: 2.1,
+    pellets: 1,
+    spread: 0.01,
+    recoil: 0.75,
+    range: 24,
+    moveFactor: 1,
+    tracer: 0xffe08a,
+    burst: 3,
+    burstGap: 0.075,
+  },
+  double: {
+    id: "double",
+    name: "Fusil à double canon",
+    short: "DOUBLE",
+    // Deux coups presque a la suite, puis un long rechargement : tout se
+    // joue en une seconde, au corps a corps.
+    damage: 13,
+    headshot: 1.4,
+    fireInterval: 0.22,
+    auto: false,
+    magSize: 2,
+    reloadSeconds: 2.3,
+    pellets: 9,
+    spread: 0.12,
+    recoil: 2.6,
+    range: 7,
+    moveFactor: 1,
+    tracer: 0xffc58a,
+    buildDamage: 1.3,
+  },
+  arbalete: {
+    id: "arbalete",
+    name: "Arbalète",
+    short: "ARBALÈTE",
+    // Un carreau a la fois, silencieux : personne ne sait d'ou il vient.
+    damage: 88,
+    headshot: 2,
+    fireInterval: 0.3,
+    auto: false,
+    magSize: 1,
+    reloadSeconds: 1.5,
+    pellets: 1,
+    spread: 0.002,
+    recoil: 1.2,
+    range: 32,
+    moveFactor: 0.98,
+    tracer: 0xb8ffb0,
+    silent: true,
+  },
+  roquettes: {
+    id: "roquettes",
+    name: "Lance-roquettes",
+    short: "ROQUETTES",
+    // Une roquette qui explose a l'impact : elle touche autour, et reduit
+    // les constructions en miettes.
+    damage: 70,
+    headshot: 1,
+    fireInterval: 0.9,
+    auto: false,
+    magSize: 1,
+    reloadSeconds: 2.8,
+    pellets: 1,
+    spread: 0.003,
+    recoil: 3.4,
+    range: 30,
+    moveFactor: 0.84,
+    tracer: 0xff8a3a,
+    explosive: { radius: 2.4, damage: 75 },
+    buildDamage: 8,
+  },
 };
 
 /** L'ordre de progression du mode Course a l'armement. */
@@ -268,18 +363,38 @@ export const GUN_GAME_ORDER: WeaponId[] = [
   "sniper",
 ];
 
-/** L'ordre des armes dans la boutique : touches 1 a 9, de la moins chere a la plus chere. */
+/**
+ * L'ordre des armes dans la boutique, de la moins chere a la plus chere.
+ * Touches 1 a 9 puis 0 ; Maj + chiffre pour les suivantes.
+ */
 export const SHOP_ORDER: WeaponId[] = [
   "pistolet",
   "revolver",
   "pm",
   "mitraillette",
+  "double",
   "pompe",
+  "rafale",
   "fusil",
+  "arbalete",
   "carabine",
   "mitrailleuse",
   "sniper",
+  "roquettes",
 ];
+
+/** Touche d'une arme de la boutique : « 1 » a « 9 », « 0 », puis « Maj+1 »... */
+export function shopKeyLabel(index: number): string {
+  if (index < 9) return String(index + 1);
+  if (index === 9) return "0";
+  return `Maj+${index - 9}`;
+}
+
+/** Index dans SHOP_ORDER d'un chiffre du clavier (1..9, 0), Maj pour la suite. */
+export function shopIndexFromKey(digit: number, shift: boolean): number {
+  if (shift) return 9 + digit;
+  return digit === 0 ? 9 : digit - 1;
+}
 
 /**
  * Rarete au sol en battle royale : elle colore le faisceau de l'arme (gris,
@@ -297,6 +412,10 @@ export const WEAPON_RARITY: Record<WeaponId, WeaponRarity> = {
   carabine: "epique",
   mitrailleuse: "epique",
   sniper: "legendaire",
+  double: "rare",
+  rafale: "rare",
+  arbalete: "epique",
+  roquettes: "legendaire",
 };
 
 /** Tirage d'une arme au sol : commune 46 %, rare 32 %, epique 16 %, legendaire 6 %. */
@@ -319,6 +438,10 @@ export const LOOT_TABLE: WeaponId[] = [
   "carabine",
   "mitrailleuse",
   "sniper",
+  "rafale",
+  "double",
+  "arbalete",
+  "roquettes",
 ];
 
 export interface WeaponModel {
@@ -853,6 +976,119 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       put(body, leftHand, -0.012, -0.07, -0.26).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
     }
+
+    case "rafale": {
+      // Boitier carene et compact, viseur holographique : un fusil moderne.
+      add(box(0.09, 0.115, 0.44, polymer), 0, 0, 0.02);
+      add(box(0.094, 0.028, 0.42, dark), 0, 0.068, 0);
+      add(box(0.05, 0.03, 0.1, dark), 0, 0.094, 0.04); // embase du viseur
+      put(body, ring(0.03, 0.006, dark), 0, 0.125, 0.04);
+      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.125, 0.06);
+      add(box(0.08, 0.085, 0.16, dark), 0, -0.01, -0.28);
+      for (let i = 0; i < 3; i++) add(box(0.086, 0.014, 0.03, metal), 0, -0.01, -0.33 + i * 0.05);
+      add(tube(0.017, 0.2, steel), 0, 0.012, -0.36);
+      add(tube(0.026, 0.07, dark, 10), 0, 0.012, -0.48);
+      slide = new THREE.Group();
+      add(slide as THREE.Group, 0, 0, 0);
+      put(slide, box(0.05, 0.02, 0.022, steel), -0.05, 0.03, -0.1);
+      // Chargeur derriere la poignee (bullpup).
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, box(0.056, 0.19, 0.075, metal), 0, -0.13, 0.15).rotation.x = 0.1;
+      pistolGrip(0, -0.15, -0.02, -0.2, polymer, 0.07, 0.19);
+      triggerGuard(-0.05, -0.06);
+      add(box(0.092, 0.14, 0.04, dark), 0, -0.02, 0.26);
+      muzzleZ = -0.52;
+      muzzleY = 0.012;
+      sightY = 0.125;
+      put(body, rightHand, 0.01, -0.15, -0.01).rotation.set(-0.2, 0, 0);
+      put(body, leftHand, -0.012, -0.075, -0.29).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
+      break;
+    }
+
+    case "double": {
+      // Deux canons cote a cote, bois vernis, deux chiens : l'arme de ferme.
+      add(box(0.1, 0.1, 0.2, metal), 0, 0, 0.05);
+      for (const sx of [-0.024, 0.024]) add(tube(0.024, 0.62, steel, 10), sx, 0.035, -0.37);
+      add(box(0.02, 0.012, 0.6, metal), 0, 0.064, -0.36); // bande de visee
+      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.012, 6, 5)), brass), 0, 0.075, -0.66);
+      add(box(0.09, 0.07, 0.3, wood), 0, -0.012, -0.25); // devant
+      add(box(0.066, 0.09, 0.14, wood), 0, -0.04, 0.17); // poignee anglaise
+      const dstock = add(box(0.08, 0.12, 0.34, wood), 0, -0.075, 0.34);
+      dstock.rotation.x = 0.14;
+      add(box(0.09, 0.14, 0.03, dark), 0, -0.1, 0.5);
+      for (const sx of [-0.028, 0.028]) {
+        const hammer = add(box(0.014, 0.04, 0.026, dark), sx, 0.06, 0.13);
+        hammer.rotation.x = -0.4;
+      }
+      triggerGuard(-0.03, 0.12);
+      muzzleZ = -0.69;
+      muzzleY = 0.035;
+      sightY = 0.075;
+      reloadStyle = "cartouches";
+      put(body, rightHand, 0.01, -0.12, 0.17).rotation.set(-0.14, 0, 0);
+      put(body, leftHand, -0.012, -0.075, -0.25).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
+      break;
+    }
+
+    case "arbalete": {
+      // Fut en bois, arc en travers, corde tendue et carreau pose dessus.
+      add(box(0.07, 0.08, 0.62, wood), 0, 0, -0.1);
+      add(box(0.03, 0.02, 0.5, metal), 0, 0.05, -0.15); // rail du carreau
+      add(box(0.09, 0.05, 0.06, metal), 0, 0.02, -0.4); // etrier de l'arc
+      // Les branches reculent vers le tireur : la corde est armee.
+      add(box(0.34, 0.03, 0.045, dark), -0.17, 0.03, -0.4).rotation.y = 0.35;
+      add(box(0.34, 0.03, 0.045, dark), 0.17, 0.03, -0.4).rotation.y = -0.35;
+      const cord = keep(new THREE.MeshLambertMaterial({ color: 0xd9d2c0 }));
+      add(box(0.46, 0.006, 0.006, cord), 0.165, 0.04, -0.18).rotation.y = 0.773;
+      add(box(0.46, 0.006, 0.006, cord), -0.165, 0.04, -0.18).rotation.y = -0.773;
+      // Le carreau : il part au tir et un neuf revient au rechargement.
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, tube(0.008, 0.42, steel), 0, 0.072, -0.22);
+      put(mag, box(0.02, 0.02, 0.05, metal), 0, 0.072, -0.45);
+      put(mag, box(0.002, 0.03, 0.06, accent), 0, 0.09, -0.02);
+      put(mag, box(0.03, 0.002, 0.06, accent), 0, 0.072, -0.02);
+      // Petit viseur et crosse.
+      add(box(0.02, 0.04, 0.02, dark), 0, 0.08, 0.08);
+      put(body, ring(0.022, 0.005, dark), 0, 0.11, 0.08);
+      const cstock = add(box(0.07, 0.13, 0.26, wood), 0, -0.06, 0.33);
+      cstock.rotation.x = 0.12;
+      add(box(0.074, 0.14, 0.03, dark), 0, -0.08, 0.47);
+      pistolGrip(0, -0.13, 0.13, -0.25, wood, 0.064, 0.17);
+      triggerGuard(-0.04, 0.1);
+      muzzleZ = -0.45;
+      muzzleY = 0.07;
+      sightY = 0.11;
+      put(body, rightHand, 0.01, -0.13, 0.13).rotation.set(-0.25, 0, 0);
+      put(body, leftHand, -0.012, -0.065, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.2, 0.25);
+      break;
+    }
+
+    case "roquettes": {
+      // Un tube sur l'epaule, deux poignees, la roquette depasse devant.
+      // Le tube est avance : son culot pres de l'oeil bouchait le coin de l'ecran.
+      add(tube(0.075, 0.95, olive, 14), 0, 0.02, -0.3);
+      add(tube(0.085, 0.08, dark, 14), 0, 0.02, -0.76);
+      add(tube(0.088, 0.08, dark, 14, 0.072), 0, 0.02, 0.18);
+      for (const z of [-0.5, -0.1]) add(tube(0.08, 0.03, dark, 14), 0, 0.02, z);
+      add(box(0.04, 0.07, 0.09, dark), -0.1, 0.07, -0.22); // viseur lateral
+      add(box(0.012, 0.012, 0.012, accent), -0.1, 0.11, -0.22);
+      add(box(0.05, 0.15, 0.05, dark), 0, -0.12, -0.26); // poignee avant
+      pistolGrip(0, -0.14, 0.03, -0.15, dark, 0.07, 0.18);
+      triggerGuard(-0.07, -0.01);
+      mag = new THREE.Group();
+      add(mag as THREE.Group, 0, 0, 0);
+      put(mag, tube(0.052, 0.14, sable, 12), 0, 0.02, -0.82);
+      const tip = put(mag, new THREE.Mesh(keep(new THREE.ConeGeometry(0.055, 0.17, 12)), olive), 0, 0.02, -0.97);
+      tip.rotation.x = -Math.PI / 2;
+      muzzleZ = -0.82;
+      muzzleY = 0.02;
+      sightY = 0.11;
+      put(body, rightHand, 0.01, -0.14, 0.03).rotation.set(-0.15, 0, 0);
+      put(body, leftHand, 0, -0.12, -0.26).rotation.set(-0.1, 0, 0);
+      break;
+    }
   }
 
   if (look.hands === false) {
@@ -863,7 +1099,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   const flashMat = keep(
     new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 }),
   );
-  const flash = new THREE.Mesh(keep(new THREE.SphereGeometry(id === "pompe" ? 0.14 : 0.09, 8, 8)), flashMat);
+  const flashSize = id === "pompe" || id === "double" ? 0.14 : id === "roquettes" ? 0.18 : 0.09;
+  const flash = new THREE.Mesh(keep(new THREE.SphereGeometry(flashSize, 8, 8)), flashMat);
+  // L'arbalete n'a pas d'eclair de bouche : la corde claque, c'est tout.
+  if (id === "arbalete") flash.scale.setScalar(0.001);
   flash.position.set(0, id === "pistolet" ? 0.028 : muzzleY, muzzleZ);
   flash.visible = false;
   body.add(flash);

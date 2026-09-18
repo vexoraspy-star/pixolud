@@ -119,6 +119,35 @@ export function playShot(ctx: AudioContext, master: GainNode, opts?: Spatial) {
   noise(ctx, dest, 0.55, 0.16, (t) => Math.pow(1 - t, 2) * 0.6, { type: "bandpass", freq: 900, q: 1.2 });
 }
 
+/** Roquette : un souffle grave et un long grondement. */
+export function playExplosion(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  noise(ctx, dest, 1.1, 1.1, (t) => Math.pow(1 - t, 1.7), { type: "lowpass", freq: 380 });
+  noise(ctx, dest, 0.3, 0.7, (t) => Math.pow(1 - t, 2.4), { type: "highpass", freq: 900 });
+  tone(ctx, dest, "sine", 95, 30, 0.8, 0.8);
+}
+
+/** Arbalete : claquement de corde, sans detonation. */
+export function playCrossbow(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  tone(ctx, dest, "triangle", 240, 80, 0.14, 0.4);
+  noise(ctx, dest, 0.09, 0.35, (t) => Math.pow(1 - t, 2), { type: "bandpass", freq: 1800, q: 2 });
+}
+
+/** Construction : un panneau qui se pose d'un coup. */
+export function playBuild(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  tone(ctx, dest, "square", 190, 110, 0.09, 0.22);
+  noise(ctx, dest, 0.14, 0.4, (t) => Math.pow(1 - t, 2.5), { type: "lowpass", freq: 1300 });
+}
+
+/** Panneau detruit : craquement de bois. */
+export function playBreak(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  noise(ctx, dest, 0.4, 0.7, (t) => Math.pow(1 - t, 1.8), { type: "bandpass", freq: 700, q: 0.8 });
+  tone(ctx, dest, "sawtooth", 150, 55, 0.25, 0.25);
+}
+
 /** Impact sur un mur : petit eclat de beton. */
 export function playImpact(ctx: AudioContext, master: GainNode, opts?: Spatial) {
   noise(ctx, out(ctx, master, opts), 0.13, 0.4, (t) => Math.pow(1 - t, 3), {

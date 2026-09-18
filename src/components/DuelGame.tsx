@@ -40,7 +40,7 @@ import {
 import { DANCE_ORDER, type DanceId } from "@/lib/duelDances";
 import { DRILLS, DRILL_ORDER, loadTrainingBests, saveTrainingBest, type DrillId, type TrainingResult } from "@/lib/duelTraining";
 import { buildDuelMap, DUEL_MAP_INFO, DUEL_MAP_ORDER, generateDuelCode, type DuelMapId, type DuelSide } from "@/lib/duel";
-import { DUEL_MODES, DUEL_MODE_ORDER, type DuelModeId } from "@/lib/duelModes";
+import { DUEL_MODES, DUEL_MODE_ORDER, supportsInfinite, type DuelModeId } from "@/lib/duelModes";
 import { WEAPONS, SHOP_ORDER, type WeaponId } from "@/lib/duelWeapons";
 import DuelScene, { type DuelLink, type MatchExtra } from "./DuelScene";
 
@@ -63,6 +63,7 @@ const MODE_STYLE: Record<DuelModeId, { ring: string; text: string; bg: string }>
   zone: { ring: "ring-emerald-400", text: "text-emerald-300", bg: "from-emerald-700/80 to-emerald-950/80" },
   economie: { ring: "ring-amber-400", text: "text-amber-300", bg: "from-amber-700/80 to-amber-950/80" },
   entrainement: { ring: "ring-sky-400", text: "text-sky-300", bg: "from-sky-700/80 to-slate-950/80" },
+  construction: { ring: "ring-yellow-400", text: "text-yellow-200", bg: "from-yellow-700/80 to-stone-950/80" },
 };
 
 /** Noms qui s'affichent pendant la recherche de joueurs de la battle royale. */
@@ -162,6 +163,8 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
   /** Exercice du stand d'entrainement. */
   const [drill, setDrill] = useState<DrillId>("fixes");
   const [trainingBests, setTrainingBests] = useState<Partial<Record<DrillId, number>>>({});
+  /** Partie infinie : pas de score a atteindre, on quitte quand on veut. */
+  const [infinite, setInfinite] = useState(false);
   const [joinInput, setJoinInput] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [side, setSide] = useState<DuelSide>("a");
@@ -439,6 +442,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
         devAllowed={devAllowed}
         drill={drill}
         dances={ownedDances}
+        infinite={bot && infinite && supportsInfinite(DUEL_MODES[modeId])}
         onMatchEnd={(win, mine, theirs, rank, extra?: MatchExtra) => {
           // Recompense : lue et ecrite d'un bloc sur le profil sauvegarde,
           // pour ne jamais perdre une partie jouee dans un autre onglet.
@@ -954,6 +958,32 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   })}
                 </div>
 
+                {supportsInfinite(chosenMode) && (
+                  <button
+                    type="button"
+                    onClick={() => setInfinite((v) => !v)}
+                    aria-pressed={infinite}
+                    className={`flex w-full items-center gap-3 rounded-lg p-3 text-left ring-2 transition ${
+                      infinite ? "bg-violet-500/30 ring-violet-300" : "bg-black/45 ring-white/10 hover:bg-black/60"
+                    }`}
+                  >
+                    <span className="text-3xl font-black text-violet-200">∞</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-black uppercase italic">Partie infinie</p>
+                      <p className="text-[11px] leading-snug text-zinc-300">
+                        Pas de score à atteindre : tu joues autant que tu veux et tu quittes quand tu veux (Échap, puis « Terminer la
+                        partie »).
+                      </p>
+                    </div>
+                    <span
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition ${infinite ? "bg-violet-400" : "bg-white/20"}`}
+                      aria-hidden="true"
+                    >
+                      <span className={`absolute top-0.5 size-5 rounded-full bg-white transition-all ${infinite ? "left-5" : "left-0.5"}`} />
+                    </span>
+                  </button>
+                )}
+
                 {/* Battle royale : contre des bots maintenant, en ligne bientot. */}
                 {selectedMode === "zone" && (
                   <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
@@ -1006,10 +1036,10 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   </div>
                 )}
 
-                {chosenMode.arena !== "zone" && (
+                {chosenMode.arena !== "zone" && !chosenMode.map && (
                   <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
                     <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Carte</p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                       {DUEL_MAP_ORDER.map((id) => {
                         const info = DUEL_MAP_INFO[id];
                         const active = mapId === id;
@@ -1192,7 +1222,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
 
             {tab === "arsenal" && (
               <div className="space-y-3">
-                <h2 className="text-2xl font-black uppercase italic drop-shadow">Arsenal · 9 armes</h2>
+                <h2 className="text-2xl font-black uppercase italic drop-shadow">Arsenal · {SHOP_ORDER.length} armes</h2>
                 <p className="text-xs text-white/75">Clique sur une arme pour l&apos;afficher à côté de ton personnage, avec ton camouflage.</p>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {SHOP_ORDER.map((id) => {
@@ -1239,7 +1269,8 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   <p><b className="text-white">Recharger</b> — R · <b className="text-white">Laser</b> — L</p>
                   <p><b className="text-white">Armes</b> — 1 à 3 ou molette · <b className="text-white">Échanger</b> — E</p>
                   <p><b className="text-white">Danses</b> — G, puis le numéro</p>
-                  <p><b className="text-white">Économie</b> — 1 à 9 pour acheter, B boutique</p>
+                  <p><b className="text-white">Construire</b> — F (mode 1v1 Construction)</p>
+                  <p><b className="text-white">Économie</b> — 1 à 0 (Maj pour la suite) pour acheter, B boutique</p>
                   {devAllowed && <p className="text-fuchsia-200"><b>Mode admin</b> — F2 en partie solo</p>}
                 </div>
               </div>
@@ -1260,7 +1291,9 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
               ? "Île géante · contre des bots"
               : chosenMode.training
                 ? `${DRILLS[drill].name} · ${DUEL_MAP_INFO[mapId].name}`
-                : `${DUEL_MAP_INFO[mapId].name} · Bots ${BOT_LEVELS[options.bots].label}`}
+                : `${DUEL_MAP_INFO[chosenMode.map ?? mapId].name} · Bots ${BOT_LEVELS[options.bots].label}${
+                    infinite && supportsInfinite(chosenMode) ? " · ∞" : ""
+                  }`}
           </p>
           <p className="text-sm font-black uppercase italic">
             {chosenMode.name} <span className="text-yellow-300">· changer</span>

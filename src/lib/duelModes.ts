@@ -1,3 +1,4 @@
+import type { DuelMapId } from "./duel";
 import type { WeaponId } from "./duelWeapons";
 
 /**
@@ -16,7 +17,7 @@ import type { WeaponId } from "./duelWeapons";
  *                  le terrain se referme. Le dernier debout gagne.
  */
 
-export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone" | "economie" | "entrainement";
+export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone" | "economie" | "entrainement" | "construction";
 
 /**
  * Economie facon Counter-Strike / Valorant : des manches, et entre chaque
@@ -50,6 +51,10 @@ export const WEAPON_PRICES: Record<WeaponId, number> = {
   carabine: 3400,
   mitrailleuse: 4200,
   sniper: 4700,
+  double: 1500,
+  rafale: 2400,
+  arbalete: 3000,
+  roquettes: 5200,
 };
 
 export interface DuelMode {
@@ -79,6 +84,12 @@ export interface DuelMode {
   economy?: DuelEconomy;
   /** Stand d'entrainement : des cibles qui ne tirent pas, et un exercice chronometre. */
   training?: boolean;
+  /** Carte imposee par le mode (sinon, celle choisie dans le salon). */
+  map?: DuelMapId;
+  /** Construction : touche F pour poser des murs de planches. */
+  build?: boolean;
+  /** Armes de depart, a la place de l'arme principale et du pistolet. */
+  loadout?: WeaponId[];
 }
 
 export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
@@ -172,12 +183,31 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
       roundEndSeconds: 2.4,
     },
   },
+  construction: {
+    id: "construction",
+    name: "1v1 Construction",
+    tagline: "Buildfight",
+    detail:
+      "Un contre un sur un terrain ouvert. F pour construire, clic pour poser des murs (même en courant), clic droit pour retirer les tiens. Les balles les usent, le lance-roquettes les pulvérise. 5 éliminations.",
+    arena: "duel",
+    map: "chantier",
+    bots: 1,
+    scoreToWin: 5,
+    respawn: true,
+    startWeapon: "fusil",
+    loadout: ["fusil", "pompe", "roquettes"],
+    gunGame: false,
+    shrinkingZone: false,
+    loot: false,
+    online: false,
+    build: true,
+  },
   entrainement: {
     id: "entrainement",
     name: "Entraînement",
     tagline: "Visée et réflexes",
     detail:
-      "Le stand de tir : cibles fixes, cibles mobiles, réflexes ou précision, une minute chacun. Munitions illimitées, toutes les armes au choix (1 à 9), et tes statistiques à la fin.",
+      "Le stand de tir : cibles fixes, cibles mobiles, réflexes ou précision, une minute chacun. Munitions illimitées, toutes les armes au choix (1 à 0, Maj + chiffre pour les suivantes), et tes statistiques à la fin.",
     arena: "duel",
     bots: 4,
     scoreToWin: 0,
@@ -191,7 +221,16 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
   },
 };
 
-export const DUEL_MODE_ORDER: DuelModeId[] = ["zone", "duel", "deathmatch", "armement", "economie", "entrainement"];
+export const DUEL_MODE_ORDER: DuelModeId[] = ["zone", "duel", "construction", "deathmatch", "armement", "economie", "entrainement"];
+
+/**
+ * Partie infinie : pas de score a atteindre, on joue jusqu'a quitter. Seuls
+ * les modes « aux eliminations » s'y pretent (pas les manches, ni la course
+ * a l'armement, ni la battle royale).
+ */
+export function supportsInfinite(mode: DuelMode): boolean {
+  return mode.scoreToWin > 0 && mode.respawn && !mode.economy && !mode.gunGame && !mode.training;
+}
 
 /**
  * Le terrain de la Zone : 31x31, quatre fois l'arene du duel.
