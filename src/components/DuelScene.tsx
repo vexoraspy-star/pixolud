@@ -83,6 +83,10 @@ import {
 import DuelCrosshair from "./DuelCrosshair";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import DuelOptionsPanel from "./DuelOptionsPanel";
+import DuelAdminPanel from "./DuelAdminPanel";
+import { DRILLS, trainingScore, type DrillId, type TrainingResult } from "@/lib/duelTraining";
+import { NO_CHEATS, anyCheat, type DuelCheats } from "@/lib/duelCheats";
+import { DANCES, DANCE_ORDER, createDancer, type DanceId, type Dancer } from "@/lib/duelDances";
 import Game3DSettings from "./Game3DSettings";
 
 /** Boite aux lettres partagee avec le parent : aucune mise a jour React par paquet recu. */
@@ -101,6 +105,14 @@ export interface DuelLink {
   } | null;
   inbox: { event: string; payload: Record<string, unknown> }[];
   send: (event: string, payload: Record<string, unknown>) => void;
+}
+
+/** Ce que la fin de partie rapporte en plus du score. */
+export interface MatchExtra {
+  /** Statistiques du stand d'entrainement. */
+  training?: TrainingResult;
+  /** Une triche du mode admin a servi : pas de recompense. */
+  cheated?: boolean;
 }
 
 interface KillFeedEntry {
@@ -212,6 +224,9 @@ export default function DuelScene({
   look,
   skin,
   seed = 1,
+  devAllowed = false,
+  drill = "fixes",
+  dances = ["salut"],
   onMatchEnd,
 }: {
   side: DuelSide;
@@ -228,9 +243,18 @@ export default function DuelScene({
   skin?: SkinId;
   /** Graine de l'ile en battle royale : une nouvelle ile a chaque partie. */
   seed?: number;
-  onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number) => void;
+  /** Compte admin : triches du mode admin (F2), jamais en ligne. */
+  devAllowed?: boolean;
+  /** Entrainement : l'exercice choisi. */
+  drill?: DrillId;
+  /** Danses possedees, dans le menu des danses (G). */
+  dances?: DanceId[];
+  onMatchEnd: (win: boolean, myScore: number, oppScore: number, rank?: number, extra?: MatchExtra) => void;
 }) {
   const mode = DUEL_MODES[modeId];
+  const training = mode.training ? DRILLS[drill] : null;
+  /** Le mode admin ne sert qu'en solo : jamais contre une vraie personne. */
+  const adminEnabled = devAllowed && bot;
   const containerRef = useRef<HTMLDivElement>(null);
   const [hp, setHp] = useState(DUEL_MAX_HP);
   const [ammo, setAmmo] = useState(WEAPONS[mode.startWeapon].magSize);
@@ -261,7 +285,7 @@ export default function DuelScene({
   const [dropLeft, setDropLeft] = useState(ISLAND_DROP_SECONDS);
   const [fallMeters, setFallMeters] = useState(0);
   const [bigMap, setBigMap] = useState(false);
-  const [radar, setRadar] = useState<{ me: [number, number]; yaw: number; blips: [number, number][]; zone: [number, number, number] | null }>({
+  const [radar, setRadar] = useState<{ me: [number, number]; yaw: number; blips: [number, number][]; zone: [number, number, number] | null; all?: [number, number][] }>({
     me: [0, 0],
     yaw: 0,
     blips: [],
@@ -282,6 +306,19 @@ export default function DuelScene({
   const [buyLeft, setBuyLeft] = useState(mode.economy?.buySeconds ?? 0);
   const [shopOpen, setShopOpen] = useState(Boolean(mode.economy));
   const [roundBanner, setRoundBanner] = useState<string | null>(null);
+  /** Entrainement : temps restant, score, precision, compte a rebours. */
+  const [trainingHud, setTrainingHud] = useState<{ left: number; score: number; kills: number; accuracy: number; countdown: number } | null>(null);
+  /** Mode admin : triches actives et panneau. */
+  const [cheats, setCheats] = useState<DuelCheats>(NO_CHEATS);
+  const cheatsRef = useRef<DuelCheats>(NO_CHEATS);
+  const [adminOpen, setAdminOpen] = useState(false);
+  /** Vision a travers les murs : etiquettes a l'ecran (en % de l'ecran). */
+  const [espTags, setEspTags] = useState<{ id: number; x: number; y: number; name: string; hp: number; dist: number }[]>([]);
+  /** Danses : le menu (touche G) et la danse en cours. */
+  const [emoteMenu, setEmoteMenu] = useState(false);
+  const emoteMenuRef = useRef(false);
+  const [emoting, setEmoting] = useState<DanceId | null>(null);
+  const dancesRef = useRef<DanceId[]>(dances);
 
   const onMatchEndRef = useRef(onMatchEnd);
   // La boucle 3D lit les reglages a chaque image : une ref, pas un etat, pour
@@ -296,6 +333,9 @@ export default function DuelScene({
     applyQuality: (value: Quality3D) => void;
     buy: (id: WeaponId) => void;
     drop: (x: number, z: number) => void;
+    admin: (action: "tuer" | "soigner" | "zone" | "armes") => void;
+    teleport: (x: number, z: number) => void;
+    emote: (id: DanceId) => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
@@ -312,6 +352,18 @@ export default function DuelScene({
   useEffect(() => {
     onMatchEndRef.current = onMatchEnd;
   }, [onMatchEnd]);
+  useEffect(() => {
+    dancesRef.current = dances;
+  }, [dances]);
+
+  function changeCheats(next: DuelCheats) {
+    setCheats(next);
+    cheatsRef.current = next;
+  }
+  function toggleEmoteMenu(open: boolean) {
+    emoteMenuRef.current = open;
+    setEmoteMenu(open);
+  }
   useEffect(() => {
     const t = setTimeout(() => {
       const saved = loadDuelOptions();
@@ -338,6 +390,8 @@ export default function DuelScene({
 
     // ------------------------------------------------------------ la carte
     const useZone = mode.arena === "zone";
+    /** Combattants controles par l'ordinateur : des cibles a l'entrainement. */
+    const botCount = training ? training.targets : mode.bots;
     const zoneMap = island
       ? { width: island.width, height: island.height, walls: island.walls, spawns: island.spawns, loot: island.loot }
       : null;
@@ -394,14 +448,55 @@ export default function DuelScene({
       : [...duelMap!.spawns.a, ...duelMap!.spawns.b];
     // Il faut au moins une apparition par combattant, et de la marge pour
     // que la reapparition puisse choisir la plus eloignee du danger.
-    const allSpawns = spreadSpawns(seedSpawns, Math.max(seedSpawns.length, (mode.bots + 1) * 2));
+    const allSpawns = spreadSpawns(seedSpawns, Math.max(seedSpawns.length, (botCount + 1) * 2));
     const mySpawnPool: [number, number][] =
-      mode.bots > 1 || zoneMap ? allSpawns : duelMap!.spawns[side];
+      botCount > 1 || zoneMap ? allSpawns : duelMap!.spawns[side];
     const enemySpawnPool: [number, number][] =
-      mode.bots > 1 || zoneMap ? allSpawns : duelMap!.spawns[side === "a" ? "b" : "a"];
+      botCount > 1 || zoneMap ? allSpawns : duelMap!.spawns[side === "a" ? "b" : "a"];
 
     // -------------------------------------------------------------- le joueur
-    const firstSpawn = mySpawnPool[0];
+    /**
+     * Entrainement : on se place sur la case la plus degagee de la carte,
+     * celle d'ou l'on voit le plus de sol a bonne distance de tir. Une
+     * apparition de coin ne laissait voir qu'un couloir.
+     */
+    function openestCell(minD: number, maxD: number): [number, number] {
+      let best: [number, number] = mySpawnPool[0];
+      let bestScore = -1;
+      for (let cz = 1; cz < mapH - 1; cz += 2) {
+        for (let cx = 1; cx < mapW - 1; cx += 2) {
+          if (isSolid(cx, cz)) continue;
+          let score = 0;
+          for (let tz = 0; tz < mapH; tz += 2) {
+            for (let tx = 0; tx < mapW; tx += 2) {
+              const d = Math.hypot(tx - cx, tz - cz);
+              if (d < minD || d > maxD || isSolid(tx, tz)) continue;
+              if (hasLineOfSight(cx + 0.5, cz + 0.5, tx + 0.5, tz + 0.5)) score++;
+            }
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            best = [cx, cz];
+          }
+        }
+      }
+      return best;
+    }
+    const firstSpawn = training ? openestCell(training.minDist, training.maxDist) : mySpawnPool[0];
+    /** Le regard vaut (-sin yaw, -cos yaw) : on garde le cap qui porte le plus loin. */
+    function openestYaw(x: number, z: number): number {
+      let best = 0;
+      let bestD = -1;
+      for (let i = 0; i < 32; i++) {
+        const yaw = (i / 32) * Math.PI * 2;
+        const d = rayWallDistance(x, z, -Math.sin(yaw), -Math.cos(yaw), 30);
+        if (d > bestD) {
+          bestD = d;
+          best = yaw;
+        }
+      }
+      return best;
+    }
     /**
      * Inventaire de depart. Arme principale et pistolet dans les modes
      * classiques ; une seule arme en course a l'armement (c'est le principe) ;
@@ -419,7 +514,12 @@ export default function DuelScene({
       cur: 0,
       x: firstSpawn[0] + 0.5,
       z: firstSpawn[1] + 0.5,
-      yaw: side === "a" ? -Math.PI * 0.75 : Math.PI * 0.25,
+      // Entrainement : face a la plus longue ligne de vue.
+      yaw: training
+        ? openestYaw(firstSpawn[0] + 0.5, firstSpawn[1] + 0.5)
+        : side === "a"
+          ? -Math.PI * 0.75
+          : Math.PI * 0.25,
       pitch: 0,
       hp: DUEL_MAX_HP,
       dead: false,
@@ -433,7 +533,7 @@ export default function DuelScene({
       /** Course a l'armement : rang atteint dans GUN_GAME_ORDER. */
       rank: 0,
       /** Tant que ce temps n'est pas passe, on ne peut pas etre touche. */
-      safeUntil: SPAWN_PROTECT,
+      safeUntil: training ? Infinity : SPAWN_PROTECT,
     };
 
     // ------------------------------------------------------------- la scene
@@ -924,6 +1024,12 @@ export default function DuelScene({
       sees: boolean;
       /** L'objet au sol qu'il va chercher. */
       lootTarget: LootDrop | null;
+      /** Entrainement : apparition de la cible (temps de reaction). */
+      spawnedAt: number;
+      /** Danse de victoire apres une elimination. */
+      dance: DanceId | null;
+      danceUntil: number;
+      dancer: Dancer | null;
       /** Temperament : au-dessus de 1 il engage de loin, en dessous il evite les combats. */
       aggro: number;
       /** Jusqu'a quand il riposte a celui qui l'a touche, quelle que soit la distance. */
@@ -961,7 +1067,7 @@ export default function DuelScene({
     const freeSpawns = [...enemySpawnPool]
       .filter(([sx, sz]) => sx !== firstSpawn[0] || sz !== firstSpawn[1])
       .sort(() => Math.random() - 0.5);
-    for (let i = 0; i < mode.bots; i++) {
+    for (let i = 0; i < botCount; i++) {
       // S'il manque des emplacements, on retombe sur le lot complet plutot
       // que de ne pas faire apparaitre le bot du tout.
       const spawn = freeSpawns[i] ?? enemySpawnPool[(i + 1) % enemySpawnPool.length];
@@ -979,6 +1085,10 @@ export default function DuelScene({
         targetRef: null,
         sees: false,
         lootTarget: null,
+        spawnedAt: 0,
+        dance: null,
+        danceUntil: 0,
+        dancer: null,
         aggro: 0.55 + Math.random() * 0.9,
         provokedUntil: 0,
         wanderX: NaN,
@@ -1158,6 +1268,254 @@ export default function DuelScene({
         }
       });
       if (best !== f.cur) botEquip(f, best);
+    }
+
+    // ------------------------------------------------ entrainement
+    /** Compte a rebours avant la premiere cible. */
+    const TRAINING_START = 3;
+    const trainStats = { shots: 0, hits: 0, headshots: 0, kills: 0, missedTargets: 0, reactions: [] as number[] };
+    /** Le tir en cours a touche (et a la tete) : une seule fois par tir, meme au pompe. */
+    let shotHit = false;
+    let shotHead = false;
+
+    /** Une cible apparait devant soi (ou n'importe ou si la place manque), a vue. */
+    function placeTarget(f: Fighter) {
+      if (!training) return;
+      for (let attempt = 0; attempt < 120; attempt++) {
+        // La direction du regard vaut `yaw + PI` dans le repere atan2(dx, dz).
+        const cone = attempt < 60 ? 2.2 : Math.PI * 2;
+        const a = me.yaw + Math.PI + (Math.random() - 0.5) * cone;
+        const d = training.minDist + Math.random() * (training.maxDist - training.minDist);
+        const x = me.x + Math.sin(a) * d;
+        const z = me.z + Math.cos(a) * d;
+        if (isSolid(Math.floor(x), Math.floor(z))) continue;
+        if (!hasLineOfSight(me.x, me.z, x, z)) continue;
+        if (fighters.some((o) => o !== f && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.6)) continue;
+        f.x = Math.floor(x) + 0.5;
+        f.z = Math.floor(z) + 0.5;
+        break;
+      }
+      f.hp = training.hp;
+      f.dead = false;
+      f.deathT = 0;
+      f.alive = true;
+      f.safeUntil = 0;
+      f.spawnedAt = elapsed;
+      f.strafeDir = Math.random() < 0.5 ? -1 : 1;
+      f.strafeUntil = elapsed + 0.6 + Math.random() * 0.8;
+      f.yaw = Math.atan2(me.x - f.x, me.z - f.z);
+      f.lastAnimX = f.x;
+      f.lastAnimZ = f.z;
+    }
+
+    /** Une cible, une image : elle ne tire jamais, elle se contente d'exister (ou de bouger). */
+    function updateTarget(f: Fighter, delta: number) {
+      if (!training) return;
+      if (f.dead) {
+        f.deathT = Math.min(1, f.deathT + delta * 3);
+        if (elapsed >= f.respawnAt && elapsed >= TRAINING_START) placeTarget(f);
+        return;
+      }
+      if (training.lifetime && elapsed - f.spawnedAt > training.lifetime) {
+        trainStats.missedTargets += 1;
+        placeTarget(f);
+        return;
+      }
+      const prevX = f.x;
+      const prevZ = f.z;
+      if (training.moving) {
+        if (elapsed > f.strafeUntil) {
+          f.strafeUntil = elapsed + 0.5 + Math.random() * 1.1;
+          f.strafeDir = -f.strafeDir;
+        }
+        const sideA = Math.atan2(me.x - f.x, me.z - f.z) + (Math.PI / 2) * f.strafeDir;
+        const sp = 2.6 * delta;
+        const nx = f.x + Math.sin(sideA) * sp;
+        const nz = f.z + Math.cos(sideA) * sp;
+        if (!isSolid(Math.floor(nx), Math.floor(nz))) {
+          f.x = nx;
+          f.z = nz;
+        } else {
+          f.strafeDir = -f.strafeDir;
+        }
+      }
+      f.yaw = Math.atan2(me.x - f.x, me.z - f.z);
+      f.speed = Math.hypot(f.x - prevX, f.z - prevZ) / Math.max(delta, 1e-4);
+      f.walkPhase += f.speed * delta * 2.6;
+    }
+
+    function trainingResult(): TrainingResult {
+      const base = {
+        drill,
+        kills: trainStats.kills,
+        shots: trainStats.shots,
+        hits: trainStats.hits,
+        headshots: trainStats.headshots,
+        missedTargets: trainStats.missedTargets,
+        avgReactionMs: trainStats.reactions.length
+          ? Math.round((trainStats.reactions.reduce((a, b) => a + b, 0) / trainStats.reactions.length) * 1000)
+          : null,
+      };
+      return { ...base, score: trainingScore(base) };
+    }
+
+    if (training) {
+      // Les cibles attendent la fin du compte a rebours.
+      fighters.forEach((f, i) => {
+        f.dead = true;
+        f.deathT = 1;
+        f.hp = 0;
+        f.respawnAt = TRAINING_START + i * 0.12;
+      });
+    }
+
+    // ------------------------------------------------ mode admin
+    /** Une triche a servi pendant la partie : pas de recompense a la fin. */
+    let usedCheats = false;
+
+    /** L'ennemi le mieux place pour l'aimbot : en vue, dans un cone de 70 degres. */
+    function aimbotTarget(): Fighter | null {
+      let best: Fighter | null = null;
+      let bestAngle = 1.22;
+      const fx = -Math.sin(me.yaw);
+      const fz = -Math.cos(me.yaw);
+      for (const f of fighters) {
+        if (f.dead || !f.alive || f.air > 0.5) continue;
+        const dx = f.x - me.x;
+        const dz = f.z - me.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.3 || d > 48) continue;
+        const ang = Math.acos(THREE.MathUtils.clamp((dx * fx + dz * fz) / d, -1, 1));
+        if (ang >= bestAngle || !hasLineOfSight(me.x, me.z, f.x, f.z)) continue;
+        bestAngle = ang;
+        best = f;
+      }
+      return best;
+    }
+
+    /** Qui est sous le reticule, avant tout mur (meme calcul que le tir). */
+    function fighterUnderCrosshair(): Fighter | null {
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      let hitDist = rayWallDistance(me.x, me.z, dir.x, dir.z, 60);
+      let hit: Fighter | null = null;
+      for (const f of fighters) {
+        if (f.dead || !f.alive) continue;
+        const fx = me.x - f.x;
+        const fz = me.z - f.z;
+        const a = dir.x * dir.x + dir.z * dir.z;
+        const b = 2 * (fx * dir.x + fz * dir.z);
+        const c = fx * fx + fz * fz - DUEL_BODY_RADIUS * DUEL_BODY_RADIUS;
+        const disc = b * b - 4 * a * c;
+        if (a <= 1e-6 || disc < 0) continue;
+        const t = (-b - Math.sqrt(disc)) / (2 * a);
+        if (t <= 0 || t >= hitDist) continue;
+        const y = DUEL_EYE_HEIGHT + dir.y * t;
+        if (y < 0.05 || y > DUEL_HEAD_Y + DUEL_HEAD_RADIUS) continue;
+        hitDist = t;
+        hit = f;
+      }
+      return hit;
+    }
+
+    // Vision a travers les murs : une cage en fil de fer par combattant, qui
+    // ignore la profondeur (toujours dessinee par-dessus le decor).
+    const espGeo = new THREE.BoxGeometry(0.8, 1.9, 0.8);
+    espGeo.translate(0, 0.95, 0);
+    const espMat = new THREE.MeshBasicMaterial({ wireframe: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 });
+    const espMesh = new THREE.InstancedMesh(espGeo, espMat, Math.max(1, fighters.length));
+    espMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, fighters.length) * 3).fill(1), 3);
+    espMesh.renderOrder = 999;
+    espMesh.frustumCulled = false;
+    espMesh.visible = false;
+    scene.add(espMesh);
+    const espMatrix = new THREE.Matrix4();
+    const espColor = new THREE.Color();
+    const espHidden = new THREE.Matrix4().makeScale(0, 0, 0);
+    const espProj = new THREE.Vector3();
+    let lastLootEsp = false;
+    let espTagsShown = false;
+
+    function adminAction(action: "tuer" | "soigner" | "zone" | "armes") {
+      if (!adminEnabled || ended) return;
+      usedCheats = true;
+      if (action === "tuer") {
+        for (const f of fighters) if (!f.dead && f.alive) registerFighterDeath(f, "Admin", true);
+      } else if (action === "soigner") {
+        me.hp = DUEL_MAX_HP;
+        setHp(me.hp);
+      } else if (action === "armes") {
+        me.inv = [
+          { weapon: "fusil", mag: WEAPONS.fusil.magSize },
+          { weapon: "sniper", mag: WEAPONS.sniper.magSize },
+          { weapon: "pompe", mag: WEAPONS.pompe.magSize },
+        ];
+        equipSlot(0, true, false);
+      } else if (action === "zone" && island) {
+        teleportTo(zoneCenter.x, zoneCenter.z);
+      }
+    }
+
+    function teleportTo(x: number, z: number) {
+      if (!adminEnabled || !island || me.dead || !me.alive) return;
+      usedCheats = true;
+      const [ox, oz] = nearestOpenCell(island, x, z);
+      me.x = ox + 0.5;
+      me.z = oz + 0.5;
+    }
+
+    // ------------------------------------------------ danses
+    // Le joueur a son propre soldat anime, invisible a la premiere personne :
+    // il n'apparait que pendant une danse, filme par une camera qui tourne
+    // autour de lui (comme dans Fortnite).
+    let myAvatar: AnimatedModel | null = null;
+    let myDancer: Dancer | null = null;
+    let myEmote: DanceId | null = null;
+    let emoteT = 0;
+    createAnimatedModel("soldat-swat", 1.8)
+      .then((m) => {
+        if (sceneDisposed) {
+          m.dispose();
+          return;
+        }
+        const sk = SKINS[skin ?? "commando"];
+        m.tint((n) => n === "Swat", sk.accent);
+        m.tint((n) => n === "Swat_Black", sk.gear);
+        m.tint((n) => n === "Visor", sk.visor);
+        m.root.visible = false;
+        m.play("Idle_Neutral");
+        scene.add(m.root);
+        myAvatar = m;
+        myDancer = createDancer(m);
+      })
+      .catch(() => {});
+
+    function startMyEmote(id: DanceId) {
+      if (!myAvatar || !myDancer || me.dead || !me.alive || buying()) return;
+      toggleEmoteMenu(false);
+      if (isZoomed) toggleZoom(false);
+      myAvatar.root.position.set(me.x * DUEL_CELL, 0, me.z * DUEL_CELL);
+      // L'avatar regarde vers +Z ; le joueur regarde vers (-sin yaw, -cos yaw).
+      myAvatar.root.rotation.y = me.yaw + Math.PI;
+      myDancer.start(id);
+      myEmote = id;
+      emoteT = 0;
+      setEmoting(id);
+    }
+
+    function stopMyEmote() {
+      if (!myEmote) return;
+      myEmote = null;
+      myDancer?.start(null);
+      if (myAvatar) myAvatar.root.visible = false;
+      setEmoting(null);
+    }
+
+    /** Un bot qui vient d'eliminer quelqu'un danse parfois sur place. */
+    function maybeTaunt(f: Fighter | null | undefined) {
+      if (!f || !f.isBot || f.dead || !f.alive || training) return;
+      if (Math.random() > 0.35) return;
+      f.dance = DANCE_ORDER[1 + Math.floor(Math.random() * (DANCE_ORDER.length - 1))];
+      f.danceUntil = elapsed + 2.6;
     }
 
     const audio = createDuelAudio();
@@ -1417,7 +1775,14 @@ export default function DuelScene({
       ended = true;
       playMatchEnd(audio.ctx, audio.master, win);
       const best = fighters.reduce((m, f) => Math.max(m, f.score), 0);
-      window.setTimeout(() => onMatchEndRef.current(win, me.score, best, rank), 1300);
+      const extra: MatchExtra = { cheated: usedCheats, training: training ? trainingResult() : undefined };
+      // Victoire : on danse (la plus belle danse possedee) avant l'ecran de fin.
+      if (win && !training) {
+        const owned = dancesRef.current;
+        const favorite = owned[owned.length - 1];
+        if (favorite) startMyEmote(favorite);
+      }
+      window.setTimeout(() => onMatchEndRef.current(win, me.score, best, rank, extra), win && !training ? 2600 : 1300);
     }
 
     function checkVictory() {
@@ -1477,6 +1842,7 @@ export default function DuelScene({
         }
       }
       addFeed(`${killerName} t'a éliminé`, false);
+      maybeTaunt(killer);
       if (!bot) link.current.send("died", {});
       if (!mode.respawn) {
         me.alive = false;
@@ -1487,14 +1853,25 @@ export default function DuelScene({
     }
 
     /** Elimination d'un bot. `byMe` distingue mes frags de ceux des bots. */
-    function registerFighterDeath(f: Fighter, killerName: string, byMe: boolean) {
+    function registerFighterDeath(f: Fighter, killerName: string, byMe: boolean, killer?: Fighter) {
       if (f.dead) return;
       f.dead = true;
       f.hp = 0;
       f.deathT = 0;
       f.respawnAt = elapsed + DUEL_RESPAWN_SECONDS;
+      f.dance = null;
       effects.blood(f.x * DUEL_CELL, 1.1, f.z * DUEL_CELL, 26);
       playDeath(audio.ctx, audio.master, panFor(f.x, f.z));
+      if (training) {
+        // Cible abattue : une autre apparait tout de suite ailleurs.
+        trainStats.kills += 1;
+        trainStats.reactions.push(elapsed - f.spawnedAt);
+        f.respawnAt = elapsed + 0.25;
+        me.score += 1;
+        setMyScore(me.score);
+        return;
+      }
+      maybeTaunt(killer);
       if (byMe) {
         me.score += 1;
         setMyScore(me.score);
@@ -1521,7 +1898,7 @@ export default function DuelScene({
     }
 
     function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter) {
-      if (me.dead || ended || !me.alive) return;
+      if (me.dead || ended || !me.alive || cheatsRef.current.god) return;
       if (elapsed < me.safeUntil) return;
       // Le plafond ne s'applique qu'aux bots : un vrai joueur en ligne touche
       // quand il touche, et la zone ne rate jamais.
@@ -1550,7 +1927,7 @@ export default function DuelScene({
         f.targetRef = byMe ? null : (attacker ?? null);
         f.provokedUntil = elapsed + 6;
       }
-      if (f.hp <= 0) registerFighterDeath(f, killerName, byMe);
+      if (f.hp <= 0) registerFighterDeath(f, killerName, byMe, attacker);
     }
 
     // ------------------------------------------------------------- le tir
@@ -1595,7 +1972,11 @@ export default function DuelScene({
         // Les degats tombent au-dela de la portee utile : c'est ce qui
         // empeche la mitraillette de valoir un sniper a trente metres.
         const falloff = hitDist > spec.range ? 0.5 : 1;
-        const dmg = spec.damage * (headshot ? spec.headshot : 1) * falloff;
+        let dmg = spec.damage * (headshot ? spec.headshot : 1) * falloff * (cheatsRef.current.oneShot ? 50 : 1);
+        // Exercice de precision : le corps ne compte pas.
+        if (training?.headOnly && !headshot) dmg = 0;
+        if (!training?.headOnly || headshot) shotHit = true;
+        if (headshot) shotHead = true;
         hitMarkerLevel = 1;
         if (headshot) playHeadshot(audio.ctx, audio.master);
         else playHitmarker(audio.ctx, audio.master);
@@ -1614,7 +1995,7 @@ export default function DuelScene({
 
     /** Coup de poing : le combattant le plus proche devant soi, a portee de bras. */
     function punch(spec: (typeof WEAPONS)[WeaponId]) {
-      me.nextShotAt = elapsed + spec.fireInterval;
+      me.nextShotAt = elapsed + spec.fireInterval * (cheatsRef.current.rapidFire ? 0.25 : 1);
       recoil = 1;
       const fx = -Math.sin(me.yaw);
       const fz = -Math.cos(me.yaw);
@@ -1637,8 +2018,9 @@ export default function DuelScene({
       hitMarkerLevel = 1;
       playHitmarker(audio.ctx, audio.master);
       effects.blood(target.x * DUEL_CELL, 1.3, target.z * DUEL_CELL, 6);
-      if (target.isBot) damageFighter(target, spec.damage, true, "Toi");
-      else link.current.send("hit", { damage: spec.damage });
+      const dmg = spec.damage * (cheatsRef.current.oneShot ? 50 : 1);
+      if (target.isBot) damageFighter(target, dmg, true, "Toi");
+      else link.current.send("hit", { damage: dmg });
     }
 
     function fire() {
@@ -1655,14 +2037,16 @@ export default function DuelScene({
         me.nextShotAt = elapsed + 0.3;
         return;
       }
-      me.mag -= 1;
-      me.nextShotAt = elapsed + spec.fireInterval;
+      const ch = cheatsRef.current;
+      // Entrainement et munitions infinies : le chargeur ne se vide pas.
+      if (!training && !ch.infiniteAmmo) me.mag -= 1;
+      me.nextShotAt = elapsed + spec.fireInterval * (ch.rapidFire ? 0.25 : 1);
       setAmmo(me.mag);
       playShot(audio.ctx, audio.master);
       recoil = 1;
       // Le recul de la camera est propre a l'arme : le sniper secoue, la
       // mitraillette chatouille.
-      recoilKick += spec.recoil * 0.012;
+      if (!ch.noRecoil) recoilKick += spec.recoil * 0.012;
       const model = currentModel();
       model.flash.visible = true;
       model.flash.rotation.z = Math.random() * Math.PI;
@@ -1680,10 +2064,12 @@ export default function DuelScene({
       // Viser immobile resserre la gerbe ; courir en tirant l'ouvre.
       const movingPenalty = movingNow ? 2 : 1;
       const aimBonus = isZoomed ? 0.35 : 1;
-      const spread = spec.spread * movingPenalty * aimBonus;
+      const spread = ch.noRecoil ? 0 : spec.spread * movingPenalty * aimBonus;
 
       const base = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       let lastDist = 0;
+      shotHit = false;
+      shotHead = false;
       for (let p = 0; p < spec.pellets; p++) {
         const dir = base.clone();
         if (spread > 0) {
@@ -1693,6 +2079,11 @@ export default function DuelScene({
           dir.normalize();
         }
         lastDist = fireOnePellet(dir, spec);
+      }
+      if (training && elapsed >= TRAINING_START) {
+        trainStats.shots += 1;
+        if (shotHit) trainStats.hits += 1;
+        if (shotHead) trainStats.headshots += 1;
       }
 
       if (!bot) {
@@ -1772,6 +2163,30 @@ export default function DuelScene({
       // la touche 1 envoie « & » et l'ancien achat au clavier ne marchait pas.
       const digit = /^(Digit|Numpad)([0-9])$/.exec(e.code);
       const n = digit ? Number(digit[2]) : NaN;
+      // F2 : le mode admin (comptes admin seulement, jamais en ligne).
+      if (e.key === "F2" && adminEnabled) {
+        e.preventDefault();
+        setAdminOpen((o) => !o);
+        if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
+        return;
+      }
+      // G : le menu des danses ; un chiffre choisit la danse.
+      if (e.key.toLowerCase() === "g" && !e.repeat) {
+        if (myEmote) stopMyEmote();
+        else toggleEmoteMenu(!emoteMenuRef.current);
+        return;
+      }
+      if (emoteMenuRef.current) {
+        if (n >= 1 && n <= dancesRef.current.length) startMyEmote(dancesRef.current[n - 1]);
+        if (e.key === "Escape") toggleEmoteMenu(false);
+        return;
+      }
+      // Entrainement et triche « toutes les armes » : 1 a 9 choisit l'arme.
+      if ((training || cheatsRef.current.allWeapons) && n >= 1 && n <= SHOP_ORDER.length && !e.repeat) {
+        if (cheatsRef.current.allWeapons) usedCheats = true;
+        setOnlyWeapon(SHOP_ORDER[n - 1]);
+        return;
+      }
       if (eco && buying()) {
         if (n >= 1 && n <= SHOP_KEYS.length) buyWeapon(SHOP_KEYS[n - 1]);
         if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
@@ -1885,6 +2300,9 @@ export default function DuelScene({
       },
       buy: (id) => buyWeapon(id),
       drop: (x, z) => doDrop(x, z),
+      admin: (action) => adminAction(action),
+      teleport: (x, z) => teleportTo(x, z),
+      emote: (id) => startMyEmote(id),
     };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
@@ -2006,12 +2424,12 @@ export default function DuelScene({
       // On ne prend pas pour cible quelqu'un qui vient d'apparaitre : sinon
       // les bots l'attendent au bord de sa protection et le tuent a la seconde
       // ou elle expire.
-      if (!me.dead && me.alive && elapsed >= me.safeUntil) {
+      if (!me.dead && me.alive && elapsed >= me.safeUntil && !cheatsRef.current.invisible) {
         const d = Math.hypot(me.x - f.x, me.z - f.z);
         if (d <= SIGHT_CELLS) near.push({ d, isMe: true, ref: null, x: me.x, z: me.z });
       }
       // En duel classique il n'y a qu'un adversaire : pas de tir ami a gerer.
-      if (mode.bots > 1) {
+      if (botCount > 1) {
         for (const o of fighters) {
           if (o === f || o.dead || !o.alive || elapsed < o.safeUntil || o.air > 0) continue;
           const d = Math.hypot(o.x - f.x, o.z - f.z);
@@ -2042,7 +2460,7 @@ export default function DuelScene({
 
     /** Position de la cible a cette image, ou null si elle n'existe plus. */
     function targetOf(f: Fighter): { x: number; z: number; moving: boolean } | null {
-      if (f.targetIsMe) return !me.dead && me.alive ? { x: me.x, z: me.z, moving: movingNow } : null;
+      if (f.targetIsMe) return !me.dead && me.alive && !cheatsRef.current.invisible ? { x: me.x, z: me.z, moving: movingNow } : null;
       const o = f.targetRef;
       return o && !o.dead && o.alive ? { x: o.x, z: o.z, moving: o.speed > 0.5 } : null;
     }
@@ -2163,6 +2581,15 @@ export default function DuelScene({
       const dist = target ? Math.hypot(target.x - f.x, target.z - f.z) : Infinity;
       f.seenFor = f.sees ? f.seenFor + delta : 0;
       if (f.sees && f.targetIsMe) engagingMe += 1;
+
+      // Il danse sur sa victoire, sauf si quelqu'un s'approche.
+      if (f.dance) {
+        if (elapsed < f.danceUntil && !(f.sees && dist < 10)) {
+          f.speed = 0;
+          return;
+        }
+        f.dance = null;
+      }
 
       const prevX = f.x;
       const prevZ = f.z;
@@ -2422,6 +2849,10 @@ export default function DuelScene({
       const spec = WEAPONS[me.weapon];
       engagingLast = engagingMe;
       engagingMe = 0;
+      const ch = cheatsRef.current;
+      if (!usedCheats && anyCheat(ch)) usedCheats = true;
+      // Entrainement : la minute est ecoulee.
+      if (training && !ended && elapsed >= TRAINING_START + training.seconds) finish(true);
 
       if (me.reloadUntil > 0 && elapsed >= me.reloadUntil) {
         me.reloadUntil = 0;
@@ -2458,9 +2889,15 @@ export default function DuelScene({
         if (mv.length() > 1) mv.normalize();
         // L'arme lourde ralentit, la lunette cloue sur place.
         const weaponSpeed = spec.moveFactor * (isZoomed ? 0.4 : 1);
-        mv.multiplyScalar(DUEL_MOVE_SPEED * weaponSpeed * (sprinting ? 1.5 : 1) * delta);
-        if (!circleHitsWall(me.x + mv.x, me.z)) me.x += mv.x;
-        if (!circleHitsWall(me.x, me.z + mv.z)) me.z += mv.z;
+        mv.multiplyScalar(DUEL_MOVE_SPEED * weaponSpeed * (sprinting ? 1.5 : 1) * (ch.speed ? 2 : 1) * delta);
+        if (ch.noclip) {
+          // Traverser les murs, sans sortir de la carte.
+          me.x = THREE.MathUtils.clamp(me.x + mv.x, 0.6, mapW - 0.6);
+          me.z = THREE.MathUtils.clamp(me.z + mv.z, 0.6, mapH - 0.6);
+        } else {
+          if (!circleHitsWall(me.x + mv.x, me.z)) me.x += mv.x;
+          if (!circleHitsWall(me.x, me.z + mv.z)) me.z += mv.z;
+        }
         if (elapsed >= nextStepAt) {
           nextStepAt = elapsed + (sprinting ? 0.26 : 0.34);
           playDuelStep(audio.ctx, audio.master, { gain: sprinting ? 0.7 : 0.5 });
@@ -2471,7 +2908,22 @@ export default function DuelScene({
       // semi-automatique part une seule fois, sur le FRONT de la pression.
       // Passer par le front plutot que par le gestionnaire de clic fait
       // marcher le pistolet au doigt exactement comme a la souris.
-      const wantFire = firing || touchRef.current.firing;
+      // Bouger ou tirer arrete la danse.
+      if (myEmote && (moving || firing || touchRef.current.firing || me.dead || !me.alive)) stopMyEmote();
+
+      // Mode admin : l'aimbot tourne le regard vers la tete la plus proche
+      // (en tirant ou en visant), le triggerbot tire tout seul.
+      if (canAct && ch.aimbot && (firing || isZoomed || touchRef.current.firing)) {
+        const tgt = aimbotTarget();
+        if (tgt) {
+          const d = Math.hypot(tgt.x - me.x, tgt.z - me.z);
+          me.yaw = Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z));
+          me.pitch = Math.atan2(DUEL_HEAD_Y - DUEL_EYE_HEIGHT, d) - recoilKick;
+          camera.rotation.set(me.pitch + recoilKick, me.yaw, 0);
+        }
+      }
+      let wantFire = (firing || touchRef.current.firing) && !myEmote;
+      if (canAct && ch.triggerbot && !myEmote && fighterUnderCrosshair()) wantFire = true;
       if (spec.auto ? wantFire : wantFire && !wasFiring) fire();
       wasFiring = wantFire;
 
@@ -2546,7 +2998,7 @@ export default function DuelScene({
 
         const myDist = Math.hypot(me.x - zoneCenter.x, me.z - zoneCenter.z);
         const outside = myDist > zoneRadius;
-        if (outside && canAct) {
+        if (outside && canAct && !ch.noZone && !ch.god) {
           me.hp = Math.max(0, me.hp - ZONE_DAMAGE_PER_SECOND * delta);
           setHp(Math.ceil(me.hp));
           damageLevel = Math.max(damageLevel, 0.3);
@@ -2570,13 +3022,15 @@ export default function DuelScene({
             f.hp = Math.max(0, f.hp - ZONE_DAMAGE_PER_SECOND * delta);
             if (f.hp <= 0) registerFighterDeath(f, "La zone", false);
           }
-          updateBot(f, delta, zonePlan);
+          if (!ch.freezeBots) updateBot(f, delta, zonePlan);
         }
       } else {
         // En Economie, tout le monde est fige pendant les achats et la fin de manche.
         if (!buying() && roundResetAt < 0) {
           for (const f of fighters) {
-            if (f.isBot) updateBot(f, delta, null);
+            if (!f.isBot) continue;
+            if (training) updateTarget(f, delta);
+            else if (!ch.freezeBots) updateBot(f, delta, null);
           }
         }
       }
@@ -2671,6 +3125,24 @@ export default function DuelScene({
         laserDot.scale.setScalar(0.6 + length * 0.12);
       }
 
+      // --- Danse : la camera sort du corps et tourne autour de l'avatar ---
+      if (myEmote && myAvatar && myDancer) {
+        emoteT += delta;
+        model.group.visible = false;
+        laserBeam.visible = false;
+        laserDot.visible = false;
+        myAvatar.root.visible = true;
+        myAvatar.update(delta);
+        myDancer.update(delta);
+        const a = me.yaw + Math.PI + Math.sin(emoteT * 0.35) * 0.9;
+        const dirX = Math.sin(a);
+        const dirZ = Math.cos(a);
+        const room = Math.min(3.4, rayWallDistance(me.x, me.z, dirX, dirZ, 3.4 / DUEL_CELL) * DUEL_CELL - 0.25);
+        const back = Math.max(1.2, room);
+        camera.position.set(me.x * DUEL_CELL + dirX * back, 1.75, me.z * DUEL_CELL + dirZ * back);
+        camera.lookAt(me.x * DUEL_CELL, 1.05, me.z * DUEL_CELL);
+      }
+
       // --------------------------------------------------- rendu des soldats
       for (const f of fighters) {
         // Sur l'ile, au-dela du brouillard on ne voit personne : inutile de
@@ -2685,6 +3157,16 @@ export default function DuelScene({
         if (f.anim) {
           f.anim.root.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
           f.anim.root.rotation.y = f.yaw;
+          // Danse de victoire : la choregraphie remplace les animations.
+          if (f.dance && elapsed < f.danceUntil && !f.dead) {
+            if (!f.dancer) f.dancer = createDancer(f.anim);
+            if (f.dancer.current !== f.dance) f.dancer.start(f.dance);
+            if (f.animGun) f.animGun.visible = false;
+            f.anim.update(delta);
+            f.dancer.update(delta);
+            continue;
+          }
+          if (f.dancer?.current) f.dancer.start(null);
           // Sens du deplacement par rapport au regard : course, pas de cote, recul.
           const mdx = f.x - f.lastAnimX;
           const mdz = f.z - f.lastAnimZ;
@@ -2726,6 +3208,32 @@ export default function DuelScene({
         }
         if (f.dead) f.deathT = Math.min(1, f.deathT + delta * (f.anim ? 0.35 : 2.2));
         else f.speed *= 0.86;
+      }
+
+      // --- Mode admin : vision a travers les murs ---
+      espMesh.visible = ch.esp;
+      if (ch.esp) {
+        fighters.forEach((f, i) => {
+          if (f.dead || !f.alive) {
+            espMesh.setMatrixAt(i, espHidden);
+            return;
+          }
+          espMatrix.makeTranslation(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
+          espMesh.setMatrixAt(i, espMatrix);
+          // Du vert (vie pleine) au rouge (presque mort).
+          espColor.setHSL((Math.max(0, f.hp) / DUEL_MAX_HP) * 0.33, 1, 0.55);
+          espMesh.setColorAt(i, espColor);
+        });
+        espMesh.instanceMatrix.needsUpdate = true;
+        if (espMesh.instanceColor) espMesh.instanceColor.needsUpdate = true;
+      }
+      if (ch.lootEsp !== lastLootEsp) {
+        lastLootEsp = ch.lootEsp;
+        for (const m of [beamMat, ringMat, iconMat]) {
+          m.depthTest = !ch.lootEsp;
+          m.needsUpdate = true;
+        }
+        for (const m of lootMeshes) m.renderOrder = ch.lootEsp ? 998 : 0;
       }
 
       effects.update(delta);
@@ -2786,14 +3294,49 @@ export default function DuelScene({
         setDamageFrom(
           lastDamageYaw !== null && elapsed - lastDamageAt < 2 ? lastDamageYaw - me.yaw : null,
         );
-        if (mode.shrinkingZone) {
+        if (mode.shrinkingZone || ch.radarAll) {
           while (blips.length && blips[0].until < elapsed) blips.shift();
           setRadar({
             me: [me.x / mapW, me.z / mapH],
             yaw: me.yaw,
             blips: blips.map((b) => [b.x / mapW, b.z / mapH] as [number, number]),
-            zone: [zoneCenter.x / mapW, zoneCenter.z / mapH, zoneRadius / mapW],
+            zone: mode.shrinkingZone ? [zoneCenter.x / mapW, zoneCenter.z / mapH, zoneRadius / mapW] : null,
+            all: ch.radarAll
+              ? fighters.filter((f) => f.alive && !f.dead).map((f) => [f.x / mapW, f.z / mapH] as [number, number])
+              : undefined,
           });
+        }
+        if (training) {
+          const r = trainingResult();
+          setTrainingHud({
+            left: Math.max(0, TRAINING_START + training.seconds - elapsed),
+            score: r.score,
+            kills: r.kills,
+            accuracy: r.shots > 0 ? r.hits / r.shots : 0,
+            countdown: Math.max(0, TRAINING_START - elapsed),
+          });
+        }
+        // Etiquettes de la vision a travers les murs : nom, vie, distance.
+        if (ch.esp) {
+          const tags: { id: number; x: number; y: number; name: string; hp: number; dist: number }[] = [];
+          for (const f of fighters) {
+            if (f.dead || !f.alive) continue;
+            espProj.set(f.x * DUEL_CELL, f.air + 2.15, f.z * DUEL_CELL).project(camera);
+            if (espProj.z > 1 || espProj.z < -1 || Math.abs(espProj.x) > 1.05 || Math.abs(espProj.y) > 1.05) continue;
+            tags.push({
+              id: f.id,
+              x: (espProj.x + 1) * 50,
+              y: (1 - espProj.y) * 50,
+              name: f.name,
+              hp: Math.ceil(f.hp),
+              dist: Math.round(Math.hypot(f.x - me.x, f.z - me.z) * DUEL_CELL),
+            });
+          }
+          setEspTags(tags);
+          espTagsShown = true;
+        } else if (espTagsShown) {
+          setEspTags([]);
+          espTagsShown = false;
         }
       }
 
@@ -2834,6 +3377,9 @@ export default function DuelScene({
         f.model.dispose();
         f.anim?.dispose();
       }
+      espGeo.dispose();
+      espMat.dispose();
+      myAvatar?.dispose();
       botGunMat.dispose();
       botGunBody.dispose();
       botGunBarrel.dispose();
@@ -2946,6 +3492,7 @@ export default function DuelScene({
                   : null
               }
               me={{ x: radar.me[0] * island.width, y: radar.me[1] * island.height, yaw: radar.yaw }}
+              onPick={adminEnabled ? (x, y) => sceneApiRef.current?.teleport(x, y) : undefined}
             />
           </div>
         </div>
@@ -3015,9 +3562,89 @@ export default function DuelScene({
         className="top-14"
       />
 
+      {/* Mode admin : bouton, badge et panneau (F2) */}
+      {adminEnabled && (
+        <button
+          type="button"
+          onClick={() => setAdminOpen((o) => !o)}
+          className={`absolute left-3 top-[6.5rem] z-30 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-black uppercase tracking-wider backdrop-blur transition ${
+            anyCheat(cheats) ? "bg-fuchsia-600/90 text-white" : "bg-black/70 text-fuchsia-200 hover:bg-black/90"
+          }`}
+        >
+          🛠 Admin <span className="font-mono text-[10px] opacity-60">F2</span>
+        </button>
+      )}
+      {adminEnabled && adminOpen && (
+        <div className="absolute left-3 top-[9.5rem] z-40">
+          <DuelAdminPanel
+            cheats={cheats}
+            onChange={changeCheats}
+            onAction={(a) => sceneApiRef.current?.admin(a)}
+            onClose={() => setAdminOpen(false)}
+            island={Boolean(island)}
+          />
+        </div>
+      )}
+
+      {/* Vision a travers les murs : etiquettes */}
+      {cheats.esp &&
+        espTags.map((t) => (
+          <div
+            key={t.id}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-black/60 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold leading-tight text-white"
+            style={{ left: `${t.x}%`, top: `${t.y}%` }}
+          >
+            {t.name}
+            <br />
+            <span className={t.hp > 60 ? "text-emerald-300" : t.hp > 30 ? "text-amber-300" : "text-red-400"}>{t.hp} PV</span> · {t.dist} m
+          </div>
+        ))}
+
+      {/* Entrainement : compte a rebours au centre */}
+      {training && trainingHud && trainingHud.countdown > 0 && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <p className="text-7xl font-black text-yellow-300 drop-shadow-lg">{Math.ceil(trainingHud.countdown)}</p>
+          <p className="mt-2 rounded bg-black/60 px-3 py-1 text-sm font-bold text-white">
+            {training.name} · 1 à 9 pour changer d&apos;arme
+          </p>
+        </div>
+      )}
+
+      {/* Menu des danses (G) */}
+      {emoteMenu && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-black/80 p-3 text-white ring-1 ring-white/20 backdrop-blur">
+          <p className="mb-2 text-center text-xs font-black uppercase tracking-wider text-yellow-300">Danses · appuie sur un chiffre</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {dances.map((id, i) => (
+              <div key={id} className="rounded-lg bg-white/10 px-2 py-1.5 text-sm font-bold">
+                <span className="mr-1.5 font-mono text-xs text-yellow-300">{i + 1}</span>
+                {DANCES[id].name}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-[10px] text-zinc-400">G ou Échap pour fermer · d&apos;autres danses au casier</p>
+        </div>
+      )}
+      {emoting && (
+        <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-sm font-bold text-yellow-200">
+          💃 {DANCES[emoting].name} · bouge ou tire pour arrêter
+        </div>
+      )}
+
       {/* Score / progression */}
       <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/70 px-4 py-1.5 backdrop-blur">
-        {mode.shrinkingZone ? (
+        {training && trainingHud ? (
+          <>
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{training.name}</span>
+            <span className="font-mono text-lg font-black text-yellow-300">{Math.ceil(trainingHud.left)} s</span>
+            <span className="text-xs text-zinc-600">·</span>
+            <span className="text-sm font-black text-cyan-300">{trainingHud.kills} cibles</span>
+            <span className="text-xs text-zinc-600">·</span>
+            <span className="font-mono text-sm text-emerald-300">{Math.round(trainingHud.accuracy * 100)} %</span>
+            <span className="text-xs text-zinc-600">·</span>
+            <span className="font-mono text-sm font-black text-white">{trainingHud.score} pts</span>
+          </>
+        ) : mode.shrinkingZone ? (
           <>
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
               En vie
@@ -3049,18 +3676,23 @@ export default function DuelScene({
         )}
       </div>
 
-      {/* Mini-carte : uniquement en Zone, ou le terrain est trop grand. */}
-      {mode.shrinkingZone && radar.zone && (
+      {/* Mini-carte : en Zone (terrain trop grand), ou partout avec le radar admin. */}
+      {((mode.shrinkingZone && radar.zone) || cheats.radarAll) && (
         <div className="pointer-events-none absolute right-3 top-24 size-28 rounded-lg border border-white/15 bg-black/60 backdrop-blur sm:size-32">
           <svg viewBox="0 0 100 100" className="size-full">
-            <circle
-              cx={radar.zone[0] * 100}
-              cy={radar.zone[1] * 100}
-              r={radar.zone[2] * 100}
-              fill="rgba(73,182,255,0.10)"
-              stroke="#49b6ff"
-              strokeWidth="1.2"
-            />
+            {radar.zone && (
+              <circle
+                cx={radar.zone[0] * 100}
+                cy={radar.zone[1] * 100}
+                r={radar.zone[2] * 100}
+                fill="rgba(73,182,255,0.10)"
+                stroke="#49b6ff"
+                strokeWidth="1.2"
+              />
+            )}
+            {radar.all?.map((b, i) => (
+              <circle key={`a${i}`} cx={b[0] * 100} cy={b[1] * 100} r="1.6" fill="#ff3bd4" />
+            ))}
             {radar.blips.map((b, i) => (
               <circle key={i} cx={b[0] * 100} cy={b[1] * 100} r="1.8" fill="#ff6a4a" />
             ))}
@@ -3357,7 +3989,7 @@ export default function DuelScene({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
-            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · Échap : libérer la souris
+            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses · Échap : libérer la souris
           </span>
         </div>
       )}

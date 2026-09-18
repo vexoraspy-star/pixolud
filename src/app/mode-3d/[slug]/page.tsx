@@ -27,7 +27,7 @@ export default async function Play3DPage({
   // Le pseudo sert de nom dans les groupes des Backrooms.
   let devAllowed = false;
   let pseudo: string | null = null;
-  if (slug === "manoir-maudit" || slug === "backrooms") {
+  if (slug === "manoir-maudit" || slug === "backrooms" || slug === "duel-1v1") {
     const supabase = await createClient();
     const {
       data: { user },
@@ -48,7 +48,7 @@ export default async function Play3DPage({
       {slug === "cubes" && <CubesGame title={title} />}
       {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
       {slug === "manoir-maudit" && <HorrorGame title={title} devAllowed={devAllowed} />}
-      {slug === "duel-1v1" && <DuelGame title={title} />}
+      {slug === "duel-1v1" && <DuelGame title={title} devAllowed={devAllowed} />}
       {slug === "backrooms" && <BackroomsGame title={title} pseudo={pseudo} devAllowed={devAllowed} />}
     </Game3DFrame>
   );

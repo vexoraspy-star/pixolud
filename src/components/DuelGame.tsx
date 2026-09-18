@@ -17,25 +17,34 @@ import {
 import {
   CAMOS,
   CAMO_ORDER,
+  DAILY_GIFT,
   DEFAULT_PROFILE,
   RARITY,
+  SHOP_PACKS,
   SKINS,
   SKIN_ORDER,
   dailyShop,
+  dayKey,
+  giftAvailable,
   levelInfo,
   loadProfile,
   matchReward,
+  packPrice,
   saveProfile,
+  shopItem,
   type CamoId,
   type DuelProfile,
+  type ShopPack,
   type SkinId,
 } from "@/lib/duelProfile";
+import { DANCE_ORDER, type DanceId } from "@/lib/duelDances";
+import { DRILLS, DRILL_ORDER, loadTrainingBests, saveTrainingBest, type DrillId, type TrainingResult } from "@/lib/duelTraining";
 import { buildDuelMap, DUEL_MAP_INFO, DUEL_MAP_ORDER, generateDuelCode, type DuelMapId, type DuelSide } from "@/lib/duel";
 import { DUEL_MODES, DUEL_MODE_ORDER, type DuelModeId } from "@/lib/duelModes";
 import { WEAPONS, SHOP_ORDER, type WeaponId } from "@/lib/duelWeapons";
-import DuelScene, { type DuelLink } from "./DuelScene";
+import DuelScene, { type DuelLink, type MatchExtra } from "./DuelScene";
 
-type Phase = "menu" | "waiting" | "playing" | "ended";
+type Phase = "menu" | "matchmaking" | "waiting" | "playing" | "ended";
 type LobbyTab = "jouer" | "casier" | "boutique" | "arsenal" | "reglages";
 
 const TABS: { id: LobbyTab; label: string }[] = [
@@ -53,7 +62,15 @@ const MODE_STYLE: Record<DuelModeId, { ring: string; text: string; bg: string }>
   armement: { ring: "ring-violet-400", text: "text-violet-300", bg: "from-violet-700/80 to-violet-950/80" },
   zone: { ring: "ring-emerald-400", text: "text-emerald-300", bg: "from-emerald-700/80 to-emerald-950/80" },
   economie: { ring: "ring-amber-400", text: "text-amber-300", bg: "from-amber-700/80 to-amber-950/80" },
+  entrainement: { ring: "ring-sky-400", text: "text-sky-300", bg: "from-sky-700/80 to-slate-950/80" },
 };
+
+/** Noms qui s'affichent pendant la recherche de joueurs de la battle royale. */
+const LOBBY_NAMES = [
+  "Sentinelle", "Vigile", "Spectre", "Rôdeur", "Écho", "Faucheur", "Corsaire", "Orage", "Lynx", "Brasier",
+  "Nomade", "Vortex", "Comète", "Taïga", "Mirage", "Granit", "Sirocco", "Blizzard", "Cobra", "Falcon",
+  "Onyx", "Pixel", "Rafale", "Zénith", "Kraken", "Nova", "Titan", "Loup", "Éclipse",
+];
 
 /** Mini-plan de chaque carte, dessine a partir de la vraie grille. */
 function MapThumb({ id }: { id: DuelMapId }) {
@@ -116,19 +133,43 @@ function CamoSwatch({ id }: { id: CamoId }) {
   );
 }
 
-export default function DuelGame({ title }: { title: string }) {
+/** Icone de danse : une silhouette en mouvement, un geste par danse. */
+const DANCE_EMOJI: Record<DanceId, string> = {
+  salut: "👋",
+  robot: "🤖",
+  disco: "🕺",
+  floss: "💃",
+  fiesta: "🎉",
+  champion: "🏆",
+};
+
+function ItemIcon({ itemKey }: { itemKey: string }) {
+  const [kind, id] = itemKey.split(":");
+  if (kind === "skin") return <SkinIcon id={id as SkinId} />;
+  if (kind === "camo") return <CamoSwatch id={id as CamoId} />;
+  return <div className="flex h-full w-full items-center justify-center text-4xl">{DANCE_EMOJI[id as DanceId]}</div>;
+}
+
+const KIND_LABEL: Record<string, string> = { skin: "Tenue", camo: "Camouflage", dance: "Danse" };
+
+export default function DuelGame({ title, devAllowed = false }: { title: string; devAllowed?: boolean }) {
   const [phase, setPhase] = useState<Phase>("menu");
   const [modeId, setModeId] = useState<DuelModeId>("zone");
   /** Mode choisi dans le salon, lance par le gros bouton. */
   const [selectedMode, setSelectedMode] = useState<DuelModeId>("zone");
   /** Carte choisie pour les modes solo en arene (en ligne : toujours l'Arene). */
   const [mapId, setMapId] = useState<DuelMapId>("poussiere");
+  /** Exercice du stand d'entrainement. */
+  const [drill, setDrill] = useState<DrillId>("fixes");
+  const [trainingBests, setTrainingBests] = useState<Partial<Record<DrillId, number>>>({});
   const [joinInput, setJoinInput] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [side, setSide] = useState<DuelSide>("a");
   const [bot, setBot] = useState(false);
   const [opponentName, setOpponentName] = useState("Adversaire");
   const [copied, setCopied] = useState(false);
+  /** Battle royale : joueurs trouves pendant la recherche. */
+  const [lobbyCount, setLobbyCount] = useState(1);
   const [result, setResult] = useState<{
     win: boolean;
     mine: number;
@@ -137,6 +178,9 @@ export default function DuelGame({ title }: { title: string }) {
     coins: number;
     xp: number;
     levelUp: boolean;
+    training?: TrainingResult;
+    record?: boolean;
+    cheated?: boolean;
   } | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [options, setOptions] = useState<DuelOptions>(DEFAULT_DUEL_OPTIONS);
@@ -144,6 +188,10 @@ export default function DuelGame({ title }: { title: string }) {
   const [tab, setTab] = useState<LobbyTab | null>(null);
   const [previewWeapon, setPreviewWeapon] = useState<WeaponId>("fusil");
   const [shopNote, setShopNote] = useState<string | null>(null);
+  /** Objet ou pack affiche en detail (apercu sur le personnage, achat). */
+  const [selected, setSelected] = useState<{ type: "item"; key: string } | { type: "pack"; pack: ShopPack } | null>(null);
+  /** Deuxieme clic pour confirmer un achat. */
+  const [confirmBuy, setConfirmBuy] = useState(false);
   const [matchKey, setMatchKey] = useState(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,9 +228,27 @@ export default function DuelGame({ title }: { title: string }) {
     const t = setTimeout(() => {
       setOptions(loadDuelOptions());
       setProfile(loadProfile());
+      setTrainingBests(loadTrainingBests());
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  // Recherche de joueurs de la battle royale : le salon se remplit, puis on part.
+  useEffect(() => {
+    if (phase !== "matchmaking") return;
+    const total = DUEL_MODES.zone.bots + 1;
+    const iv = window.setInterval(() => {
+      setLobbyCount((c) => {
+        const next = Math.min(total, c + 1 + Math.floor(Math.random() * 3));
+        if (next >= total) {
+          window.clearInterval(iv);
+          window.setTimeout(() => setPhase("playing"), 600);
+        }
+        return next;
+      });
+    }, 110);
+    return () => window.clearInterval(iv);
+  }, [phase]);
 
   function changeOptions(next: DuelOptions) {
     setOptions(next);
@@ -194,27 +260,60 @@ export default function DuelGame({ title }: { title: string }) {
     saveProfile(next);
   }
 
-  /** Acheter ou equiper un objet du casier (« skin:neon », « camo:or »). */
-  function takeItem(key: string) {
-    const [kind, id] = key.split(":") as ["skin" | "camo", string];
-    const item = kind === "skin" ? SKINS[id as SkinId] : CAMOS[id as CamoId];
-    if (!item) return;
-    if (!profile.owned.includes(key)) {
-      if (profile.coins < item.price) {
-        setShopNote(`Il te manque ${item.price - profile.coins} pièces pour « ${item.name} ». Joue une partie !`);
-        return;
-      }
-      setShopNote(`« ${item.name} » est à toi, et déjà équipé.`);
-      changeProfile({
-        ...profile,
-        coins: profile.coins - item.price,
-        owned: [...profile.owned, key],
-        ...(kind === "skin" ? { skin: id as SkinId } : { camo: id as CamoId }),
-      });
+  /** Equiper un objet deja possede (les danses s'utilisent toutes en partie). */
+  function equip(key: string) {
+    const [kind, id] = key.split(":");
+    if (kind === "skin") changeProfile({ ...profile, skin: id as SkinId });
+    else if (kind === "camo") changeProfile({ ...profile, camo: id as CamoId });
+  }
+
+  /** Acheter un objet : il est a toi, et deja equipe si c'est une tenue ou un camouflage. */
+  function buyItem(key: string) {
+    const item = shopItem(key);
+    if (!item || profile.owned.includes(key)) return;
+    if (profile.coins < item.price) {
+      setShopNote(`Il te manque ${item.price - profile.coins} pièces pour « ${item.name} ». Joue une partie !`);
       return;
     }
+    const [kind, id] = key.split(":");
+    changeProfile({
+      ...profile,
+      coins: profile.coins - item.price,
+      owned: [...profile.owned, key],
+      ...(kind === "skin" ? { skin: id as SkinId } : kind === "camo" ? { camo: id as CamoId } : {}),
+    });
+    setShopNote(
+      kind === "dance"
+        ? `« ${item.name} » est à toi. En partie : touche G, puis son numéro.`
+        : `« ${item.name} » est à toi, et déjà équipé.`,
+    );
+    setConfirmBuy(false);
+  }
+
+  function buyPack(pack: ShopPack) {
+    const price = packPrice(pack, profile.owned);
+    const missing = pack.items.filter((k) => !profile.owned.includes(k));
+    if (missing.length === 0) return;
+    if (profile.coins < price) {
+      setShopNote(`Il te manque ${price - profile.coins} pièces pour le ${pack.name}.`);
+      return;
+    }
+    changeProfile({ ...profile, coins: profile.coins - price, owned: [...profile.owned, ...missing] });
+    setShopNote(`${pack.name} débloqué : ${missing.length} objet${missing.length > 1 ? "s" : ""} ajouté${missing.length > 1 ? "s" : ""} au casier.`);
+    setConfirmBuy(false);
+  }
+
+  function claimGift() {
+    const saved = loadProfile();
+    if (!giftAvailable(saved)) return;
+    changeProfile({ ...saved, coins: saved.coins + DAILY_GIFT, lastGift: dayKey() });
+    setShopNote(`Cadeau du jour : +${DAILY_GIFT} pièces. Reviens demain !`);
+  }
+
+  function openItem(key: string) {
+    setSelected({ type: "item", key });
+    setConfirmBuy(false);
     setShopNote(null);
-    changeProfile({ ...profile, ...(kind === "skin" ? { skin: id as SkinId } : { camo: id as CamoId }) });
   }
 
   const connect = useCallback(
@@ -304,8 +403,15 @@ export default function DuelGame({ title }: { title: string }) {
     setModeId(id);
     setOpponentName("Sentinelle");
     setResult(null);
+    setSelected(null);
     setMatchKey((k) => k + 1);
-    setPhase("playing");
+    if (id === "zone") {
+      // Battle royale : on attend que le salon soit plein.
+      setLobbyCount(1);
+      setPhase("matchmaking");
+    } else {
+      setPhase("playing");
+    }
   }
 
   function backToMenu() {
@@ -313,6 +419,8 @@ export default function DuelGame({ title }: { title: string }) {
     setPhase("menu");
     setResult(null);
   }
+
+  const ownedDances = DANCE_ORDER.filter((d) => profile.owned.includes(`dance:${d}`));
 
   if (phase === "playing") {
     const skin = SKINS[profile.skin];
@@ -328,14 +436,29 @@ export default function DuelGame({ title }: { title: string }) {
         look={{ camo: profile.camo, sleeve: skin.sleeve, glove: skin.glove }}
         skin={profile.skin}
         seed={matchKey * 7919 + 17}
-        onMatchEnd={(win, mine, theirs, rank) => {
+        devAllowed={devAllowed}
+        drill={drill}
+        dances={ownedDances}
+        onMatchEnd={(win, mine, theirs, rank, extra?: MatchExtra) => {
           // Recompense : lue et ecrite d'un bloc sur le profil sauvegarde,
           // pour ne jamais perdre une partie jouee dans un autre onglet.
+          // Une partie ou une triche a servi ne rapporte rien ; l'entrainement
+          // rapporte un peu d'experience, pas de pieces.
           const saved = loadProfile();
-          const reward = matchReward(win, mine);
+          const base = matchReward(win, mine);
+          const reward = extra?.cheated
+            ? { coins: 0, xp: 0 }
+            : extra?.training
+              ? { coins: 0, xp: Math.min(60, 10 + extra.training.kills * 2) }
+              : base;
           const before = levelInfo(saved.xp).level;
           const next = { ...saved, coins: saved.coins + reward.coins, xp: saved.xp + reward.xp };
           changeProfile(next);
+          let record = false;
+          if (extra?.training && !extra.cheated) {
+            record = saveTrainingBest(extra.training.drill, extra.training.score);
+            setTrainingBests(loadTrainingBests());
+          }
           setResult({
             win,
             mine,
@@ -344,6 +467,9 @@ export default function DuelGame({ title }: { title: string }) {
             coins: reward.coins,
             xp: reward.xp,
             levelUp: levelInfo(next.xp).level > before,
+            training: extra?.training,
+            record,
+            cheated: extra?.cheated,
           });
           setPhase("ended");
         }}
@@ -351,42 +477,107 @@ export default function DuelGame({ title }: { title: string }) {
     );
   }
 
+  if (phase === "matchmaking") {
+    const total = DUEL_MODES.zone.bots + 1;
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-5 bg-gradient-to-b from-[#0b2a4a] to-black px-4 text-white">
+        <p className="text-xs font-black uppercase tracking-[0.3em] text-emerald-300">Battle royale · contre des bots</p>
+        <p className="text-3xl font-black uppercase italic">Recherche de joueurs…</p>
+        <div className="w-72 max-w-full">
+          <div className="h-3 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${(lobbyCount / total) * 100}%` }} />
+          </div>
+          <p className="mt-2 text-center font-mono text-2xl font-black text-yellow-300">
+            {lobbyCount} / {total}
+          </p>
+        </div>
+        <div className="flex max-w-xl flex-wrap justify-center gap-1.5">
+          <span className="rounded-full bg-yellow-300 px-2.5 py-1 text-xs font-black text-black">Toi</span>
+          {LOBBY_NAMES.slice(0, Math.max(0, lobbyCount - 1)).map((n) => (
+            <span key={n} className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-zinc-200">
+              {n}
+            </span>
+          ))}
+        </div>
+        <button type="button" onClick={backToMenu} className="text-xs text-zinc-400 hover:text-white">
+          Annuler
+        </button>
+      </div>
+    );
+  }
+
   if (phase === "ended" && result) {
     const mode = DUEL_MODES[modeId];
+    const tr = result.training;
     return (
       <div
-        className={`flex h-full w-full flex-col items-center justify-center gap-4 px-4 text-center ${
-          result.win ? "bg-gradient-to-b from-cyan-900 to-black" : "bg-gradient-to-b from-red-950 to-black"
+        className={`flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto px-4 py-6 text-center ${
+          tr ? "bg-gradient-to-b from-sky-900 to-black" : result.win ? "bg-gradient-to-b from-cyan-900 to-black" : "bg-gradient-to-b from-red-950 to-black"
         }`}
       >
-        <span className="text-5xl">{result.win ? "🏆" : "💀"}</span>
-        <p className={`text-3xl font-black uppercase italic ${result.win ? "text-yellow-300" : "text-red-400"}`}>
-          {mode.shrinkingZone
-            ? result.win
-              ? "Top 1 !"
-              : `${result.rank ?? "?"}ᵉ sur ${mode.bots + 1}`
-            : result.win
-              ? "Victoire !"
-              : "Défaite"}
-        </p>
-        <p className="font-mono text-lg text-zinc-300">
-          {mode.shrinkingZone
-            ? `${result.mine} élimination${result.mine > 1 ? "s" : ""}`
-            : `${result.mine} — ${result.theirs}`}
-        </p>
-        <div className="flex flex-wrap justify-center gap-2">
-          <span className="rounded-full bg-yellow-400/15 px-4 py-1.5 font-black text-yellow-300 ring-1 ring-yellow-400/40">
-            +{result.coins} 🪙
+        {tr ? (
+          <>
+            <span className="text-5xl">🎯</span>
+            <p className="text-3xl font-black uppercase italic text-yellow-300">{DRILLS[tr.drill].name}</p>
+            <p className="font-mono text-4xl font-black text-white">
+              {tr.score} <span className="text-lg text-zinc-400">pts</span>
+            </p>
+            {result.record && (
+              <span className="rounded-full bg-yellow-300 px-4 py-1 text-sm font-black uppercase text-black">Nouveau record !</span>
+            )}
+            <div className="grid w-full max-w-md grid-cols-2 gap-2 text-left sm:grid-cols-3">
+              {[
+                ["Cibles", String(tr.kills)],
+                ["Précision", tr.shots > 0 ? `${Math.round((tr.hits / tr.shots) * 100)} %` : "—"],
+                ["Tirs", String(tr.shots)],
+                ["Tête", String(tr.headshots)],
+                ["Réaction", tr.avgReactionMs !== null ? `${tr.avgReactionMs} ms` : "—"],
+                ["Ratées", String(tr.missedTargets)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg bg-black/40 px-3 py-2 ring-1 ring-white/10">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{label}</p>
+                  <p className="font-mono text-lg font-black text-white">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-zinc-400">Record : {trainingBests[tr.drill] ?? tr.score} pts</p>
+          </>
+        ) : (
+          <>
+            <span className="text-5xl">{result.win ? "🏆" : "💀"}</span>
+            <p className={`text-3xl font-black uppercase italic ${result.win ? "text-yellow-300" : "text-red-400"}`}>
+              {mode.shrinkingZone
+                ? result.win
+                  ? "Top 1 !"
+                  : `${result.rank ?? "?"}ᵉ sur ${mode.bots + 1}`
+                : result.win
+                  ? "Victoire !"
+                  : "Défaite"}
+            </p>
+            <p className="font-mono text-lg text-zinc-300">
+              {mode.shrinkingZone ? `${result.mine} élimination${result.mine > 1 ? "s" : ""}` : `${result.mine} — ${result.theirs}`}
+            </p>
+          </>
+        )}
+        {result.cheated ? (
+          <span className="rounded-full bg-fuchsia-600/30 px-4 py-1.5 text-sm font-black text-fuchsia-200 ring-1 ring-fuchsia-400/60">
+            🛠 Mode admin utilisé : aucune récompense
           </span>
-          <span className="rounded-full bg-cyan-400/15 px-4 py-1.5 font-black text-cyan-200 ring-1 ring-cyan-400/40">
-            +{result.xp} XP
-          </span>
-          {result.levelUp && (
-            <span className="rounded-full bg-violet-500/25 px-4 py-1.5 font-black text-violet-200 ring-1 ring-violet-400/60">
-              Niveau {levelInfo(profile.xp).level} atteint !
-            </span>
-          )}
-        </div>
+        ) : (
+          <div className="flex flex-wrap justify-center gap-2">
+            {result.coins > 0 && (
+              <span className="rounded-full bg-yellow-400/15 px-4 py-1.5 font-black text-yellow-300 ring-1 ring-yellow-400/40">
+                +{result.coins} 🪙
+              </span>
+            )}
+            <span className="rounded-full bg-cyan-400/15 px-4 py-1.5 font-black text-cyan-200 ring-1 ring-cyan-400/40">+{result.xp} XP</span>
+            {result.levelUp && (
+              <span className="rounded-full bg-violet-500/25 px-4 py-1.5 font-black text-violet-200 ring-1 ring-violet-400/60">
+                Niveau {levelInfo(profile.xp).level} atteint !
+              </span>
+            )}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <button
             type="button"
@@ -457,43 +648,52 @@ export default function DuelGame({ title }: { title: string }) {
   const lvl = levelInfo(profile.xp);
   const skin = SKINS[profile.skin];
   const camo = CAMOS[profile.camo];
-  const selected = DUEL_MODES[selectedMode];
+  const chosenMode = DUEL_MODES[selectedMode];
   const shopToday = dailyShop();
   const now = new Date();
   const msLeft = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
   const hoursLeft = Math.floor(msLeft / 3600000);
   const minutesLeft = Math.floor((msLeft % 3600000) / 60000);
+  const gift = giftAvailable(profile);
+
+  // Apercu sur le personnage : l'objet ouvert dans la boutique ou le casier.
+  const previewItem = selected?.type === "item" ? shopItem(selected.key) : null;
+  const stageSkin = previewItem?.kind === "skin" ? (previewItem.id as SkinId) : profile.skin;
+  const stageCamo = previewItem?.kind === "camo" ? (previewItem.id as CamoId) : profile.camo;
+  const stageDance = previewItem?.kind === "dance" ? (previewItem.id as DanceId) : null;
 
   /** Carte d'objet facon casier : fond de rarete, nom, etat. */
   function itemCard(itemKey: string, big = false) {
-    const [kind, id] = itemKey.split(":");
-    const item = kind === "skin" ? SKINS[id as SkinId] : CAMOS[id as CamoId];
+    const item = shopItem(itemKey);
+    if (!item) return null;
     const rarity = RARITY[item.rarity];
     const isOwned = profile.owned.includes(itemKey);
-    const equipped = kind === "skin" ? profile.skin === id : profile.camo === id;
+    const equipped =
+      (item.kind === "skin" && profile.skin === item.id) || (item.kind === "camo" && profile.camo === item.id);
+    const active = selected?.type === "item" && selected.key === itemKey;
     return (
       <button
         key={itemKey}
         type="button"
-        onClick={() => takeItem(itemKey)}
+        onClick={() => openItem(itemKey)}
         className={`group relative flex flex-col overflow-hidden rounded-lg text-left ring-2 transition hover:-translate-y-0.5 hover:brightness-110 ${
-          equipped ? "ring-yellow-300" : "ring-black/40"
+          active ? "ring-white" : equipped ? "ring-yellow-300" : "ring-black/40"
         }`}
         style={{ background: `linear-gradient(160deg, ${rarity.color} 0%, #101521 78%)`, boxShadow: `0 6px 18px ${rarity.glow}` }}
       >
         <div className={`mx-auto ${big ? "h-32 w-24" : "h-20 w-16"} p-1.5`}>
-          {kind === "skin" ? <SkinIcon id={id as SkinId} /> : <CamoSwatch id={id as CamoId} />}
+          <ItemIcon itemKey={itemKey} />
         </div>
         <div className="bg-black/55 px-2 py-1.5">
           <p className={`truncate font-black uppercase italic leading-tight ${big ? "text-base" : "text-xs"}`}>{item.name}</p>
           <p className="text-[10px] font-bold uppercase" style={{ color: rarity.color }}>
-            {rarity.label} · {kind === "skin" ? "Tenue" : "Camouflage"}
+            {rarity.label} · {KIND_LABEL[item.kind]}
           </p>
           <p className="mt-0.5 text-[11px] font-black">
             {equipped ? (
               <span className="text-yellow-300">✓ Équipé</span>
             ) : isOwned ? (
-              <span className="text-emerald-300">Équiper</span>
+              <span className="text-emerald-300">{item.kind === "dance" ? "✓ Possédée" : "Équiper"}</span>
             ) : (
               <span className={profile.coins >= item.price ? "text-yellow-200" : "text-zinc-400"}>🪙 {item.price}</span>
             )}
@@ -503,9 +703,94 @@ export default function DuelGame({ title }: { title: string }) {
     );
   }
 
+  /** Detail de l'objet ou du pack ouvert : apercu, prix, achat en deux clics. */
+  function detailPanel() {
+    if (!selected) return null;
+    if (selected.type === "pack") {
+      const pack = selected.pack;
+      const price = packPrice(pack, profile.owned);
+      const missing = pack.items.filter((k) => !profile.owned.includes(k));
+      return (
+        <div className="rounded-xl bg-black/70 p-3 ring-1 ring-white/15 backdrop-blur">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-lg font-black uppercase italic">{pack.name}</p>
+              <p className="text-xs text-zinc-300">{pack.tagline}</p>
+            </div>
+            <button type="button" onClick={() => setSelected(null)} className="rounded px-2 text-zinc-400 hover:text-white" aria-label="Fermer">
+              ✕
+            </button>
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">{pack.items.map((k) => itemCard(k))}</div>
+          {missing.length === 0 ? (
+            <p className="mt-2 text-sm font-black text-emerald-300">Tu as déjà tout le pack.</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => (confirmBuy ? buyPack(pack) : setConfirmBuy(true))}
+              className={`mt-3 w-full rounded-lg px-4 py-2.5 text-sm font-black uppercase ${
+                confirmBuy ? "bg-emerald-400 text-black" : profile.coins >= price ? "bg-yellow-300 text-black hover:bg-yellow-200" : "bg-white/10 text-zinc-400"
+              }`}
+            >
+              {confirmBuy ? `Confirmer : 🪙 ${price}` : `Acheter le pack · 🪙 ${price}`}
+            </button>
+          )}
+        </div>
+      );
+    }
+    const item = shopItem(selected.key);
+    if (!item) return null;
+    const rarity = RARITY[item.rarity];
+    const owned = profile.owned.includes(item.key);
+    const equipped = (item.kind === "skin" && profile.skin === item.id) || (item.kind === "camo" && profile.camo === item.id);
+    return (
+      <div className="rounded-xl bg-black/70 p-3 ring-1 ring-white/15 backdrop-blur">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: rarity.color }}>
+              {rarity.label} · {KIND_LABEL[item.kind]}
+            </p>
+            <p className="text-xl font-black uppercase italic">{item.name}</p>
+            <p className="text-xs text-zinc-300">{item.tagline}</p>
+          </div>
+          <button type="button" onClick={() => setSelected(null)} className="rounded px-2 text-zinc-400 hover:text-white" aria-label="Fermer">
+            ✕
+          </button>
+        </div>
+        <p className="mt-1 text-[11px] text-sky-200">
+          {item.kind === "dance" ? "Ton personnage la danse à droite. En partie : touche G." : "Aperçu sur ton personnage, à droite."}
+        </p>
+        {owned ? (
+          item.kind === "dance" ? (
+            <p className="mt-2 text-sm font-black text-emerald-300">✓ Dans ton casier</p>
+          ) : (
+            <button
+              type="button"
+              disabled={equipped}
+              onClick={() => equip(item.key)}
+              className="mt-3 w-full rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-black uppercase text-black disabled:bg-white/10 disabled:text-yellow-300"
+            >
+              {equipped ? "✓ Équipé" : "Équiper"}
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => (confirmBuy ? buyItem(item.key) : setConfirmBuy(true))}
+            className={`mt-3 w-full rounded-lg px-4 py-2.5 text-sm font-black uppercase ${
+              confirmBuy ? "bg-emerald-400 text-black" : profile.coins >= item.price ? "bg-yellow-300 text-black hover:bg-yellow-200" : "bg-white/10 text-zinc-400"
+            }`}
+          >
+            {confirmBuy ? `Confirmer l'achat : 🪙 ${item.price}` : `Acheter · 🪙 ${item.price}`}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-sky-500 text-white">
-      <DuelLobbyStage skin={profile.skin} camo={profile.camo} weapon={previewWeapon} />
+      <DuelLobbyStage skin={stageSkin} camo={stageCamo} weapon={previewWeapon} dance={stageDance} />
       {/* Voile a gauche : le texte reste lisible sur le ciel. */}
       <div className="pointer-events-none absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#061528]/85 via-[#061528]/35 to-transparent sm:w-[62%]" />
 
@@ -537,7 +822,11 @@ export default function DuelGame({ title }: { title: string }) {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setTab(active ? null : t.id)}
+                onClick={() => {
+                  setTab(active ? null : t.id);
+                  setSelected(null);
+                  setShopNote(null);
+                }}
                 className={`relative shrink-0 whitespace-nowrap rounded px-2.5 py-1.5 text-xs font-black uppercase italic tracking-wide transition sm:px-3.5 sm:text-sm ${
                   active
                     ? "bg-yellow-300 text-black"
@@ -548,6 +837,7 @@ export default function DuelGame({ title }: { title: string }) {
               >
                 {settings && "🎯 "}
                 {t.label}
+                {t.id === "boutique" && gift && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-red-500" />}
               </button>
             );
           })}
@@ -596,6 +886,20 @@ export default function DuelGame({ title }: { title: string }) {
               <span className="rounded bg-white/15 px-2 py-1 text-[10px] font-black uppercase">Modifier</span>
             </div>
           </button>
+
+          {gift && (
+            <button
+              type="button"
+              onClick={() => setTab("boutique")}
+              className="flex items-center gap-3 rounded-lg bg-gradient-to-r from-amber-500/90 to-rose-600/90 p-2.5 text-left ring-2 ring-yellow-200/60 transition hover:ring-white"
+            >
+              <span className="text-2xl">🎁</span>
+              <div>
+                <p className="text-sm font-black uppercase italic">Cadeau du jour</p>
+                <p className="text-[11px] text-white/90">+{DAILY_GIFT} pièces à récupérer dans la boutique</p>
+              </div>
+            </button>
+          )}
 
           {/* Reglages du tir : en evidence, avec l'apercu du reticule. */}
           <button
@@ -650,7 +954,59 @@ export default function DuelGame({ title }: { title: string }) {
                   })}
                 </div>
 
-                {selected.arena !== "zone" && (
+                {/* Battle royale : contre des bots maintenant, en ligne bientot. */}
+                {selectedMode === "zone" && (
+                  <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
+                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Type de partie</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-emerald-400/20 p-2.5 ring-2 ring-emerald-300">
+                        <p className="text-sm font-black uppercase italic">🤖 Contre des bots</p>
+                        <p className="text-[11px] leading-snug text-zinc-300">29 bots, tout de suite.</p>
+                        <p className="mt-1 text-[10px] font-black uppercase text-emerald-300">✓ Disponible</p>
+                      </div>
+                      <div aria-disabled="true" className="cursor-not-allowed rounded-md bg-white/5 p-2.5 opacity-60 ring-1 ring-white/10">
+                        <p className="text-sm font-black uppercase italic">🌐 Multijoueur</p>
+                        <p className="text-[11px] leading-snug text-zinc-400">Jusqu&apos;à 30 vrais joueurs.</p>
+                        <p className="mt-1 inline-block rounded bg-amber-400/20 px-1.5 text-[10px] font-black uppercase text-amber-300">Bientôt</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Entrainement : l'exercice, et son record. */}
+                {selectedMode === "entrainement" && (
+                  <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
+                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Exercice · une minute</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {DRILL_ORDER.map((d) => {
+                        const info = DRILLS[d];
+                        const active = drill === d;
+                        return (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setDrill(d)}
+                            aria-pressed={active}
+                            className={`rounded-md p-2.5 text-left ring-2 transition ${
+                              active ? "bg-sky-400/20 ring-yellow-300" : "bg-white/5 ring-white/10 hover:bg-white/10"
+                            }`}
+                          >
+                            <div className="flex items-baseline justify-between gap-1">
+                              <p className="text-sm font-black uppercase italic">{info.name}</p>
+                              <span className="text-[10px] font-black uppercase text-sky-300">{info.tagline}</span>
+                            </div>
+                            <p className="text-[11px] leading-snug text-zinc-300">{info.detail}</p>
+                            <p className="mt-1 text-[10px] font-bold text-yellow-200">
+                              Record : {trainingBests[d] !== undefined ? `${trainingBests[d]} pts` : "—"}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {chosenMode.arena !== "zone" && (
                   <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
                     <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Carte</p>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -677,26 +1033,28 @@ export default function DuelGame({ title }: { title: string }) {
                   </div>
                 )}
 
-                <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
-                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Difficulté des bots</p>
-                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                    {BOT_ORDER.map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => changeOptions({ ...options, bots: b })}
-                        className={`rounded-md px-2 py-2 text-left ring-2 transition ${
-                          options.bots === b ? "bg-yellow-300 text-black ring-yellow-300" : "bg-white/5 ring-white/10 hover:bg-white/10"
-                        }`}
-                      >
-                        <p className="text-sm font-black uppercase italic">{BOT_LEVELS[b].label}</p>
-                        <p className={`text-[10px] leading-tight ${options.bots === b ? "text-black/70" : "text-zinc-400"}`}>
-                          {BOT_LEVELS[b].tagline}
-                        </p>
-                      </button>
-                    ))}
+                {!chosenMode.training && (
+                  <div className="rounded-lg bg-black/45 p-3 ring-1 ring-white/10">
+                    <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-300">Difficulté des bots</p>
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {BOT_ORDER.map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => changeOptions({ ...options, bots: b })}
+                          className={`rounded-md px-2 py-2 text-left ring-2 transition ${
+                            options.bots === b ? "bg-yellow-300 text-black ring-yellow-300" : "bg-white/5 ring-white/10 hover:bg-white/10"
+                          }`}
+                        >
+                          <p className="text-sm font-black uppercase italic">{BOT_LEVELS[b].label}</p>
+                          <p className={`text-[10px] leading-tight ${options.bots === b ? "text-black/70" : "text-zinc-400"}`}>
+                            {BOT_LEVELS[b].tagline}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="rounded-lg bg-gradient-to-br from-cyan-800/70 to-slate-950/80 p-3 ring-1 ring-cyan-400/30">
                   <p className="text-lg font-black uppercase italic">En ligne · 1 contre 1</p>
@@ -735,37 +1093,99 @@ export default function DuelGame({ title }: { title: string }) {
               <div className="space-y-4">
                 <h2 className="text-2xl font-black uppercase italic drop-shadow">Casier</h2>
                 {shopNote && <p className="rounded-md bg-black/55 px-3 py-2 text-sm font-semibold text-yellow-100">{shopNote}</p>}
+                {selected && <div className="sticky top-0 z-10 max-w-md">{detailPanel()}</div>}
                 <div>
                   <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">Tenues</p>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-7">
-                    {SKIN_ORDER.map((id) => itemCard(`skin:${id}`))}
-                  </div>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-7">{SKIN_ORDER.map((id) => itemCard(`skin:${id}`))}</div>
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">
                     Camouflages d&apos;arme <span className="normal-case tracking-normal text-zinc-400">· visibles sur ton arme en jeu</span>
                   </p>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-7">
-                    {CAMO_ORDER.map((id) => itemCard(`camo:${id}`))}
-                  </div>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-7">{CAMO_ORDER.map((id) => itemCard(`camo:${id}`))}</div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">
+                    Danses <span className="normal-case tracking-normal text-zinc-400">· en partie, touche G puis le numéro</span>
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{DANCE_ORDER.map((id) => itemCard(`dance:${id}`))}</div>
                 </div>
                 <p className="text-xs text-white/75">
-                  Les pièces se gagnent en jouant : éliminations et victoires. Rien ne s&apos;achète avec de l&apos;argent réel.
+                  Clique sur un objet pour le voir sur ton personnage. Les pièces se gagnent en jouant : éliminations et victoires. Rien ne
+                  s&apos;achète avec de l&apos;argent réel.
                 </p>
               </div>
             )}
 
             {tab === "boutique" && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h2 className="text-2xl font-black uppercase italic drop-shadow">Boutique du jour</h2>
+                  <h2 className="text-2xl font-black uppercase italic drop-shadow">Boutique</h2>
                   <span className="rounded bg-black/50 px-2 py-1 text-xs font-bold text-zinc-200">
                     Nouveaux objets dans {hoursLeft} h {String(minutesLeft).padStart(2, "0")}
                   </span>
                 </div>
+
+                <button
+                  type="button"
+                  disabled={!gift}
+                  onClick={claimGift}
+                  className={`flex w-full items-center gap-3 rounded-lg p-3 text-left ring-2 transition ${
+                    gift ? "bg-gradient-to-r from-amber-500 to-rose-600 ring-yellow-200 hover:brightness-110" : "bg-black/40 ring-white/10"
+                  }`}
+                >
+                  <span className="text-3xl">{gift ? "🎁" : "✅"}</span>
+                  <div>
+                    <p className="text-sm font-black uppercase italic">{gift ? `Cadeau du jour : +${DAILY_GIFT} pièces` : "Cadeau du jour récupéré"}</p>
+                    <p className="text-[11px] text-white/85">{gift ? "Clique pour le récupérer." : "Reviens demain pour le suivant."}</p>
+                  </div>
+                </button>
+
                 {shopNote && <p className="rounded-md bg-black/55 px-3 py-2 text-sm font-semibold text-yellow-100">{shopNote}</p>}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {shopToday.map((key) => itemCard(key, true))}
+                {selected && <div className="sticky top-0 z-10 max-w-md">{detailPanel()}</div>}
+
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-yellow-200">★ À la une</p>
+                  <div className="grid grid-cols-2 gap-3">{shopToday.featured.map((key) => itemCard(key, true))}</div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">Offres du jour</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{shopToday.daily.map((key) => itemCard(key))}</div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">Packs · jusqu&apos;à −35 %</p>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {SHOP_PACKS.map((pack) => {
+                      const price = packPrice(pack, profile.owned);
+                      const done = pack.items.every((k) => profile.owned.includes(k));
+                      return (
+                        <button
+                          key={pack.id}
+                          type="button"
+                          onClick={() => {
+                            setSelected({ type: "pack", pack });
+                            setConfirmBuy(false);
+                            setShopNote(null);
+                          }}
+                          className="flex flex-col gap-1 rounded-lg bg-gradient-to-br from-violet-700/80 to-slate-950/90 p-2.5 text-left ring-2 ring-black/30 transition hover:ring-yellow-300"
+                        >
+                          <div className="flex gap-1">
+                            {pack.items.map((k) => (
+                              <div key={k} className="h-12 w-10">
+                                <ItemIcon itemKey={k} />
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-sm font-black uppercase italic">{pack.name}</p>
+                          <p className="text-[11px] font-black text-yellow-200">
+                            {done ? "✓ Complet" : `🪙 ${price} · −${Math.round(pack.discount * 100)} %`}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -817,7 +1237,10 @@ export default function DuelGame({ title }: { title: string }) {
                   <p><b className="text-white">Déplacement</b> — ZQSD ou WASD, Maj pour sprinter</p>
                   <p><b className="text-white">Tirer</b> — clic gauche · <b className="text-white">Viser</b> — clic droit</p>
                   <p><b className="text-white">Recharger</b> — R · <b className="text-white">Laser</b> — L</p>
+                  <p><b className="text-white">Armes</b> — 1 à 3 ou molette · <b className="text-white">Échanger</b> — E</p>
+                  <p><b className="text-white">Danses</b> — G, puis le numéro</p>
                   <p><b className="text-white">Économie</b> — 1 à 9 pour acheter, B boutique</p>
+                  {devAllowed && <p className="text-fuchsia-200"><b>Mode admin</b> — F2 en partie solo</p>}
                 </div>
               </div>
             )}
@@ -833,10 +1256,14 @@ export default function DuelGame({ title }: { title: string }) {
           className="rounded-md bg-black/55 px-3 py-1.5 text-right ring-1 ring-white/15 transition hover:bg-black/75"
         >
           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
-            {selected.arena === "zone" ? "Grande île" : DUEL_MAP_INFO[mapId].name} · Bots {BOT_LEVELS[options.bots].label}
+            {chosenMode.arena === "zone"
+              ? "Île géante · contre des bots"
+              : chosenMode.training
+                ? `${DRILLS[drill].name} · ${DUEL_MAP_INFO[mapId].name}`
+                : `${DUEL_MAP_INFO[mapId].name} · Bots ${BOT_LEVELS[options.bots].label}`}
           </p>
           <p className="text-sm font-black uppercase italic">
-            {selected.name} <span className="text-yellow-300">· changer</span>
+            {chosenMode.name} <span className="text-yellow-300">· changer</span>
           </p>
         </button>
         <button

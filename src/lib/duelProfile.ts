@@ -1,4 +1,6 @@
-// Profil du joueur de Duel : pieces, niveau, tenues et camouflages.
+import { DANCES, DANCE_ORDER, type DanceId } from "./duelDances";
+
+// Profil du joueur de Duel : pieces, niveau, tenues, camouflages et danses.
 //
 // Tout est conserve dans le navigateur, comme les reglages : rien ne part sur
 // le serveur, et rien ne s'achete avec de l'argent reel. On gagne des pieces
@@ -197,10 +199,12 @@ export const CAMO_ORDER: CamoId[] = ["standard", "foret", "desert", "urbain", "c
 export interface DuelProfile {
   coins: number;
   xp: number;
-  /** Objets possedes, prefixes : « skin:neon », « camo:dragon ». */
+  /** Objets possedes, prefixes : « skin:neon », « camo:dragon », « dance:floss ». */
   owned: string[];
   skin: SkinId;
   camo: CamoId;
+  /** Jour du dernier cadeau recupere (AAAA-MM-JJ), vide s'il n'a jamais ete pris. */
+  lastGift: string;
 }
 
 export const DEFAULT_PROFILE: DuelProfile = {
@@ -208,9 +212,10 @@ export const DEFAULT_PROFILE: DuelProfile = {
   // pas envie de jouer pour le remplir.
   coins: 500,
   xp: 0,
-  owned: ["skin:commando", "camo:standard"],
+  owned: ["skin:commando", "camo:standard", "dance:salut"],
   skin: "commando",
   camo: "standard",
+  lastGift: "",
 };
 
 const KEY = "pixolud-duel-profil";
@@ -230,6 +235,7 @@ export function loadProfile(): DuelProfile {
       owned,
       skin,
       camo,
+      lastGift: typeof p.lastGift === "string" ? p.lastGift : "",
     };
   } catch {
     return { ...DEFAULT_PROFILE, owned: [...DEFAULT_PROFILE.owned] };
@@ -266,11 +272,59 @@ export function matchReward(win: boolean, kills: number): { coins: number; xp: n
   };
 }
 
+// ---------------------------------------------------------------- boutique
+
+export type ShopKind = "skin" | "camo" | "dance";
+
+export interface ShopItem {
+  key: string;
+  kind: ShopKind;
+  id: string;
+  name: string;
+  rarity: Rarity;
+  price: number;
+  tagline: string;
+}
+
+/** Tout objet du casier, a partir de sa cle (« skin:neon », « dance:floss »). */
+export function shopItem(key: string): ShopItem | null {
+  const [kind, id] = key.split(":");
+  if (kind === "skin" && id in SKINS) {
+    const s = SKINS[id as SkinId];
+    return { key, kind, id, name: s.name, rarity: s.rarity, price: s.price, tagline: s.tagline };
+  }
+  if (kind === "camo" && id in CAMOS) {
+    const c = CAMOS[id as CamoId];
+    return { key, kind, id, name: c.name, rarity: c.rarity, price: c.price, tagline: c.tagline };
+  }
+  if (kind === "dance" && id in DANCES) {
+    const d = DANCES[id as DanceId];
+    return { key, kind, id, name: d.name, rarity: d.rarity, price: d.price, tagline: d.tagline };
+  }
+  return null;
+}
+
+/** Tous les objets payants, dans l'ordre du casier. */
+export function allShopKeys(): string[] {
+  return [
+    ...SKIN_ORDER.filter((s) => SKINS[s].price > 0).map((s) => `skin:${s}`),
+    ...CAMO_ORDER.filter((c) => CAMOS[c].price > 0).map((c) => `camo:${c}`),
+    ...DANCE_ORDER.filter((d) => DANCES[d].price > 0).map((d) => `dance:${d}`),
+  ];
+}
+
+export function dayKey(date = new Date()): string {
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
 /**
- * La boutique du jour : quatre objets qui changent chaque jour, les memes pour
- * tout le monde ce jour-la. Un tirage a graine sur la date, sans serveur.
+ * La boutique du jour : deux objets a la une (un epique ou legendaire, et une
+ * danse) et six offres, les memes pour tout le monde ce jour-la. Un tirage a
+ * graine sur la date, sans serveur.
  */
-export function dailyShop(date = new Date()): string[] {
+export function dailyShop(date = new Date()): { featured: string[]; daily: string[] } {
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
   let seed = (day * 2654435761) >>> 0;
   const rand = () => {
@@ -280,14 +334,73 @@ export function dailyShop(date = new Date()): string[] {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const pool = [
-    ...SKIN_ORDER.filter((s) => SKINS[s].price > 0).map((s) => `skin:${s}`),
-    ...CAMO_ORDER.filter((c) => CAMOS[c].price > 0).map((c) => `camo:${c}`),
-  ];
-  const picked: string[] = [];
-  while (picked.length < 4 && pool.length > 0) {
-    const i = Math.floor(rand() * pool.length);
-    picked.push(pool.splice(i, 1)[0]);
+  const pool = allShopKeys();
+  const take = (filter: (k: string) => boolean) => {
+    const candidates = pool.filter(filter);
+    if (candidates.length === 0) return null;
+    const pick = candidates[Math.floor(rand() * candidates.length)];
+    pool.splice(pool.indexOf(pick), 1);
+    return pick;
+  };
+  const featured = [
+    take((k) => {
+      const item = shopItem(k);
+      return item !== null && (item.rarity === "legendaire" || item.rarity === "epique");
+    }),
+    take((k) => k.startsWith("dance:")),
+  ].filter((k): k is string => k !== null);
+  const daily: string[] = [];
+  while (daily.length < 6 && pool.length > 0) {
+    const pick = take(() => true);
+    if (pick) daily.push(pick);
   }
-  return picked;
+  return { featured, daily };
+}
+
+export interface ShopPack {
+  id: string;
+  name: string;
+  tagline: string;
+  items: string[];
+  /** Reduction sur le prix des objets qu'on n'a pas encore. */
+  discount: number;
+}
+
+/** Les packs : un theme complet, moins cher que les objets un par un. */
+export const SHOP_PACKS: ShopPack[] = [
+  {
+    id: "neon",
+    name: "Pack Néon",
+    tagline: "Tenue Néon, camouflage Carbone et la danse Disco.",
+    items: ["skin:neon", "camo:carbone", "dance:disco"],
+    discount: 0.3,
+  },
+  {
+    id: "volcan",
+    name: "Pack Volcan",
+    tagline: "Tenue Magma, camouflage Dragon et la danse Robot.",
+    items: ["skin:magma", "camo:dragon", "dance:robot"],
+    discount: 0.3,
+  },
+  {
+    id: "legende",
+    name: "Pack Légende",
+    tagline: "Roi Midas, Or massif et la danse Champion. Tout en or.",
+    items: ["skin:or", "camo:or", "dance:champion"],
+    discount: 0.35,
+  },
+];
+
+/** Prix d'un pack pour ce joueur : les objets deja possedes ne se paient pas. */
+export function packPrice(pack: ShopPack, owned: string[]): number {
+  const rest = pack.items.filter((k) => !owned.includes(k));
+  const full = rest.reduce((sum, k) => sum + (shopItem(k)?.price ?? 0), 0);
+  return Math.round((full * (1 - pack.discount)) / 10) * 10;
+}
+
+/** Pieces offertes une fois par jour, en passant par la boutique. */
+export const DAILY_GIFT = 120;
+
+export function giftAvailable(profile: DuelProfile, date = new Date()): boolean {
+  return profile.lastGift !== dayKey(date);
 }

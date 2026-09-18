@@ -6,6 +6,7 @@ import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier"
 import { buildWeaponModel, type WeaponId, type WeaponModel } from "@/lib/duelWeapons";
 import { CAMOS, SKINS, type CamoId, type SkinId } from "@/lib/duelProfile";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
+import { createDancer, type DanceId, type Dancer } from "@/lib/duelDances";
 
 /**
  * Le decor 3D du salon : ton soldat sur une plateforme au-dessus de l'eau,
@@ -19,13 +20,16 @@ export default function DuelLobbyStage({
   skin,
   camo,
   weapon,
+  dance = null,
 }: {
   skin: SkinId;
   camo: CamoId;
   weapon: WeaponId;
+  /** Danse a montrer (apercu de la boutique ou du casier), ou null. */
+  dance?: DanceId | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<{ setLook: (skin: SkinId, camo: CamoId, weapon: WeaponId) => void } | null>(null);
+  const apiRef = useRef<{ setLook: (skin: SkinId, camo: CamoId, weapon: WeaponId) => void; setDance: (id: DanceId | null) => void } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -177,6 +181,8 @@ export default function DuelLobbyStage({
     const swatGunHolder = new THREE.Group();
     let stageDisposed = false;
     let lastLook: [SkinId, CamoId, WeaponId] | null = null;
+    let dancer: Dancer | null = null;
+    let wantedDance: DanceId | null = null;
     createAnimatedModel("soldat-swat", 1.8)
       .then((m) => {
         if (stageDisposed) {
@@ -187,7 +193,9 @@ export default function DuelLobbyStage({
         m.attach("Wrist.R", swatGunHolder, "Idle_Gun_Pointing");
         m.play("Idle_Gun");
         holder.add(m.root);
+        dancer = createDancer(m);
         if (lastLook) setLook(...lastLook);
+        if (wantedDance) setDance(wantedDance);
       })
       .catch(() => {});
 
@@ -230,7 +238,15 @@ export default function DuelLobbyStage({
       // Lueur de rarete sous l'arme, a la couleur du camouflage.
       ringMat.color.set(CAMOS[camoId].rarity === "legendaire" ? 0xffc14a : CAMOS[camoId].rarity === "epique" ? 0xc47dff : 0x57e3ff);
     }
-    apiRef.current = { setLook };
+    /** Apercu d'une danse : l'arme disparait, le soldat danse en boucle. */
+    function setDance(id: DanceId | null) {
+      wantedDance = id;
+      if (!dancer || !swat) return;
+      dancer.start(id);
+      swatGunHolder.visible = id === null;
+      if (id === null) swat.play("Idle_Gun", { fade: 0.25 });
+    }
+    apiRef.current = { setLook, setDance };
 
     // --- Rotation a la souris ou au doigt ---
     let dragging = false;
@@ -284,7 +300,10 @@ export default function DuelLobbyStage({
         poseSoldier(soldier, { walk: 0, speed: 0, pitch: 0.08 + Math.sin(t * 1.2) * 0.02, death: 0 });
         soldier.torso.position.y = 0.9 + Math.sin(t * 2) * 0.012;
       }
-      if (swat) {
+      if (swat && dancer?.current) {
+        swat.update(delta);
+        dancer.update(delta);
+      } else if (swat) {
         // Au repos l'arme basse ; de temps en temps il la leve et vise.
         const cycle = t % 9;
         swat.play(cycle > 6.5 ? "Idle_Gun_Pointing" : "Idle_Gun", { fade: 0.35 });
@@ -329,6 +348,9 @@ export default function DuelLobbyStage({
   useEffect(() => {
     apiRef.current?.setLook(skin, camo, weapon);
   }, [skin, camo, weapon]);
+  useEffect(() => {
+    apiRef.current?.setDance(dance);
+  }, [dance]);
 
   return <div ref={containerRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />;
 }

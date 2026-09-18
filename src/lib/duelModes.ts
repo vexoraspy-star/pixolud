@@ -16,7 +16,7 @@ import type { WeaponId } from "./duelWeapons";
  *                  le terrain se referme. Le dernier debout gagne.
  */
 
-export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone" | "economie";
+export type DuelModeId = "duel" | "deathmatch" | "armement" | "zone" | "economie" | "entrainement";
 
 /**
  * Economie facon Counter-Strike / Valorant : des manches, et entre chaque
@@ -77,6 +77,8 @@ export interface DuelMode {
   online: boolean;
   /** Manches et phase d'achat. Absent : pas d'argent dans ce mode. */
   economy?: DuelEconomy;
+  /** Stand d'entrainement : des cibles qui ne tirent pas, et un exercice chronometre. */
+  training?: boolean;
 }
 
 export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
@@ -170,9 +172,26 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
       roundEndSeconds: 2.4,
     },
   },
+  entrainement: {
+    id: "entrainement",
+    name: "Entraînement",
+    tagline: "Visée et réflexes",
+    detail:
+      "Le stand de tir : cibles fixes, cibles mobiles, réflexes ou précision, une minute chacun. Munitions illimitées, toutes les armes au choix (1 à 9), et tes statistiques à la fin.",
+    arena: "duel",
+    bots: 4,
+    scoreToWin: 0,
+    respawn: true,
+    startWeapon: "fusil",
+    gunGame: false,
+    shrinkingZone: false,
+    loot: false,
+    online: false,
+    training: true,
+  },
 };
 
-export const DUEL_MODE_ORDER: DuelModeId[] = ["duel", "deathmatch", "armement", "economie", "zone"];
+export const DUEL_MODE_ORDER: DuelModeId[] = ["zone", "duel", "deathmatch", "armement", "economie", "entrainement"];
 
 /**
  * Le terrain de la Zone : 31x31, quatre fois l'arene du duel.
