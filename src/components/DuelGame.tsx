@@ -1267,6 +1267,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   <p><b className="text-white">Déplacement</b> — ZQSD ou WASD, Maj pour sprinter</p>
                   <p><b className="text-white">Tirer</b> — clic gauche · <b className="text-white">Viser</b> — clic droit</p>
                   <p><b className="text-white">Recharger</b> — R · <b className="text-white">Laser</b> — L</p>
+                  <p><b className="text-white">S&apos;accroupir</b> — C (tenir)</p>
                   <p><b className="text-white">Armes</b> — 1 à 3 ou molette · <b className="text-white">Échanger</b> — E</p>
                   <p><b className="text-white">Danses</b> — G, puis le numéro</p>
                   <p><b className="text-white">Construire</b> — F (mode 1v1 Construction)</p>

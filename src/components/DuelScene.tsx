@@ -280,7 +280,10 @@ export default function DuelScene({
   const [damageFrom, setDamageFrom] = useState<number | null>(null);
   const [feed, setFeed] = useState<KillFeedEntry[]>([]);
   const [locked, setLocked] = useState(false);
+  /** Lunette (carabine, sniper) : masque noir. */
   const [zoomed, setZoomed] = useState(false);
+  /** Visee avec n'importe quelle arme a feu : le reticule s'efface, on vise par l'organe de visee. */
+  const [aiming, setAiming] = useState(false);
   const [pickupToast, setPickupToast] = useState<string | null>(null);
   /** Les armes portees (1 a 3) et celle en main ; -1 = mains nues. */
   const [inventory, setInventory] = useState<{ slots: WeaponId[]; cur: number }>({ slots: [], cur: -1 });
@@ -559,6 +562,8 @@ export default function DuelScene({
     scene.fog = new THREE.Fog(skyColor, (island ? 24 : 16) * DUEL_CELL, (island ? 64 : 30) * DUEL_CELL);
 
     const BASE_FOV = 82;
+    /** Visee sans lunette : un zoom leger, par le point rouge ou la hausse. */
+    const ADS_FOV = 62;
     const camera = new THREE.PerspectiveCamera(
       BASE_FOV,
       container.clientWidth / container.clientHeight,
@@ -1459,7 +1464,7 @@ export default function DuelScene({
         if (a <= 1e-6 || disc < 0) continue;
         const t = (-b - Math.sqrt(disc)) / (2 * a);
         if (t <= 0 || t >= hitDist) continue;
-        const y = DUEL_EYE_HEIGHT + dir.y * t;
+        const y = eyeY + dir.y * t;
         if (y < 0.05 || y > DUEL_HEAD_Y + DUEL_HEAD_RADIUS) continue;
         hitDist = t;
         hit = f;
@@ -1619,6 +1624,11 @@ export default function DuelScene({
     let hitLockUntil = 0;
     let ended = false;
     let isZoomed = false;
+    /** Accroupi (C tenu) : plus bas, plus lent, plus precis. */
+    let crouching = false;
+    let crouchBlend = 0;
+    /** Hauteur des yeux : elle baisse quand on s'accroupit. */
+    let eyeY = DUEL_EYE_HEIGHT;
     /** Ping radar : d'ou sont partis les derniers coups de feu. */
     const blips: { x: number; z: number; until: number }[] = [];
     const keys = new Set<string>();
@@ -2227,17 +2237,17 @@ export default function DuelScene({
         if (a <= 1e-6 || disc < 0) continue;
         const t = (-b - Math.sqrt(disc)) / (2 * a);
         if (t <= 0 || t >= hitDist) continue;
-        const y = DUEL_EYE_HEIGHT + dir.y * t;
+        const y = eyeY + dir.y * t;
         if (y < 0.05 || y > DUEL_HEAD_Y + DUEL_HEAD_RADIUS) continue;
         hitDist = t;
         hitTarget = f;
         headshot = Math.abs(y - DUEL_HEAD_Y) < DUEL_HEAD_RADIUS;
       }
 
-      const start = new THREE.Vector3(me.x * DUEL_CELL, DUEL_EYE_HEIGHT, me.z * DUEL_CELL).add(
+      const start = new THREE.Vector3(me.x * DUEL_CELL, eyeY, me.z * DUEL_CELL).add(
         dir.clone().multiplyScalar(0.6),
       );
-      const end = new THREE.Vector3(me.x * DUEL_CELL, DUEL_EYE_HEIGHT, me.z * DUEL_CELL).add(
+      const end = new THREE.Vector3(me.x * DUEL_CELL, eyeY, me.z * DUEL_CELL).add(
         dir.clone().multiplyScalar(hitDist),
       );
       effects.tracer(start, end, spec.tracer, spec.pellets > 1);
@@ -2363,7 +2373,7 @@ export default function DuelScene({
 
       // Viser immobile resserre la gerbe ; courir en tirant l'ouvre.
       const movingPenalty = movingNow ? 2 : 1;
-      const aimBonus = isZoomed ? 0.35 : 1;
+      const aimBonus = (isZoomed ? (spec.zoomFov ? 0.35 : 0.55) : 1) * (crouching ? 0.7 : 1);
       const spread = ch.noRecoil ? 0 : spec.spread * movingPenalty * aimBonus;
 
       const base = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -2410,14 +2420,16 @@ export default function DuelScene({
     function toggleZoom(force?: boolean) {
       const spec = WEAPONS[me.weapon];
       const want = force ?? !isZoomed;
-      isZoomed = Boolean(spec.zoomFov) && want && !me.dead;
-      setZoomed(isZoomed);
+      // Toutes les armes a feu visent ; seules celles a lunette ont le masque noir.
+      isZoomed = !spec.melee && want && !me.dead && !buildMode;
+      setZoomed(isZoomed && Boolean(spec.zoomFov));
+      setAiming(isZoomed);
     }
 
     // --------------------------------------------------------------- entrees
     function applyLook(dx: number, dy: number) {
       // La lunette divise la sensibilite : sinon viser de loin est impossible.
-      const zoomFactor = isZoomed ? 0.4 : 1;
+      const zoomFactor = isZoomed ? (WEAPONS[me.weapon].zoomFov ? 0.4 : 0.75) : 1;
       const s = LOOK_SENSITIVITY * sensitivity.current * zoomFactor;
       me.yaw -= dx * s;
       me.pitch = THREE.MathUtils.clamp(me.pitch - dy * s, -1.2, 1.2);
@@ -3107,6 +3119,7 @@ export default function DuelScene({
       // uniquement quand on est a portee.
       let accuracy = botCfg.accuracy - dist * 0.035;
       if (target.moving) accuracy -= 0.16;
+      if (f.targetIsMe && crouching) accuracy -= 0.08;
       if (!f.targetIsMe) accuracy -= 0.12;
       if (dist > spec.range) accuracy *= 0.45;
       accuracy = Math.max(0.08, Math.min(0.85, accuracy));
@@ -3271,15 +3284,19 @@ export default function DuelScene({
 
       const moving = Math.abs(fwd) > 0.03 || Math.abs(strafe) > 0.03;
       movingNow = moving;
+      // C tenu : accroupi. Plus lent, plus precis, et plus dur a toucher.
+      crouching = canAct && keys.has("c");
+      crouchBlend += ((crouching ? 1 : 0) - crouchBlend) * Math.min(1, delta * 12);
+      eyeY = DUEL_EYE_HEIGHT - crouchBlend * 0.5;
       const sprinting =
-        moving && fwd > 0 && keys.has("shift") && !isZoomed && elapsed > me.nextShotAt - 0.05;
+        moving && fwd > 0 && keys.has("shift") && !isZoomed && !crouching && elapsed > me.nextShotAt - 0.05;
       if (moving) {
         const f = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), me.yaw);
         const r = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), me.yaw);
         const mv = new THREE.Vector3().addScaledVector(f, fwd).addScaledVector(r, strafe);
         if (mv.length() > 1) mv.normalize();
         // L'arme lourde ralentit, la lunette cloue sur place.
-        const weaponSpeed = spec.moveFactor * (isZoomed ? 0.4 : 1);
+        const weaponSpeed = spec.moveFactor * (isZoomed ? (spec.zoomFov ? 0.4 : 0.7) : 1) * (crouching ? 0.55 : 1);
         mv.multiplyScalar(DUEL_MOVE_SPEED * weaponSpeed * (sprinting ? 1.5 : 1) * (ch.speed ? 2 : 1) * delta);
         if (ch.noclip) {
           // Traverser les murs, sans sortir de la carte.
@@ -3309,7 +3326,7 @@ export default function DuelScene({
         if (tgt) {
           const d = Math.hypot(tgt.x - me.x, tgt.z - me.z);
           me.yaw = Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z));
-          me.pitch = Math.atan2(DUEL_HEAD_Y - DUEL_EYE_HEIGHT, d) - recoilKick;
+          me.pitch = Math.atan2(DUEL_HEAD_Y - eyeY, d) - recoilKick;
           camera.rotation.set(me.pitch + recoilKick, me.yaw, 0);
         }
       }
@@ -3460,14 +3477,14 @@ export default function DuelScene({
       recoilKick = Math.max(0, recoilKick - delta * 2.4);
       camera.position.set(
         me.x * DUEL_CELL,
-        DUEL_EYE_HEIGHT + (moving ? Math.sin(walkPhase * 2) * 0.022 : 0),
+        eyeY + (moving ? Math.sin(walkPhase * 2) * 0.022 : 0),
         me.z * DUEL_CELL,
       );
       camera.rotation.y = me.yaw;
       camera.rotation.x = me.pitch + recoilKick;
       camera.rotation.z = moving ? Math.sin(walkPhase) * 0.008 : 0;
 
-      const targetFov = isZoomed && spec.zoomFov ? spec.zoomFov : BASE_FOV;
+      const targetFov = isZoomed ? (spec.zoomFov ?? ADS_FOV) : BASE_FOV;
       if (Math.abs(camera.fov - targetFov) > 0.2) {
         camera.fov += (targetFov - camera.fov) * Math.min(1, delta * 14);
         camera.updateProjectionMatrix();
@@ -3490,7 +3507,7 @@ export default function DuelScene({
       model.group.rotation.z = sprinting ? 0.3 : 0;
       // Dans la lunette, l'arme disparait : sinon sa hausse et son canon
       // bouchaient le centre de la vue, la ou l'on vise.
-      model.group.visible = !me.dead && me.alive && !(isZoomed && aimBlend > 0.55) && !buildMode;
+      model.group.visible = !me.dead && me.alive && !(isZoomed && spec.zoomFov && aimBlend > 0.55) && !buildMode;
       // Pieces mobiles et mains : culasse, pompe, verrou, chargeur qui tombe.
       const reloadProgress =
         me.reloadUntil > 0
@@ -3514,8 +3531,8 @@ export default function DuelScene({
         // `rayWallDistance` travaille en cases : la distance revient donc en
         // cases, et on la convertit une seule fois ici.
         let t = rayWallDistance(me.x, me.z, laserDir.x, laserDir.z, 40);
-        if (laserDir.y < -1e-4) t = Math.min(t, -DUEL_EYE_HEIGHT / (laserDir.y * DUEL_CELL));
-        if (laserDir.y > 1e-4) t = Math.min(t, (DUEL_WALL_HEIGHT - DUEL_EYE_HEIGHT) / (laserDir.y * DUEL_CELL));
+        if (laserDir.y < -1e-4) t = Math.min(t, -eyeY / (laserDir.y * DUEL_CELL));
+        if (laserDir.y > 1e-4) t = Math.min(t, (DUEL_WALL_HEIGHT - eyeY) / (laserDir.y * DUEL_CELL));
         const reach = Math.max(0.4, t * DUEL_CELL - 0.02);
         model.flash.getWorldPosition(laserFrom);
         laserTo.copy(camera.position).addScaledVector(laserDir, reach);
@@ -4217,7 +4234,11 @@ export default function DuelScene({
       )}
 
       {/* Réticule : regle par le joueur, il s'ouvre a la course et au tir */}
-      {!zoomed && <DuelCrosshair options={options} spread={spread} hit={hitMarker} />}
+      {!aiming && <DuelCrosshair options={options} spread={spread} hit={hitMarker} />}
+      {/* En visee sans lunette : un point rouge au centre, la ou part la balle */}
+      {aiming && !zoomed && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500 shadow-[0_0_4px_rgba(255,60,60,0.9)]" />
+      )}
 
       {/* Lunette du sniper : un vrai masque noir, pas juste un zoom */}
       {zoomed && (
@@ -4425,7 +4446,7 @@ export default function DuelScene({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
-            R : recharger · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
+            R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
             {mode.build ? " · F : construire" : ""} · Échap : libérer la souris
           </span>
         </div>

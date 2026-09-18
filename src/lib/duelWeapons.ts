@@ -983,7 +983,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.094, 0.028, 0.42, dark), 0, 0.068, 0);
       add(box(0.05, 0.03, 0.1, dark), 0, 0.094, 0.04); // embase du viseur
       put(body, ring(0.03, 0.006, dark), 0, 0.125, 0.04);
-      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.125, 0.06);
+      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.125, 0.06).name = "dot";
       add(box(0.08, 0.085, 0.16, dark), 0, -0.01, -0.28);
       for (let i = 0; i < 3; i++) add(box(0.086, 0.014, 0.03, metal), 0, -0.01, -0.33 + i * 0.05);
       add(tube(0.017, 0.2, steel), 0, 0.012, -0.36);
@@ -1096,6 +1096,38 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     leftHand.visible = false;
   }
 
+  // Visee sans lunette : la ligne de mire passe juste au-dessus de tout ce
+  // qui se trouve dans l'axe (hausse, rail, poignee de transport). Sinon une
+  // piece de l'arme bouchait le centre de l'ecran, la ou l'on vise. Les
+  // anneaux de viseur sont creux : on regarde a travers.
+  const bounds = new THREE.Box3();
+  const isHandPart = (o: THREE.Object3D) => {
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === rightHand || p === leftHand) return true;
+    return false;
+  };
+  group.updateMatrixWorld(true);
+  if (!WEAPONS[id].zoomFov && !WEAPONS[id].melee) {
+    let top = -Infinity;
+    body.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || isHandPart(o)) return;
+      if (o.geometry instanceof THREE.TorusGeometry || o.name === "dot") return;
+      bounds.setFromObject(o);
+      if (bounds.max.x < -0.025 || bounds.min.x > 0.025) return;
+      top = Math.max(top, bounds.max.y);
+    });
+    if (top > sightY - 0.004) sightY = top + 0.004;
+  }
+  // En visee, la crosse passait juste devant l'oeil et bouchait le bas de
+  // l'ecran : tout ce qui est derriere la poignee s'efface quand on epaule.
+  const stockParts: THREE.Object3D[] = [];
+  if (!WEAPONS[id].melee) {
+    body.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || isHandPart(o)) return;
+      bounds.setFromObject(o);
+      if ((bounds.min.z + bounds.max.z) / 2 > 0.22) stockParts.push(o);
+    });
+  }
+
   const flashMat = keep(
     new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 }),
   );
@@ -1119,6 +1151,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
 
   function update(anim: WeaponAnim) {
     const rec = Math.min(1, Math.max(0, anim.recoil));
+    const showStock = anim.aim < 0.5;
+    for (const p of stockParts) p.visible = showStock;
     // Un tir vient de partir quand `rec` vaut 1 ; il retombe vers 0. Le
     // cycle (aller-retour) se lit donc a l'envers : sin((1 - rec) * PI).
     const cycle = Math.sin((1 - rec) * Math.PI);
