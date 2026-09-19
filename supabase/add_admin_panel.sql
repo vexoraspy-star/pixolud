@@ -33,6 +33,9 @@ create table if not exists public.admin_log (
 
 alter table public.admin_log enable row level security;
 -- Aucune policy : personne ne le lit ni ne l'écrit depuis le navigateur.
+-- Seul le serveur (clé secrète, rôle service_role) y accède.
+grant select, insert on public.admin_log to service_role;
+grant usage, select on sequence public.admin_log_id_seq to service_role;
 
 -- 3. Un compte banni ne peut plus rien écrire -------------------------------
 create or replace function public.is_banned(uid uuid)

@@ -41,6 +41,8 @@ export interface AdminUser {
 export interface AdminData {
   me: { id: string; pseudo: string };
   migrationReady: boolean;
+  /** Le journal ne se lit pas (droits de la table) : le message de Supabase. */
+  logError: string;
   users: AdminUser[];
   games: { id: string; slug: string; title: string; category: string; published: boolean; plays: number; createdAt: string; author: string }[];
   comments: { id: string; text: string; createdAt: string; author: string; game: string; gameSlug: string }[];
@@ -97,7 +99,20 @@ function Pill({ tone, children }: { tone: "violet" | "vert" | "rouge" | "ambre" 
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold ${tones[tone]}`}>{children}</span>;
 }
 
-export default function AdminPanel({ data }: { data: AdminData }) {
+/**
+ * Le panneau admin. `compact` : dans la petite fenetre du bouton 🛡 ; la mise
+ * en page suit alors la largeur de la fenetre (requetes de conteneur), pas
+ * celle de l'ecran. `onChanged` recharge les donnees apres une action.
+ */
+export default function AdminPanel({
+  data,
+  compact = false,
+  onChanged,
+}: {
+  data: AdminData;
+  compact?: boolean;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("tableau");
   const [pending, start] = useTransition();
@@ -108,7 +123,9 @@ export default function AdminPanel({ data }: { data: AdminData }) {
     start(async () => {
       const r = await run();
       setToast(r);
-      if (r.ok) router.refresh();
+      if (!r.ok) return;
+      if (onChanged) onChanged();
+      else router.refresh();
     });
   }
 
@@ -126,13 +143,17 @@ export default function AdminPanel({ data }: { data: AdminData }) {
   ];
 
   return (
-    <div className="portal-container portal-page">
+    <div className={compact ? "@container p-4" : "@container portal-container portal-page"}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--portal-accent)]">🛡 Administration</p>
-          <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Panneau admin</h1>
-          <p className="mt-2 text-sm text-[var(--portal-muted)]">
-            Connecté en tant que <b className="text-[var(--portal-ink)]">{data.me.pseudo}</b>. Tout ce que tu fais ici est réel et touche les vrais comptes.
+          {!compact && <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--portal-accent)]">🛡 Administration</p>}
+          {compact ? (
+            <h2 className="text-xl font-extrabold tracking-tight">Panneau admin</h2>
+          ) : (
+            <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Panneau admin</h1>
+          )}
+          <p className="mt-1 text-xs text-[var(--portal-muted)]">
+            Connecté en tant que <b className="text-[var(--portal-ink)]">{data.me.pseudo}</b>. Tout ce que tu fais ici est réel.
           </p>
         </div>
         {pending && <span className="text-sm font-semibold text-[var(--portal-accent)]">Action en cours…</span>}
@@ -143,6 +164,16 @@ export default function AdminPanel({ data }: { data: AdminData }) {
           <b>Une étape à faire une seule fois :</b> dans Supabase, ouvre <i>SQL Editor → New query</i>, colle le contenu du fichier{" "}
           <code className="rounded bg-black/10 px-1">supabase/add_admin_panel.sql</code> et clique sur <i>Run</i>. Ça active le badge vérifié,
           le motif des bannissements, le journal et empêche un compte banni de publier. Le bannissement de connexion marche déjà sans.
+        </div>
+      )}
+      {data.migrationReady && data.logError && (
+        <div className="mt-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 p-4 text-xs leading-5">
+          <b>Le journal est inaccessible</b> ({data.logError}). Tout le reste marche. Pour le réparer, lance dans Supabase (SQL Editor) :
+          <code className="mt-2 block rounded bg-black/20 p-2 font-mono">
+            grant select, insert on public.admin_log to service_role;
+            <br />
+            grant usage, select on sequence public.admin_log_id_seq to service_role;
+          </code>
         </div>
       )}
 
@@ -218,7 +249,7 @@ function Dashboard({ data, banned, openReports, go }: { data: AdminData; banned:
   ];
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
         {stats.map((s) => (
           <button
             key={s.label}
@@ -273,7 +304,7 @@ function Users({ data, act, pending }: { data: AdminData } & ActProps) {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Chercher un pseudo ou un e-mail…"
           aria-label="Chercher un joueur"
-          className={`${input} w-full sm:w-80`}
+          className={`${input} w-full @lg:w-80`}
         />
         {(["tous", "bannis", "admins", "inactifs", "verifies"] as const).map((f) => (
           <button
@@ -326,7 +357,7 @@ function UserActions({ u, me, act, pending }: { u: AdminUser; me: string } & Act
   const self = u.id === me;
 
   return (
-    <div className="grid gap-4 border-t border-[var(--portal-line)] p-4 md:grid-cols-2">
+    <div className="grid gap-4 border-t border-[var(--portal-line)] p-4 @3xl:grid-cols-2">
       <section className="space-y-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--portal-muted)]">Identité</h3>
         <div className="flex flex-wrap gap-2">
@@ -393,7 +424,7 @@ function UserActions({ u, me, act, pending }: { u: AdminUser; me: string } & Act
         </div>
       </section>
 
-      <section className="space-y-2 rounded-xl border border-red-500/30 p-3 md:col-span-2">
+      <section className="space-y-2 rounded-xl border border-red-500/30 p-3 @3xl:col-span-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-300">Sanctions</h3>
         {u.banned ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -508,7 +539,7 @@ function Games({ data, act, pending }: { data: AdminData } & ActProps) {
   });
   return (
     <div className="space-y-4">
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Titre, auteur ou catégorie…" aria-label="Chercher un jeu" className={`${input} w-full sm:w-80`} />
+      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Titre, auteur ou catégorie…" aria-label="Chercher un jeu" className={`${input} w-full @lg:w-80`} />
       <ul className="space-y-2">
         {list.map((g) => (
           <li key={g.id} className={`${card} flex flex-wrap items-center gap-3 p-4`}>
@@ -556,7 +587,7 @@ function Comments({ data, act, pending }: { data: AdminData } & ActProps) {
   });
   return (
     <div className="space-y-4">
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Texte ou auteur…" aria-label="Chercher un commentaire" className={`${input} w-full sm:w-80`} />
+      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Texte ou auteur…" aria-label="Chercher un commentaire" className={`${input} w-full @lg:w-80`} />
       <ul className="space-y-2">
         {list.map((c) => (
           <li key={c.id} className={`${card} flex flex-wrap items-start gap-3 p-4`}>

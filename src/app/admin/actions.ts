@@ -5,6 +5,8 @@ import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHEAT_COOKIE, CHEAT_GAMES, currentAdmin } from "@/lib/admin";
+import type { AdminData } from "@/components/AdminPanel";
+import { loadAdminData } from "./data";
 
 /**
  * Actions du panneau admin.
@@ -87,6 +89,13 @@ async function updateProfile(db: SupabaseClient, id: string, values: Record<stri
     if (/duplicate|unique/i.test(error.message)) throw new AdminError("Ce pseudo est déjà pris.");
     throw new AdminError("Impossible de modifier ce profil.");
   }
+}
+
+/** Donnees du panneau pour la fenetre compacte (bouton 🛡) : admins seulement. */
+export async function getAdminPanelData(): Promise<AdminData | null> {
+  const admin = await currentAdmin();
+  if (!admin || !process.env.SUPABASE_SECRET_KEY) return null;
+  return loadAdminData(admin);
 }
 
 // ------------------------------------------------------------------ joueurs
