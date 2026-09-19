@@ -38,8 +38,8 @@ export default async function ProfilPage({
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-      <div className="flex items-center gap-4">
+    <div className="studio-page mx-auto max-w-5xl px-4 py-10 sm:px-6">
+      <div className="profile-banner flex items-center gap-4">
         <div className="flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-3xl font-bold text-white">
           {pseudo.slice(0, 2).toUpperCase()}
         </div>

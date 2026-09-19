@@ -36,12 +36,13 @@ export default async function EditeurPage() {
     .order("updated_at", { ascending: false });
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+    <div className="studio-page mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <p className="eyebrow"><span />LE STUDIO PIXOLUD</p>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
-          Mes jeux
+          Ton atelier de création
         </h1>
-        <div className="flex flex-wrap gap-2">
+        <div className="editor-create">
           {NEW_GAME_BUTTONS.map((b) => (
             <form key={b.type} action={createDraft}>
               <input type="hidden" name="type" value={b.type} />

@@ -27,7 +27,7 @@ export default async function ParametresPage({
     .single();
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-16 sm:px-6">
+    <div className="studio-page mx-auto max-w-lg px-4 py-16 sm:px-6">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
         Paramètres du compte
       </h1>

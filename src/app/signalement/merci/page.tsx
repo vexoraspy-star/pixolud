@@ -1,8 +1,9 @@
+import AuthCard from "@/components/AuthCard";
 import Link from "next/link";
 
 export default function SignalementMerciPage() {
   return (
-    <div className="mx-auto max-w-md px-4 py-20 text-center sm:px-6">
+    <AuthCard><div className="text-center">
       <span className="text-4xl">✅</span>
       <h1 className="mt-4 text-2xl font-bold text-zinc-900 dark:text-white">
         Signalement envoyé
@@ -16,6 +17,6 @@ export default function SignalementMerciPage() {
       >
         Retour au catalogue
       </Link>
-    </div>
+    </div></AuthCard>
   );
 }

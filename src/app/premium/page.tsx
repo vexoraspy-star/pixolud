@@ -28,8 +28,8 @@ export default async function PremiumPage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
-      <div className="text-center">
+    <div className="studio-page premium-page mx-auto max-w-4xl px-4 py-12 sm:px-6">
+      <div className="text-center"><p className="premium-eyebrow">PLUS DE POSSIBILITÉS, PLUS DE CRÉATIVITÉ</p>
         <h1 className="text-3xl font-bold text-zinc-900 dark:text-white">
           Passe à Pixolud Premium
         </h1>
@@ -106,7 +106,7 @@ function TierCard({
 
   return (
     <div
-      className={`flex flex-col rounded-2xl border p-6 ${
+      className={`tier-card flex flex-col rounded-2xl border p-6 ${
         current
           ? "border-violet-500 ring-2 ring-violet-500"
           : "border-zinc-200 dark:border-zinc-800"

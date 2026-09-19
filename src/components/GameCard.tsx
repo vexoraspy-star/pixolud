@@ -1,3 +1,4 @@
+import GameArtwork from "./GameArtwork";
 import Link from "next/link";
 import type { Game } from "@/lib/types";
 import { translate, type Locale } from "@/lib/i18n";
@@ -7,27 +8,13 @@ export default function GameCard({ game, locale = "fr" }: { game: Game; locale?:
   return (
     <Link
       href={`/jeu/${game.slug}`}
-      className={`group flex flex-col overflow-hidden rounded-xl bg-white transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-zinc-900 ${
-        game.authorBadge === "👑"
-          ? "border-2 border-amber-400 dark:border-amber-500"
-          : "border border-zinc-200 dark:border-zinc-800"
-      }`}
+      className={"portal-game-card group " + (game.authorBadge === "👑" ? "is-featured" : "")}
     >
-      {game.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={game.coverUrl}
-          alt={game.title}
-          className="h-32 w-full object-cover"
-        />
-      ) : (
-        <div
-          className={`flex h-32 items-center justify-center bg-gradient-to-br text-5xl ${game.gradient}`}
-        >
-          {game.emoji}
-        </div>
-      )}
-      <div className="flex flex-1 flex-col gap-1 p-4">
+      <div className={"card-cover bg-gradient-to-br " + game.gradient}><GameArtwork kind={game.category} cover={game.coverUrl} />
+        <span className="card-play" aria-hidden="true">↗</span>
+        <span className="cover-label">{game.emoji} {game.category}</span>
+      </div>
+      <div className="card-body flex flex-1 flex-col gap-2 p-5">
         <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
           {game.category}
         </span>
@@ -37,7 +24,7 @@ export default function GameCard({ game, locale = "fr" }: { game: Game; locale?:
         <p className="line-clamp-2 text-sm text-zinc-500 dark:text-zinc-400">
           {game.description}
         </p>
-        <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+        <div className="card-meta mt-auto flex flex-wrap items-center justify-between gap-2 pt-4 text-xs text-zinc-500 dark:text-zinc-400">
           <span>
             {t("common.by")} {game.authorBadge ? `${game.authorBadge} ` : ""}
             {game.authorPseudo}

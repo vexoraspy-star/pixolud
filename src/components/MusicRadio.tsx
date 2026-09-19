@@ -239,7 +239,7 @@ export default function MusicRadio() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-white/20 bg-gradient-to-br from-violet-600 to-fuchsia-600 px-3 py-2 text-white shadow-lg transition hover:scale-105 active:scale-95"
+        className="portal-widget flex items-center gap-2 px-3 py-2"
       >
         <span className="text-lg">{playing ? current.emoji : "📻"}</span>
         <span className="max-w-[8rem] truncate text-xs font-semibold">

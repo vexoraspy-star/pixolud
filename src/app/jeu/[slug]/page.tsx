@@ -1,3 +1,4 @@
+import GameArtwork from "@/components/GameArtwork";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -64,21 +65,9 @@ export default async function GamePage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-      {game.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={game.coverUrl}
-          alt={game.title}
-          className="h-56 w-full rounded-2xl object-cover sm:h-72"
-        />
-      ) : (
-        <div
-          className={`flex h-56 items-center justify-center rounded-2xl bg-gradient-to-br text-7xl sm:h-72 ${game.gradient}`}
-        >
-          {game.emoji}
-        </div>
-      )}
+    <div className="studio-page mx-auto max-w-4xl px-4 py-10 sm:px-6">
+      <Link href="/catalogue" className="detail-back">← Retour au catalogue</Link>
+      <div className="detail-cover"><GameArtwork kind={game.category} cover={game.coverUrl} priority /></div>
 
       <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -112,7 +101,7 @@ export default async function GamePage({
           {game.multiplayerMode && <InvitePartyButton slug={game.slug} />}
           <Link
             href={`/jeu/${game.slug}/jouer`}
-            className="rounded-full bg-violet-600 px-8 py-3 text-sm font-semibold text-white shadow hover:bg-violet-700"
+            className="portal-button"
           >
             ▶ Jouer
           </Link>

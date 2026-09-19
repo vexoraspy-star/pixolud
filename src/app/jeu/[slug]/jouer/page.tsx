@@ -127,7 +127,7 @@ export default async function PlayGamePage({
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-10 text-center sm:px-6">
+    <div className="play-page mx-auto flex max-w-4xl flex-col items-center px-4 py-10 text-center sm:px-6">
       <Link
         href={`/jeu/${game.slug}`}
         className="mb-6 self-start text-sm text-zinc-400 hover:text-violet-600"

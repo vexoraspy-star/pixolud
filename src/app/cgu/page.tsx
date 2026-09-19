@@ -1,6 +1,6 @@
 export default function CGUPage() {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+    <div className="studio-page legal-page mx-auto max-w-3xl px-4 py-12 sm:px-6">
       <h1 className="text-3xl font-bold text-zinc-900 dark:text-white">
         Conditions Générales d&apos;Utilisation (CGU)
       </h1>

@@ -177,7 +177,7 @@ export default function Mascot() {
         onClick={() => setMenuOpen((o) => !o)}
         onDoubleClick={() => setVisible(false)}
         title="Pixo, la mascotte du site (double-clic pour la faire partir)"
-        className="relative z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 text-2xl shadow-lg transition hover:scale-110 active:scale-95"
+        className="portal-widget relative z-50 flex size-12 items-center justify-center text-2xl"
       >
         🤖
       </button>

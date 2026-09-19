@@ -7,9 +7,9 @@ export default async function Footer() {
   const t = (key: string) => translate(locale, key);
 
   return (
-    <footer className="border-t border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 dark:text-zinc-400">
-        <p>&copy; {new Date().getFullYear()} Pixolud — {t("footer.rights")}</p>
+    <footer className="site-footer">
+      <div className="portal-container footer-content">
+        <p><Link href="/" className="footer-wordmark">✣ Pixolud</Link>&copy; {new Date().getFullYear()} Pixolud — {t("footer.rights")}</p>
         <nav className="flex flex-wrap gap-x-6 gap-y-2">
           <Link href="/cgu" className="hover:text-zinc-900 dark:hover:text-white">
             {t("footer.cgu")}

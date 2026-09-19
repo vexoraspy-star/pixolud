@@ -1,3 +1,4 @@
+import PortalHeading from "@/components/PortalHeading";
 import Link from "next/link";
 import GameCard from "@/components/GameCard";
 import { getPublishedGames } from "@/lib/games";
@@ -42,26 +43,25 @@ export default async function CataloguePage({
     return b.plays - a.plays;
   });
 
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
-        Catalogue de jeux
-      </h1>
-      <p className="mt-1 text-zinc-500 dark:text-zinc-400">
-        {games.length} jeu{games.length > 1 ? "x" : ""} trouvé
-        {games.length > 1 ? "s" : ""}
-      </p>
+  const categoryHref = (value: string) => `/catalogue?${new URLSearchParams({ q, categorie: value, tri, note })}`;
 
-      <form className="mt-6 flex flex-wrap items-center gap-3" action="/catalogue">
+  return (
+    <div className="portal-container portal-page">
+      <PortalHeading eyebrow="LE COIN DES CURIEUX" title="Trouve ta prochaine partie." description="Des mini-jeux imaginés par la communauté. Une envie, un clic, et c’est parti." />
+      <div className="section-title"><h2>Catalogue de jeux</h2><span>{games.length} jeu{games.length > 1 ? "x" : ""} trouvé{games.length > 1 ? "s" : ""}</span></div>
+
+      <form key={[q, categorie, note, tri].join("|")} className="catalogue-filters" action="/catalogue">
         <input
           type="search"
           name="q"
+          aria-label="Rechercher un jeu ou un créateur"
           defaultValue={q}
           placeholder="Rechercher un jeu, un créateur, un mot-clé..."
           className="min-w-[220px] flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900"
         />
         <select
           name="note"
+          aria-label="Note minimale"
           defaultValue={note}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
@@ -72,6 +72,7 @@ export default async function CataloguePage({
         </select>
         <select
           name="categorie"
+          aria-label="Catégorie"
           defaultValue={categorie}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
@@ -84,6 +85,7 @@ export default async function CataloguePage({
         </select>
         <select
           name="tri"
+          aria-label="Trier les jeux"
           defaultValue={tri}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
@@ -99,12 +101,12 @@ export default async function CataloguePage({
         </button>
       </form>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <FilterPill href="/catalogue" active={categorie === ""}>
+      <div className="category-rail mt-5">
+        <FilterPill href={categoryHref("")} active={categorie === ""}>
           Toutes
         </FilterPill>
         {CATEGORIES.map((c) => (
-          <FilterPill key={c} href={`/catalogue?categorie=${c}`} active={categorie === c}>
+          <FilterPill key={c} href={categoryHref(c)} active={categorie === c}>
             {c}
           </FilterPill>
         ))}
@@ -117,7 +119,7 @@ export default async function CataloguePage({
           ))}
         </div>
       ) : (
-        <div className="mt-16 text-center text-zinc-500 dark:text-zinc-400">
+        <div className="empty-panel">
           {allGames.length === 0
             ? "Aucun jeu publié pour l'instant."
             : "Aucun jeu ne correspond à ta recherche."}
@@ -139,7 +141,8 @@ function FilterPill({
   return (
     <Link
       href={href}
-      className={`rounded-full px-3 py-1 text-xs font-medium ${
+      aria-current={active ? "page" : undefined}
+      className={`category-chip ${
         active
           ? "bg-violet-600 text-white"
           : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"

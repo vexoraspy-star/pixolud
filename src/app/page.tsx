@@ -1,3 +1,4 @@
+import GameArtwork from "@/components/GameArtwork";
 import Link from "next/link";
 import GameCard from "@/components/GameCard";
 import { getMemberCount, getPublishedGames } from "@/lib/games";
@@ -60,78 +61,49 @@ export default async function Home() {
 
   return (
     <div className="flex flex-col">
-      {/* Bannière */}
-      <section className="border-b border-zinc-200 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-orange-500 dark:border-zinc-800">
-        <div className="mx-auto max-w-6xl px-4 py-16 text-center sm:px-6 sm:py-24">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-            {t("home.title")}
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base text-white/90 sm:text-lg">
-            {t("home.subtitle")}
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href={user ? "/editeur" : "/inscription"}
-              className="rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-violet-700 shadow hover:bg-zinc-100"
-            >
-              {user ? t("home.ctaCreateGame") : t("home.ctaSignup")}
-            </Link>
-            <Link
-              href="/catalogue"
-              className="rounded-full border border-white/60 px-6 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
-            >
-              {t("home.ctaExplore")}
-            </Link>
-            <Link
-              href={`/catalogue?categorie=${encodeURIComponent("Éducation")}`}
-              className="rounded-full border border-white/60 px-6 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
-            >
-              {t("home.ctaEducation")}
-            </Link>
+      <section className="home-hero portal-container">
+        <div className="home-hero-copy">
+          <p className="eyebrow"><span />JOUE. IMAGINE. RECOMMENCE.</p>
+          <h1>{t("home.title")}</h1>
+          <p className="portal-description">{t("home.subtitle")}</p>
+          <div className="hero-actions">
+            <Link href="/catalogue" className="portal-button">{t("home.ctaExplore")} <span aria-hidden="true">↗</span></Link>
+            <Link href={user ? "/editeur" : "/inscription"} className="portal-button secondary">{user ? t("home.ctaCreateGame") : t("home.ctaSignup")}</Link>
           </div>
-
-          <form
-            action="/catalogue"
-            className="mx-auto mt-10 flex max-w-lg items-center overflow-hidden rounded-full bg-white shadow-lg"
-          >
-            <input
-              type="search"
-              name="q"
-              placeholder={t("home.searchPlaceholder")}
-              className="flex-1 px-5 py-3 text-sm text-zinc-900 outline-none"
-            />
-            <button
-              type="submit"
-              className="m-1 rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
-            >
-              {t("home.searchButton")}
-            </button>
+          <form action="/catalogue" className="hero-search">
+            <span aria-hidden="true">⌕</span>
+            <input type="search" name="q" aria-label={t("home.searchPlaceholder")} placeholder={t("home.searchPlaceholder")} />
+            <button type="submit" aria-label={t("home.searchButton")}>→</button>
           </form>
-
-          {games.length > 0 && (
-            <div className="mx-auto mt-8 flex max-w-lg flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm font-medium text-white/90">
-              <span>
-                🎮 {games.length} {t(games.length !== 1 ? "home.statsGames" : "home.statsGame")}
-              </span>
-              <span>
-                👥 {memberCount} {t(memberCount !== 1 ? "home.statsMembers" : "home.statsMember")}
-              </span>
-              <span>
-                ▶ {totalPlays.toLocaleString(locale)} {t(totalPlays !== 1 ? "home.statsPlays" : "home.statsPlay")}
-              </span>
-            </div>
-          )}
+          <Link href={"/catalogue?categorie=" + encodeURIComponent("Éducation")} className="education-link">{t("home.ctaEducation")} <span aria-hidden="true">↗</span></Link>
+        </div>
+        <div className="hero-showcase">
+          <Link href="/mode-3d/cubes" className="showcase-main">
+            <GameArtwork kind="cubes" priority />
+            <span className="showcase-tag">À DÉCOUVRIR · MODE 3D</span>
+            <div className="showcase-caption"><div><span>Un monde à façonner</span><h2>Cubes</h2></div><span className="showcase-arrow" aria-hidden="true">↗</span></div>
+          </Link>
+          <Link href="/mode-3d/backrooms" className="showcase-small"><GameArtwork kind="backrooms" /><span>Une autre dimension<strong>Backrooms <span aria-hidden="true">↗</span></strong></span></Link>
+          <span className="showcase-note">DIRECTEMENT DANS TON NAVIGATEUR</span>
         </div>
       </section>
+      <div className="portal-container">
+        <div className="community-strip">
+          <span className="community-label"><span className="live-dot" /> La communauté Pixolud</span>
+          <span><strong>{games.length}</strong> {t(games.length !== 1 ? "home.statsGames" : "home.statsGame")}</span>
+          <span><strong>{memberCount}</strong> {t(memberCount !== 1 ? "home.statsMembers" : "home.statsMember")}</span>
+          <span><strong>{totalPlays.toLocaleString(locale)}</strong> {t(totalPlays !== 1 ? "home.statsPlays" : "home.statsPlay")}</span>
+        </div>
+      </div>
 
       {/* Catégories */}
       <section className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-        <div className="flex flex-wrap justify-center gap-3">
+        <div className="category-rail">
           {CATEGORIES.map((cat) => (
             <Link
               key={cat}
               href={`/catalogue?categorie=${encodeURIComponent(cat)}`}
-              className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:text-violet-400"
+              className="category-chip"
             >
               <span>{CATEGORY_EMOJI[cat]}</span>
               {cat}
@@ -155,7 +127,7 @@ export default async function Home() {
       )}
 
       {/* CTA bas de page */}
-      <section className="border-t border-zinc-200 bg-zinc-50 py-16 text-center dark:border-zinc-800 dark:bg-zinc-950">
+      <section className="creator-banner portal-container">
         <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">{t("home.bottomTitle")}</h2>
         <p className="mx-auto mt-2 max-w-xl text-zinc-500 dark:text-zinc-400">
           {user ? t("home.bottomTextLoggedIn") : t("home.bottomTextLoggedOut")}
@@ -185,22 +157,9 @@ function GameOfTheDay({
       <h2 className="mb-4 text-xl font-bold text-zinc-900 dark:text-white">{t("home.gameOfDay")}</h2>
       <Link
         href={`/jeu/${game.slug}`}
-        className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white transition hover:-translate-y-0.5 hover:shadow-lg sm:flex-row dark:border-zinc-800 dark:bg-zinc-900"
+        className="daily-game flex flex-col sm:flex-row"
       >
-        {game.coverUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={game.coverUrl}
-            alt={game.title}
-            className="h-48 w-full object-cover sm:h-auto sm:w-64"
-          />
-        ) : (
-          <div
-            className={`flex h-48 w-full items-center justify-center bg-gradient-to-br text-7xl sm:h-auto sm:w-64 ${game.gradient}`}
-          >
-            {game.emoji}
-          </div>
-        )}
+        <div className="daily-art"><GameArtwork kind={game.category} cover={game.coverUrl} /></div>
         <div className="flex flex-1 flex-col justify-center gap-2 p-6">
           <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
             {game.category}

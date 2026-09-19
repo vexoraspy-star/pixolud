@@ -16,22 +16,25 @@ export default function MobileMenu({
   const t = (key: string) => translate(locale, key);
 
   return (
-    <div className="sm:hidden">
+    <div className="mobile-navigation">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label="Menu"
+        aria-expanded={open}
+        aria-controls="mobile-site-menu"
         className="flex size-9 items-center justify-center rounded-full text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
       >
         {open ? "✕" : "☰"}
       </button>
 
       {open && (
-        <div className="absolute inset-x-0 top-full border-b border-zinc-200 bg-white px-4 py-3 shadow-lg dark:border-zinc-800 dark:bg-black">
+        <div id="mobile-site-menu" className="mobile-menu-panel absolute inset-x-0 top-full border-b border-zinc-200 bg-white px-4 py-3 shadow-lg dark:border-zinc-800 dark:bg-black">
           <form action="/catalogue" className="mb-3 flex items-center">
             <input
               type="search"
               name="q"
+              aria-label={t("nav.searchPlaceholder")}
               placeholder={t("nav.searchPlaceholder")}
               className="w-full rounded-full border border-zinc-300 bg-zinc-50 px-4 py-1.5 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
             />

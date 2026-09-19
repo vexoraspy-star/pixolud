@@ -1,5 +1,7 @@
 "use client";
 
+import GameArtwork from "./GameArtwork";
+import PortalHeading from "./PortalHeading";
 import { useState } from "react";
 import { ARENA_CHARACTERS, ARENA_MODES, hasGoldenName, type ArenaMode } from "@/lib/arena";
 import { useSecretUnlocked, SECRET_CHARACTER } from "@/lib/fun";
@@ -30,10 +32,12 @@ export default function MultiplayerHub({
 
   if (phase === "identity") {
     return (
-      <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
-          🕹️ Mode multijoueur
-        </h1>
+      <div className="multiplayer-welcome">
+        <div><PortalHeading eyebrow="À PLUSIEURS, C’EST ENCORE MIEUX" title="La prochaine partie se joue ensemble." description="Un nom, un personnage, et te voilà prêt à rejoindre l’arène. Fais équipe ou défie les autres joueurs." /><div className="multiplayer-art"><GameArtwork kind="arcade" /></div></div>
+        <div className="identity-panel flex flex-col items-center gap-4 text-center">
+        <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">
+          Prépare ton entrée
+        </h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Choisis ton nom et ton personnage, ils te suivront dans tous les
           jeux partagés.
@@ -43,6 +47,7 @@ export default function MultiplayerHub({
           value={pseudo}
           onChange={(e) => setPseudo(e.target.value.slice(0, 20))}
           placeholder="Ton nom"
+          aria-label="Ton nom"
           className={`w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-950 ${
             golden
               ? "font-semibold text-amber-500"
@@ -61,6 +66,8 @@ export default function MultiplayerHub({
               key={c}
               type="button"
               onClick={() => setEmoji(c)}
+              aria-label={"Personnage " + c}
+              aria-pressed={emoji === c}
               className={`flex size-11 items-center justify-center rounded-full text-xl ${
                 emoji === c
                   ? "bg-violet-100 ring-2 ring-violet-600 dark:bg-violet-900/50"
@@ -78,15 +85,16 @@ export default function MultiplayerHub({
           onClick={() => setPhase("hub")}
           className="mt-2 w-full rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Continuer
+          Choisir un jeu →
         </button>
+        </div>
       </div>
     );
   }
 
   if (phase === "hub") {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="arena-selection flex flex-col gap-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
             Choisis ton jeu multijoueur
@@ -96,7 +104,7 @@ export default function MultiplayerHub({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {ARENA_MODES.map((m) => (
             <button
               key={m.id}
@@ -105,19 +113,10 @@ export default function MultiplayerHub({
                 setMode(m.id);
                 setPhase("playing");
               }}
-              className="group flex flex-col items-center gap-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+              className="arena-card"
             >
-              <span
-                className={`flex size-16 items-center justify-center rounded-full bg-gradient-to-br text-3xl shadow-md transition group-hover:scale-110 ${m.gradient}`}
-              >
-                {m.emoji}
-              </span>
-              <span className="font-bold text-zinc-900 dark:text-white">
-                {m.label}
-              </span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                {m.description}
-              </span>
+              <GameArtwork kind={m.id} />
+              <span className="arena-card-copy"><strong>{m.emoji} {m.label}</strong><span>{m.description}</span><span className="arena-card-cta">Entrer dans l’arène ↗</span></span>
             </button>
           ))}
         </div>

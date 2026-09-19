@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./portal.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
@@ -40,13 +41,13 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       dir={dir}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-white text-zinc-900 dark:bg-black dark:text-white">
+      <body className="portal-shell min-h-full flex flex-col">
         <ServiceWorkerRegister />
         <KonamiCode />
         <Mascot />
         <MusicRadio />
         <Header />
-        <main className="flex-1">{children}</main>
+        <main id="contenu" tabIndex={-1} className="flex-1">{children}</main>
         <Footer />
       </body>
     </html>
