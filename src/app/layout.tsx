@@ -12,6 +12,8 @@ import { LANGUAGE_META } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { getSessionProfile } from "@/lib/session";
 import { logout } from "@/app/connexion/actions";
+import { CHEAT_GAMES, enabledCheatGames } from "@/lib/admin";
+import AdminQuickButton from "@/components/AdminQuickButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,7 +39,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   const dir = LANGUAGE_META[locale].dir;
   // Compte banni : le site entier laisse place a l'ecran de suspension.
-  const ban = (await getSessionProfile())?.ban ?? null;
+  const session = await getSessionProfile();
+  const ban = session?.ban ?? null;
+  // Bouton admin flottant : le droit est lu cote serveur, sur le profil.
+  const adminCheats = session?.isAdmin ? await enabledCheatGames() : null;
 
   return (
     <html
@@ -51,6 +56,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <Mascot />
         <MusicRadio />
         <Header />
+        {adminCheats && (
+          <AdminQuickButton games={CHEAT_GAMES.map(({ slug, label }) => ({ slug, label }))} enabled={adminCheats} />
+        )}
         <main id="contenu" tabIndex={-1} className="flex-1">
           {ban ? (
             <div className="portal-container portal-page">
