@@ -14,6 +14,7 @@ import { getSessionProfile } from "@/lib/session";
 import { logout } from "@/app/connexion/actions";
 import { CHEAT_GAMES, enabledCheatGames } from "@/lib/admin";
 import AdminQuickButton from "@/components/AdminQuickButton";
+import SiteLive from "@/components/SiteLive";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -56,6 +57,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <Mascot />
         <MusicRadio />
         <Header />
+        <SiteLive me={session?.pseudo ? { id: session.id, pseudo: session.pseudo } : null} />
         {adminCheats && (
           <AdminQuickButton games={CHEAT_GAMES.map(({ slug, label }) => ({ slug, label }))} enabled={adminCheats} />
         )}

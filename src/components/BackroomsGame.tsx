@@ -1,5 +1,6 @@
 "use client";
 
+import { guestName as guestNameOf } from "@/lib/guest";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LEVELS } from "@/lib/backrooms";
@@ -154,7 +155,8 @@ export default function BackroomsGame({
 
   // --- Voix et groupe ---
   const [selfId] = useState(() => `j${Math.random().toString(36).slice(2, 10)}`);
-  const [guestName] = useState(() => `Survivant${Math.floor(100 + Math.random() * 900)}`);
+  // Sans compte : le meme numero que partout sur le site (« Joueur 482193 »).
+  const [guestName] = useState(() => (typeof window === "undefined" ? "Joueur" : guestNameOf()));
   const myName = (pseudo ?? guestName).slice(0, 18);
   const [voice, setVoice] = useState<VoiceHub | null>(null);
   const [micState, setMicState] = useState<MicState>("off");

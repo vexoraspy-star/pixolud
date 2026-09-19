@@ -11,6 +11,7 @@ import {
   getAdminPanelData,
   renameUser,
   sendGift,
+  sendNotice,
   setAdminRole,
   setCheatGames,
   setGamePublished,
@@ -23,6 +24,7 @@ import {
 } from "@/app/admin/actions";
 import type { AdminData, AdminUser } from "./AdminPanel";
 import { giveCubes, giveDuel } from "@/lib/adminGive";
+import { pingPlayer, subscribeOnline, type OnlinePlayer } from "@/lib/livePresence";
 
 /**
  * Bouton 🛡 flottant (admins seulement, verifie cote serveur par le layout)
@@ -31,11 +33,12 @@ import { giveCubes, giveDuel } from "@/lib/adminGive";
  * actions revérifient le droit admin cote serveur.
  */
 
-type View = "triches" | "give" | "joueurs" | "bannis" | "jeux" | "signalements";
+type View = "triches" | "give" | "enligne" | "joueurs" | "bannis" | "jeux" | "signalements";
 
 const NAV: { id: View; icon: string; label: string }[] = [
   { id: "triches", icon: "🎮", label: "Triches" },
   { id: "give", icon: "🎁", label: "Give" },
+  { id: "enligne", icon: "🟢", label: "En ligne" },
   { id: "joueurs", icon: "👥", label: "Joueurs" },
   { id: "bannis", icon: "⛔", label: "Bannis" },
   { id: "jeux", icon: "🕹️", label: "Jeux" },
@@ -273,11 +276,12 @@ export default function AdminQuickButton({
                 <CheatsView games={games} current={game?.slug ?? null} cheats={cheats} pending={pending} save={saveCheats} />
               )}
               {view === "give" && <GiveView data={data} act={act} pending={pending} say={setToast} />}
+              {view === "enligne" && <OnlineView me={data?.me.id ?? null} act={act} pending={pending} />}
               {data && view === "joueurs" && <PlayersView data={data} act={act} pending={pending} />}
               {data && view === "bannis" && <BannedView data={data} act={act} pending={pending} />}
               {data && view === "jeux" && <GamesView data={data} act={act} pending={pending} />}
               {data && view === "signalements" && <ReportsView data={data} act={act} pending={pending} />}
-              {!data && !loadError && view !== "triches" && view !== "give" && <p className="text-xs text-zinc-400">Chargement…</p>}
+              {!data && !loadError && !["triches", "give", "enligne"].includes(view) && <p className="text-xs text-zinc-400">Chargement…</p>}
             </section>
           </div>
 
@@ -478,6 +482,87 @@ function GiveView({
   );
 }
 
+// --------------------------------------------------------------- messages
+
+/** Avertir, ecrire ou faire peur : envoye cote serveur, puis « toc-toc » au joueur. */
+function NoticeButtons({
+  target,
+  pingKey,
+  name,
+  act,
+  pending,
+}: { target: { userId?: string; guest?: string }; pingKey: string; name: string } & ActProps) {
+  function send(kind: "avertissement" | "message" | "screamer") {
+    let text = "";
+    if (kind !== "screamer") {
+      const typed = window.prompt(kind === "avertissement" ? `Avertissement pour ${name} :` : `Message pour ${name} :`);
+      if (!typed || !typed.trim()) return;
+      text = typed;
+    }
+    act(async () => {
+      const r = await sendNotice(target, kind, text);
+      if (r.ok) pingPlayer(pingKey);
+      return r;
+    });
+  }
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      <button type="button" disabled={pending} onClick={() => send("avertissement")} className={tile}>
+        ⚠️ Avertir
+      </button>
+      <button type="button" disabled={pending} onClick={() => send("message")} className={tile}>
+        📢 Message
+      </button>
+      <button type="button" disabled={pending} onClick={() => send("screamer")} className={tile}>
+        😱 Screamer
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- en ligne
+
+function OnlineView({ me, act, pending }: { me: string | null } & ActProps) {
+  const [players, setPlayers] = useState<OnlinePlayer[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => subscribeOnline(setPlayers), []);
+  const list = players.filter((p) => p.userId !== me);
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-extrabold">
+        En ligne <span className="text-zinc-400">({list.length})</span>
+      </h3>
+      <p className="text-[10px] text-zinc-400">Les joueurs sans compte apparaissent avec leur numéro.</p>
+      {list.length === 0 && <p className="text-xs text-zinc-400">Personne d&apos;autre en ce moment.</p>}
+      <ul className="space-y-1.5">
+        {list.map((p) => (
+          <li key={p.key} className="rounded-lg bg-white/[0.05]">
+            <button type="button" onClick={() => setOpen(open === p.key ? null : p.key)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+              <span className="size-2 shrink-0 rounded-full bg-emerald-400" />
+              <span className="min-w-0 flex-1 truncate text-xs font-bold">{p.name}</span>
+              <span className={`rounded-full px-1.5 text-[9px] font-bold ${p.guest ? "bg-zinc-500/30 text-zinc-300" : "bg-violet-500/30 text-violet-200"}`}>
+                {p.guest ? "invité" : "compte"}
+              </span>
+              <span className="shrink-0 text-[10px] text-zinc-400">{p.where}</span>
+            </button>
+            {open === p.key && (
+              <div className="px-3 pb-3">
+                <NoticeButtons
+                  target={p.userId ? { userId: p.userId } : { guest: p.guestNum ?? undefined }}
+                  pingKey={p.key}
+                  name={p.name}
+                  act={act}
+                  pending={pending}
+                />
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ joueurs
 
 function PlayersView({ data, act, pending }: { data: AdminData } & ActProps) {
@@ -570,7 +655,7 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
             </button>
           )}
           <button type="button" disabled={pending} onClick={() => act(() => setVerified(u.id, !u.verified))} className={tile}>
-            {u.verified ? "✖ Retirer ✔" : "✔ Vérifier"}
+            {u.verified ? "✖ Décertifier" : "✔ Certifier"}
           </button>
           <button type="button" disabled={pending} onClick={() => setMode(mode === "rename" ? null : "rename")} className={tile}>
             ✏️ Renommer
@@ -598,6 +683,11 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
             {u.isAdmin ? "👤 Retirer admin" : "🛡️ Admin"}
           </button>
         </div>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Messages</p>
+        <NoticeButtons target={{ userId: u.id }} pingKey={`u:${u.id}`} name={u.pseudo} act={act} pending={pending} />
       </div>
 
       {mode === "ban" && (

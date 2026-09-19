@@ -1,5 +1,6 @@
 "use client";
 
+import { guestName as guestNameOf } from "@/lib/guest";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,7 +14,7 @@ export default function PartyLobby({
   pseudo: string | null;
 }) {
   const [guestPseudo] = useState(
-    () => `Invité${Math.floor(1000 + Math.random() * 9000)}`,
+    () => (typeof window === "undefined" ? "Joueur" : guestNameOf()),
   );
   const myPseudo = pseudo ?? guestPseudo;
   const [members, setMembers] = useState<string[]>([]);

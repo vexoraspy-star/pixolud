@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import GameCard from "@/components/GameCard";
 import { getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { TIERS, type Tier } from "@/lib/tiers";
 
 export async function generateMetadata({
@@ -32,6 +33,19 @@ export default async function ProfilPage({
     .maybeSingle();
   const badge = TIERS[(profile?.tier as Tier) ?? "free"].badge;
 
+  // Avertissements de l'equipe : ils restent visibles sur le profil.
+  let warnings: { count: number; last: string } | null = null;
+  if (profile?.id && process.env.SUPABASE_SECRET_KEY) {
+    const { data, count } = await createAdminClient()
+      .from("admin_notices")
+      .select("message", { count: "exact" })
+      .eq("user_id", profile.id)
+      .eq("kind", "avertissement")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (count) warnings = { count, last: String(data?.[0]?.message ?? "") };
+  }
+
   const allGames = await getPublishedGames();
   const createdGames = allGames.filter(
     (g) => g.authorPseudo.toLowerCase() === pseudo.toLowerCase(),
@@ -49,10 +63,10 @@ export default async function ProfilPage({
             {profile?.pseudo ?? pseudo}
             {profile?.verified === true && (
               <span
-                title="Compte vérifié par l'équipe Pixolud"
+                title="Compte certifié par l'équipe Pixolud"
                 className="ml-2 inline-flex translate-y-[-2px] items-center rounded-full bg-sky-500 px-2 py-0.5 align-middle text-xs font-bold text-white"
               >
-                ✔ Vérifié
+                ✔ Certifié
               </span>
             )}
           </h1>
@@ -63,6 +77,15 @@ export default async function ProfilPage({
           </p>
         </div>
       </div>
+
+      {warnings && (
+        <div className="mt-5 max-w-xl rounded-xl border border-amber-400/50 bg-amber-400/10 px-4 py-3 text-sm">
+          <b>
+            ⚠️ {warnings.count} avertissement{warnings.count > 1 ? "s" : ""} de l&apos;équipe Pixolud
+          </b>
+          {warnings.last && <p className="mt-1 text-xs opacity-80">Dernier : « {warnings.last} »</p>}
+        </div>
+      )}
 
       <p className="mt-6 max-w-xl text-sm text-zinc-600 dark:text-zinc-300">
         {profile?.bio || "Cette personne n'a pas encore rédigé de bio."}

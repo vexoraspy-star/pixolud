@@ -134,7 +134,7 @@ export async function setVerified(id: string, on: boolean): Promise<AdminResult>
   return run(on ? "verifier" : "retirer-verif", id, async ({ db }) => {
     const p = await profileOf(db, id);
     await updateProfile(db, id, { verified: on });
-    return on ? `${p.pseudo} a le badge vérifié.` : `${p.pseudo} n'a plus le badge vérifié.`;
+    return on ? `${p.pseudo} est certifié ✔.` : `${p.pseudo} n'est plus certifié.`;
   });
 }
 
@@ -273,6 +273,47 @@ export async function sendGift(id: string, kind: string, amountIn: number, messa
     }
     const what = kind === "tout" ? "tout le casier du Duel" : kind === "pieces" ? `${amount.toLocaleString("fr-FR")} pièces` : `${amount.toLocaleString("fr-FR")} XP`;
     return `🎁 ${what} envoyé à ${p.pseudo} : il le reçoit en ouvrant le Duel.`;
+  });
+}
+
+// ------------------------------------------- avertissements, messages, screamers
+
+/**
+ * Envoyer un avertissement, un message ou un screamer a un joueur (compte)
+ * ou a un invite (son numero a 6 chiffres). Il le voit dans la minute.
+ */
+export async function sendNotice(
+  target: { userId?: string; guest?: string },
+  kind: string,
+  messageIn: string,
+): Promise<AdminResult> {
+  return run(kind, target.userId ?? `invite ${target.guest}`, async ({ db, admin }) => {
+    if (!["avertissement", "message", "screamer"].includes(kind)) throw new AdminError("Type invalide.");
+    const message = messageIn.trim().slice(0, 300);
+    if (kind !== "screamer" && !message) throw new AdminError("Écris le message.");
+    let who: string;
+    const row: Record<string, unknown> = { kind, message, created_by: admin.id };
+    if (target.userId) {
+      const p = await profileOf(db, target.userId);
+      if (kind === "screamer" && target.userId === admin.id) who = "toi-même";
+      else who = p.pseudo;
+      row.user_id = target.userId;
+    } else if (target.guest && /^\d{6}$/.test(target.guest)) {
+      who = `Joueur ${target.guest}`;
+      row.guest_num = target.guest;
+    } else {
+      throw new AdminError("Joueur introuvable.");
+    }
+    const { error } = await db.from("admin_notices").insert(row);
+    if (error) {
+      throw new AdminError(
+        /relation|schema cache|does not exist/i.test(error.message)
+          ? "Lance d'abord le fichier supabase/add_admin_notices.sql dans Supabase (SQL Editor)."
+          : "Envoi impossible.",
+      );
+    }
+    const label = kind === "avertissement" ? "⚠️ Avertissement" : kind === "screamer" ? "😱 Screamer" : "📢 Message";
+    return `${label} envoyé à ${who}.`;
   });
 }
 

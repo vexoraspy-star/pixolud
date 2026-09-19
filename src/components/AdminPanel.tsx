@@ -314,7 +314,7 @@ function Users({ data, act, pending }: { data: AdminData } & ActProps) {
             aria-pressed={filter === f}
             className={`rounded-full px-3 py-1.5 text-xs font-bold ${filter === f ? "bg-[var(--portal-accent)] text-white" : "bg-[var(--portal-soft)] text-[var(--portal-muted)]"}`}
           >
-            {{ tous: "Tous", bannis: "Bannis", admins: "Admins", inactifs: "Non activés", verifies: "Vérifiés" }[f]}
+            {{ tous: "Tous", bannis: "Bannis", admins: "Admins", inactifs: "Non activés", verifies: "Certifiés" }[f]}
           </button>
         ))}
       </div>
@@ -330,7 +330,7 @@ function Users({ data, act, pending }: { data: AdminData } & ActProps) {
             >
               <span className="text-base font-bold">{u.pseudo}</span>
               {u.isAdmin && <Pill tone="violet">Admin</Pill>}
-              {u.verified && <Pill tone="vert">✔ Vérifié</Pill>}
+              {u.verified && <Pill tone="vert">✔ Certifié</Pill>}
               {u.banned && <Pill tone="rouge">Banni</Pill>}
               {!u.emailConfirmed && <Pill tone="ambre">Non activé</Pill>}
               <Pill tone="gris">{TIER_LABEL[u.tier] ?? u.tier}</Pill>
@@ -368,7 +368,7 @@ function UserActions({ u, me, act, pending }: { u: AdminUser; me: string } & Act
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={pending} onClick={() => act(() => setVerified(u.id, !u.verified))} className={btnSoft}>
-            {u.verified ? "Retirer le badge vérifié" : "✔ Donner le badge vérifié"}
+            {u.verified ? "Retirer la certification" : "✔ Certifier ce joueur"}
           </button>
           {!u.emailConfirmed && (
             <button type="button" disabled={pending} onClick={() => act(() => confirmEmail(u.id))} className={btnSoft}>
@@ -519,7 +519,7 @@ function CreateAccount({ act, pending }: ActProps) {
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} placeholder="laisser vide = connexion par pseudo" />
       </label>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={verified} onChange={(e) => setVerifiedValue(e.target.checked)} /> Donner le badge vérifié
+        <input type="checkbox" checked={verified} onChange={(e) => setVerifiedValue(e.target.checked)} /> Certifier ce compte
       </label>
       <button type="submit" disabled={pending} className={btnMain}>
         Créer le compte
