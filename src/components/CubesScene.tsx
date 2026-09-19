@@ -8,6 +8,7 @@ import { createVoxelAtlas } from "@/lib/voxelTextures";
 import { createVoxelAtmosphere } from "@/lib/voxelAtmosphere";
 import { VoxelAudio } from "@/lib/voxelAudio";
 import { CUBES_SAVE_KEY } from "@/lib/voxelSave";
+import { GIVE_CUBES_EVENT, type CubesGive } from "@/lib/adminGive";
 import { loadBrightness3D, loadLayout3D, loadQuality3D, loadSensitivity3D, saveBrightness3D } from "@/lib/settings3d";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import Game3DSettings from "./Game3DSettings";
@@ -248,6 +249,15 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     document.addEventListener("mouseup", mouseUp);
     window.addEventListener("keydown", keyDown); window.addEventListener("keyup", keyUp);
     window.addEventListener("blur", blur); window.addEventListener("pagehide", save);
+    // Give admin (bouton 🛡) : des blocs ajoutes en pleine partie de survie.
+    function adminGive(e: Event) {
+      const detail = (e as CustomEvent<CubesGive>).detail;
+      if (initial.mode !== "survie" || !detail) return;
+      for (const [id, n] of Object.entries(detail.blocks)) stock[id] = Math.min(1_000_000, (stock[id] ?? 0) + n);
+      detail.handled = true;
+      syncHud(); save();
+    }
+    window.addEventListener(GIVE_CUBES_EVENT, adminGive);
     canvas.addEventListener("mousedown", mouseDown); canvas.addEventListener("contextmenu", contextMenu); canvas.addEventListener("wheel", wheel, { passive: false });
 
     function disposeModel(model: AnimatedModel) {
@@ -388,6 +398,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       document.removeEventListener("pointerlockchange", lockChange); document.removeEventListener("mousemove", mouseMove); document.removeEventListener("mouseup", mouseUp);
       document.removeEventListener("pointerlockerror", lockError);
       window.removeEventListener("keydown", keyDown); window.removeEventListener("keyup", keyUp); window.removeEventListener("blur", blur); window.removeEventListener("pagehide", save);
+      window.removeEventListener(GIVE_CUBES_EVENT, adminGive);
       canvas.removeEventListener("mousedown", mouseDown); canvas.removeEventListener("contextmenu", contextMenu); canvas.removeEventListener("wheel", wheel);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       observer.disconnect(); for (const key of meshes.keys()) removeMesh(key);

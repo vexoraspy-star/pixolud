@@ -325,6 +325,16 @@ export default function DuelScene({
   /** Mode admin : triches actives et panneau. */
   const [cheats, setCheats] = useState<DuelCheats>(NO_CHEATS);
   const cheatsRef = useRef<DuelCheats>(NO_CHEATS);
+  // Le mode admin s'active ou se coupe en pleine partie (bouton 🛡) : la
+  // boucle, lancee une seule fois, lit le droit en direct. Coupe, toutes les
+  // triches retombent aussitot.
+  const adminLiveRef = useRef(adminEnabled);
+  useEffect(() => {
+    adminLiveRef.current = adminEnabled;
+    if (!adminEnabled) cheatsRef.current = NO_CHEATS;
+  }, [adminEnabled]);
+  /** Triches affichees : aucune quand le mode admin est coupe. */
+  const shownCheats = adminEnabled ? cheats : NO_CHEATS;
   const [adminOpen, setAdminOpen] = useState(false);
   /** Vision a travers les murs : etiquettes a l'ecran (en % de l'ecran). */
   const [espTags, setEspTags] = useState<{ id: number; x: number; y: number; name: string; hp: number; dist: number }[]>([]);
@@ -1491,7 +1501,7 @@ export default function DuelScene({
     let espTagsShown = false;
 
     function adminAction(action: "tuer" | "soigner" | "zone" | "armes") {
-      if (!adminEnabled || ended) return;
+      if (!adminLiveRef.current || ended) return;
       usedCheats = true;
       if (action === "tuer") {
         for (const f of fighters) if (!f.dead && f.alive) registerFighterDeath(f, "Admin", true);
@@ -1511,7 +1521,7 @@ export default function DuelScene({
     }
 
     function teleportTo(x: number, z: number) {
-      if (!adminEnabled || !island || me.dead || !me.alive) return;
+      if (!adminLiveRef.current || !island || me.dead || !me.alive) return;
       usedCheats = true;
       const [ox, oz] = nearestOpenCell(island, x, z);
       me.x = ox + 0.5;
@@ -2481,7 +2491,7 @@ export default function DuelScene({
       const digit = /^(Digit|Numpad)([0-9])$/.exec(e.code);
       const n = digit ? Number(digit[2]) : NaN;
       // F2 : le mode admin (comptes admin seulement, jamais en ligne).
-      if (e.key === "F2" && adminEnabled) {
+      if (e.key === "F2" && adminLiveRef.current) {
         e.preventDefault();
         setAdminOpen((o) => !o);
         if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
@@ -4013,7 +4023,7 @@ export default function DuelScene({
       )}
 
       {/* Vision a travers les murs : etiquettes */}
-      {cheats.esp &&
+      {shownCheats.esp &&
         espTags.map((t) => (
           <div
             key={t.id}
@@ -4103,7 +4113,7 @@ export default function DuelScene({
       </div>
 
       {/* Mini-carte : en Zone (terrain trop grand), ou partout avec le radar admin. */}
-      {((mode.shrinkingZone && radar.zone) || cheats.radarAll) && (
+      {((mode.shrinkingZone && radar.zone) || shownCheats.radarAll) && (
         <div className="pointer-events-none absolute right-3 top-24 size-28 rounded-lg border border-white/15 bg-black/60 backdrop-blur sm:size-32">
           <svg viewBox="0 0 100 100" className="size-full">
             {radar.zone && (

@@ -456,6 +456,12 @@ export default function HorrorScene({
   useEffect(() => {
     devOpenRef.current = devAllowed && devOpen;
   }, [devAllowed, devOpen]);
+  // Le mode triche s'active ou se coupe en pleine partie (bouton 🛡) : la
+  // boucle du jeu, lancee une seule fois, lit donc le droit en direct.
+  const devLiveRef = useRef(devAllowed);
+  useEffect(() => {
+    devLiveRef.current = devAllowed;
+  }, [devAllowed]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [itemsFound, setItemsFound] = useState(0);
   const [battery, setBattery] = useState(100);
@@ -1792,7 +1798,7 @@ export default function HorrorScene({
         if (note) setReadingNote(note);
       },
       devGiveAll: () => {
-        if (!devAllowed) return;
+        if (!devLiveRef.current) return;
         let next = inv;
         for (const [item, def] of Object.entries(ITEM_DEFS) as [UsableItem, (typeof ITEM_DEFS)[UsableItem]][]) {
           next = addItem(next, item, def.stack) ?? next;
@@ -1805,7 +1811,7 @@ export default function HorrorScene({
       devTeleport: (x: number, z: number) => {
         // Une carte pas encore mesuree renvoie NaN : la camera partait dans
         // le vide et l'ecran devenait noir.
-        if (!devAllowed || !Number.isFinite(x) || !Number.isFinite(z)) return;
+        if (!devLiveRef.current || !Number.isFinite(x) || !Number.isFinite(z)) return;
         let tx = Math.floor(x);
         let tz = Math.floor(z);
         // Case pleine (mur, meuble) : on prend la case libre la plus proche,
@@ -1830,7 +1836,7 @@ export default function HorrorScene({
         player.z = tz + 0.5;
       },
       devAdvance: () => {
-        if (!devAllowed) return;
+        if (!devLiveRef.current) return;
         // Une etape a la fois, dans l'ordre de la partie.
         if (cluePlaques.some((pl) => !pl.found)) {
           for (const pl of cluePlaques) pl.found = true;
@@ -2594,7 +2600,7 @@ export default function HorrorScene({
       if (k === "g") applyHeldItem();
       // En vol, C sert a descendre : on ne s'accroupit pas en plein ciel.
       if (k === "c" && !devRef.current.fly) toggleCrouch();
-      if (e.key === "F2" && devAllowed) {
+      if (e.key === "F2" && devLiveRef.current) {
         e.preventDefault();
         setDevOpen((open) => !open);
       }

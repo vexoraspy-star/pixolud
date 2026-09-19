@@ -22,6 +22,7 @@ import {
   RARITY,
   SHOP_PACKS,
   SKINS,
+  allShopKeys,
   SKIN_ORDER,
   dailyShop,
   dayKey,
@@ -38,6 +39,8 @@ import {
   type SkinId,
 } from "@/lib/duelProfile";
 import { DANCE_ORDER, type DanceId } from "@/lib/duelDances";
+import { claimMyGifts } from "@/app/cadeaux/actions";
+import { GIVE_DUEL_EVENT } from "@/lib/adminGive";
 import { DRILLS, DRILL_ORDER, loadTrainingBests, saveTrainingBest, type DrillId, type TrainingResult } from "@/lib/duelTraining";
 import { buildDuelMap, DUEL_MAP_INFO, DUEL_MAP_ORDER, generateDuelCode, type DuelMapId, type DuelSide } from "@/lib/duel";
 import { DUEL_MODES, DUEL_MODE_ORDER, supportsInfinite, type DuelModeId } from "@/lib/duelModes";
@@ -163,6 +166,8 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
   /** Exercice du stand d'entrainement. */
   const [drill, setDrill] = useState<DrillId>("fixes");
   const [trainingBests, setTrainingBests] = useState<Partial<Record<DrillId, number>>>({});
+  /** Cadeau de l'equipe recu a l'ouverture (panneau admin). */
+  const [giftNote, setGiftNote] = useState<string | null>(null);
   /** Partie infinie : pas de score a atteindre, on quitte quand on veut. */
   const [infinite, setInfinite] = useState(false);
   const [joinInput, setJoinInput] = useState("");
@@ -234,6 +239,42 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
       setTrainingBests(loadTrainingBests());
     }, 0);
     return () => clearTimeout(t);
+  }, []);
+
+  // Cadeaux de l'equipe (envoyes depuis le panneau admin), et « give » admin
+  // fait sur cet appareil : le profil est relu sans quitter le salon.
+  useEffect(() => {
+    let cancelled = false;
+    claimMyGifts()
+      .then((gifts) => {
+        if (cancelled || gifts.length === 0) return;
+        const saved = loadProfile();
+        let coins = 0;
+        let xp = 0;
+        let all = false;
+        const notes: string[] = [];
+        for (const g of gifts) {
+          if (g.kind === "pieces") coins += g.amount;
+          else if (g.kind === "xp") xp += g.amount;
+          else all = true;
+          if (g.message) notes.push(g.message);
+        }
+        const owned = all ? Array.from(new Set([...saved.owned, ...allShopKeys()])) : saved.owned;
+        const next = { ...saved, coins: saved.coins + coins, xp: saved.xp + xp, owned };
+        saveProfile(next);
+        setProfile(next);
+        const what = [coins ? `+${coins.toLocaleString("fr-FR")} pièces` : "", xp ? `+${xp.toLocaleString("fr-FR")} XP` : "", all ? "tout le casier débloqué" : ""]
+          .filter(Boolean)
+          .join(", ");
+        setGiftNote(`🎁 Cadeau de l'équipe Pixolud : ${what}${notes.length ? ` — « ${notes.join(" · ")} »` : ""}`);
+      })
+      .catch(() => {});
+    const onGive = () => setProfile(loadProfile());
+    window.addEventListener(GIVE_DUEL_EVENT, onGive);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(GIVE_DUEL_EVENT, onGive);
+    };
   }, []);
 
   // Recherche de joueurs de la battle royale : le salon se remplit, puis on part.
@@ -852,6 +893,16 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
           <span className="font-mono text-sm font-black text-yellow-200">{profile.coins.toLocaleString("fr-FR")}</span>
         </div>
       </header>
+
+      {giftNote && (
+        <button
+          type="button"
+          onClick={() => setGiftNote(null)}
+          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 px-5 py-3 text-sm font-black text-black shadow-2xl"
+        >
+          {giftNote} <span className="ml-2 opacity-60">✕</span>
+        </button>
+      )}
 
       {/* --- Accueil : tenue equipee et reglages --- */}
       {tab === null && (

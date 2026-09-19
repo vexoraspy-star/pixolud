@@ -389,6 +389,12 @@ export default function BackroomsScene({
   useEffect(() => {
     devOpenRef.current = devEnabled && devOpen;
   }, [devEnabled, devOpen]);
+  // Le mode triche s'active ou se coupe en pleine partie (bouton 🛡) : la
+  // boucle du jeu, lancee une seule fois, lit donc le droit en direct.
+  const devLiveRef = useRef(devEnabled);
+  useEffect(() => {
+    devLiveRef.current = devEnabled;
+  }, [devEnabled]);
   // Plan du niveau pour la carte du panneau : meme graine, meme carte.
   const devLevel = useMemo(() => (devEnabled ? generateLevel(level, seed) : null), [devEnabled, level, seed]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1785,7 +1791,7 @@ export default function BackroomsScene({
       toggleCrouch,
       resume,
       devTeleport: (x: number, z: number) => {
-        if (!devEnabled || !Number.isFinite(x) || !Number.isFinite(z)) return;
+        if (!devLiveRef.current || !Number.isFinite(x) || !Number.isFinite(z)) return;
         let tx = Math.floor(x);
         let tz = Math.floor(z);
         const free = devRef.current.noclip || devRef.current.fly;
@@ -1805,7 +1811,7 @@ export default function BackroomsScene({
         player.z = THREE.MathUtils.clamp(tz + 0.5, 0.5, H - 0.5);
       },
       devAdvance: () => {
-        if (!devEnabled || noclipSince >= 0 || dyingSince >= 0) return;
+        if (!devLiveRef.current || noclipSince >= 0 || dyingSince >= 0) return;
         if (def.objective === "fusibles" && fuses < def.goalCount) {
           for (const pk of pickups) {
             if (pk.taken || pk.kind !== "fusible") continue;
@@ -1837,7 +1843,7 @@ export default function BackroomsScene({
       if (k === "f") toggleLamp();
       if (k === "r") drink();
       if (k === "c" && !devRef.current.fly) toggleCrouch();
-      if (e.key === "F2" && devEnabled) {
+      if (e.key === "F2" && devLiveRef.current) {
         e.preventDefault();
         setDevOpen((open) => !open);
       }

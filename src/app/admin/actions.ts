@@ -247,6 +247,35 @@ export async function createAccount(pseudoIn: string, password: string, emailIn:
   });
 }
 
+// ------------------------------------------------------------------ cadeaux
+
+/** Offrir des pieces, de l'XP ou tout le casier du Duel a un joueur. */
+export async function sendGift(id: string, kind: string, amountIn: number, messageIn: string): Promise<AdminResult> {
+  return run("cadeau", id, async ({ db, admin }) => {
+    const p = await profileOf(db, id);
+    if (!["pieces", "xp", "tout"].includes(kind)) throw new AdminError("Cadeau invalide.");
+    const amount = kind === "tout" ? 0 : Math.floor(Number(amountIn));
+    if (kind !== "tout" && !(amount >= 1 && amount <= 1_000_000)) throw new AdminError("Montant entre 1 et 1 000 000.");
+    const { error } = await db.from("admin_gifts").insert({
+      user_id: id,
+      game: "duel",
+      kind,
+      amount,
+      message: messageIn.trim().slice(0, 200),
+      created_by: admin.id,
+    });
+    if (error) {
+      throw new AdminError(
+        /relation|schema cache|does not exist/i.test(error.message)
+          ? "Lance d'abord le fichier supabase/add_admin_gifts.sql dans Supabase (SQL Editor)."
+          : "Envoi impossible.",
+      );
+    }
+    const what = kind === "tout" ? "tout le casier du Duel" : kind === "pieces" ? `${amount.toLocaleString("fr-FR")} pièces` : `${amount.toLocaleString("fr-FR")} XP`;
+    return `🎁 ${what} envoyé à ${p.pseudo} : il le reçoit en ouvrant le Duel.`;
+  });
+}
+
 // --------------------------------------------------------------------- jeux
 
 export async function setGamePublished(id: string, on: boolean): Promise<AdminResult> {

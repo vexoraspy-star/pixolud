@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   banUser,
   confirmEmail,
@@ -10,6 +10,7 @@ import {
   deleteUser,
   getAdminPanelData,
   renameUser,
+  sendGift,
   setAdminRole,
   setCheatGames,
   setGamePublished,
@@ -21,6 +22,7 @@ import {
   type AdminResult,
 } from "@/app/admin/actions";
 import type { AdminData, AdminUser } from "./AdminPanel";
+import { giveCubes, giveDuel } from "@/lib/adminGive";
 
 /**
  * Bouton 🛡 flottant (admins seulement, verifie cote serveur par le layout)
@@ -29,10 +31,11 @@ import type { AdminData, AdminUser } from "./AdminPanel";
  * actions revérifient le droit admin cote serveur.
  */
 
-type View = "triches" | "joueurs" | "bannis" | "jeux" | "signalements";
+type View = "triches" | "give" | "joueurs" | "bannis" | "jeux" | "signalements";
 
 const NAV: { id: View; icon: string; label: string }[] = [
   { id: "triches", icon: "🎮", label: "Triches" },
+  { id: "give", icon: "🎁", label: "Give" },
   { id: "joueurs", icon: "👥", label: "Joueurs" },
   { id: "bannis", icon: "⛔", label: "Bannis" },
   { id: "jeux", icon: "🕹️", label: "Jeux" },
@@ -82,6 +85,7 @@ export default function AdminQuickButton({
   initialData?: AdminData | null;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("triches");
   const [data, setData] = useState<AdminData | null>(initialData);
@@ -128,9 +132,10 @@ export default function AdminQuickButton({
         return;
       }
       setCheats(next);
-      // Le jeu en cours lit le droit au chargement : il faut recharger.
-      if (game && next.includes(game.slug) !== gameOn) window.location.reload();
-      else setToast(r);
+      setToast(r);
+      // Pas de rechargement : on ne sort pas de la partie. Le serveur renvoie
+      // le nouveau droit au jeu, qui le lit en direct.
+      router.refresh();
     });
   }
 
@@ -267,11 +272,12 @@ export default function AdminQuickButton({
               {view === "triches" && (
                 <CheatsView games={games} current={game?.slug ?? null} cheats={cheats} pending={pending} save={saveCheats} />
               )}
+              {view === "give" && <GiveView data={data} act={act} pending={pending} say={setToast} />}
               {data && view === "joueurs" && <PlayersView data={data} act={act} pending={pending} />}
               {data && view === "bannis" && <BannedView data={data} act={act} pending={pending} />}
               {data && view === "jeux" && <GamesView data={data} act={act} pending={pending} />}
               {data && view === "signalements" && <ReportsView data={data} act={act} pending={pending} />}
-              {!data && !loadError && view !== "triches" && <p className="text-xs text-zinc-400">Chargement…</p>}
+              {!data && !loadError && view !== "triches" && view !== "give" && <p className="text-xs text-zinc-400">Chargement…</p>}
             </section>
           </div>
 
@@ -324,7 +330,9 @@ function CheatsView({
             <Switch on={cheats.includes(here.slug)} disabled={pending} onClick={() => toggle(here.slug)} label={`Triches dans ${here.label}`} />
           </div>
           <p className="mt-2 text-[11px] text-zinc-300">
-            {cheats.includes(here.slug) ? "Actif : en partie, touche F2 pour ouvrir le menu de triche." : "Active-le : la page se recharge, puis F2 en partie."}
+            {cheats.includes(here.slug)
+              ? "Actif : en partie, touche F2 pour ouvrir le menu de triche."
+              : "Active-le, tu restes dans ta partie : ensuite F2 ouvre le menu de triche."}
           </p>
         </div>
       ) : (
@@ -341,6 +349,131 @@ function CheatsView({
           ))}
       </ul>
       <p className="text-[10px] text-zinc-500">Réglage de ce navigateur. En ligne contre de vrais joueurs, la triche reste toujours coupée.</p>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------- give
+
+function GiveView({
+  data,
+  act,
+  pending,
+  say,
+}: { data: AdminData | null; say: (r: AdminResult) => void } & ActProps) {
+  const [busy, setBusy] = useState(false);
+  const [to, setTo] = useState("");
+  const [kind, setKind] = useState<"pieces" | "xp" | "tout">("pieces");
+  const [amount, setAmount] = useState(1000);
+  const [message, setMessage] = useState("");
+
+  /** Give pour soi : immediat, sur cet appareil, meme en pleine partie. */
+  async function self(run: () => Promise<string>) {
+    setBusy(true);
+    try {
+      say({ ok: true, message: await run() });
+    } catch {
+      say({ ok: false, message: "Le give a échoué." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const players = (data?.users ?? []).filter((u) => u.id !== data?.me.id);
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-extrabold">Pour moi</h3>
+        <p className="text-[10px] text-zinc-400">Tout de suite, sur cet appareil, sans quitter ta partie.</p>
+        <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Duel</p>
+        <div className="mt-1 grid grid-cols-3 gap-1.5">
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ coins: 1_000 }))} className={tile}>
+            🪙 +1 000
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ coins: 10_000 }))} className={tile}>
+            🪙 +10 000
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ coins: 100_000 }))} className={tile}>
+            🪙 +100 000
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ xp: 5_000 }))} className={tile}>
+            ⭐ +5 000 XP
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ xp: 50_000 }))} className={tile}>
+            ⭐ +50 000 XP
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveDuel({ all: true }))} className={tile}>
+            🔓 Tout débloquer
+          </button>
+        </div>
+        <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Cubes (survie)</p>
+        <div className="mt-1 grid grid-cols-3 gap-1.5">
+          <button type="button" disabled={busy} onClick={() => self(() => giveCubes(64))} className={tile}>
+            🧱 +64 de chaque
+          </button>
+          <button type="button" disabled={busy} onClick={() => self(() => giveCubes(999))} className={tile}>
+            🧱 +999 de chaque
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+        <h3 className="text-sm font-extrabold">Offrir à un joueur</h3>
+        <p className="text-[10px] text-zinc-400">Il le reçoit en ouvrant le Duel, sur n&apos;importe quel appareil.</p>
+        {!data ? (
+          <p className="mt-2 text-[11px] text-zinc-400">Chargement des joueurs…</p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Joueur" className={field}>
+              <option value="">Choisir un joueur…</option>
+              {players.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.pseudo}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-1.5">
+              {(
+                [
+                  ["pieces", "🪙 Pièces"],
+                  ["xp", "⭐ XP"],
+                  ["tout", "🔓 Tout débloquer"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setKind(k)}
+                  aria-pressed={kind === k}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-bold ${kind === k ? "bg-violet-600" : "bg-white/10 hover:bg-white/20"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {kind !== "tout" && (
+              <input
+                type="number"
+                min={1}
+                max={1000000}
+                value={amount}
+                onChange={(e) => setAmount(Number(e.target.value))}
+                aria-label="Montant"
+                className={field}
+              />
+            )}
+            <input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Petit mot (facultatif)" aria-label="Message" className={field} />
+            <button
+              type="button"
+              disabled={pending || !to}
+              onClick={() => act(() => sendGift(to, kind, amount, message))}
+              className="w-full rounded-lg bg-gradient-to-r from-amber-400 to-rose-500 py-2 text-xs font-extrabold text-black disabled:opacity-40"
+            >
+              🎁 Envoyer le cadeau
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
