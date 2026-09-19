@@ -8,9 +8,11 @@ import { translate, type Locale } from "@/lib/i18n";
 export default function MobileMenu({
   pseudo,
   locale,
+  isAdmin = false,
 }: {
   pseudo: string | null;
   locale: Locale;
+  isAdmin?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const t = (key: string) => translate(locale, key);
@@ -84,6 +86,15 @@ export default function MobileMenu({
                 >
                   {pseudo}
                 </Link>
+                {isAdmin && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg px-3 py-2 font-semibold text-violet-600 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/40"
+                  >
+                    🛡 Panneau admin
+                  </Link>
+                )}
                 <Link
                   href="/parametres"
                   onClick={() => setOpen(false)}

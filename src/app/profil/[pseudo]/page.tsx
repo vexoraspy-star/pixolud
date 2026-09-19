@@ -27,7 +27,7 @@ export default async function ProfilPage({
   const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")
-    .select("pseudo, bio, tier, created_at")
+    .select("*")
     .ilike("pseudo", pseudo)
     .maybeSingle();
   const badge = TIERS[(profile?.tier as Tier) ?? "free"].badge;
@@ -47,6 +47,14 @@ export default async function ProfilPage({
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
             {badge ? `${badge} ` : ""}
             {profile?.pseudo ?? pseudo}
+            {profile?.verified === true && (
+              <span
+                title="Compte vérifié par l'équipe Pixolud"
+                className="ml-2 inline-flex translate-y-[-2px] items-center rounded-full bg-sky-500 px-2 py-0.5 align-middle text-xs font-bold text-white"
+              >
+                ✔ Vérifié
+              </span>
+            )}
           </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Membre de Pixolud · {createdGames.length} jeu

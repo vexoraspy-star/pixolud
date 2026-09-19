@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/session";
 import { logout } from "@/app/connexion/actions";
 import { TIERS, type Tier } from "@/lib/tiers";
 import { translate } from "@/lib/i18n";
@@ -10,24 +10,13 @@ import TrophyPanel from "./TrophyPanel";
 import PortalNavigation from "./PortalNavigation";
 
 export default async function Header() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const session = await getSessionProfile();
   const locale = await getLocale();
   const t = (key: string) => translate(locale, key);
 
-  let pseudo: string | null = null;
-  let badge: string | null = null;
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("pseudo, tier")
-      .eq("id", user.id)
-      .single();
-    pseudo = profile?.pseudo ?? null;
-    badge = TIERS[(profile?.tier as Tier) ?? "free"].badge;
-  }
+  const pseudo = session?.pseudo ?? null;
+  const badge = session ? TIERS[(session.tier as Tier) ?? "free"]?.badge ?? TIERS.free.badge : null;
+  const isAdmin = session?.isAdmin === true;
 
   return (
     <header data-site-chrome className="site-header">
@@ -44,6 +33,7 @@ export default async function Header() {
               <summary>{badge} {pseudo}<span aria-hidden="true">⌄</span></summary>
               <div className="account-dropdown">
                 <Link href={"/profil/" + pseudo}>{pseudo}</Link>
+                {isAdmin && <Link href="/admin">🛡 Panneau admin</Link>}
                 <Link href="/parametres">{t("nav.settings")}</Link>
                 <form action={logout}><button type="submit">{t("nav.logout")}</button></form>
               </div>
@@ -51,7 +41,7 @@ export default async function Header() {
           </div>
           <TrophyPanel />
           <LanguageSwitcher current={locale} />
-          <MobileMenu pseudo={pseudo} locale={locale} />
+          <MobileMenu pseudo={pseudo} locale={locale} isAdmin={isAdmin} />
         </div>
       </div>
     </header>

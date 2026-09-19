@@ -7,6 +7,7 @@ import BackroomsGame from "@/components/BackroomsGame";
 import CubesGame from "@/components/CubesGame";
 import Game3DFrame from "@/components/Game3DFrame";
 import { createClient } from "@/lib/supabase/server";
+import { enabledCheatGames } from "@/lib/admin";
 
 export default async function Play3DPage({
   params,
@@ -24,7 +25,10 @@ export default async function Play3DPage({
   // Outils de developpement (vol, invincibilite, traversee des murs) :
   // reserves aux comptes admin. Le drapeau est lu cote serveur, sur le profil
   // de la personne connectee — jamais pris d'un parametre d'URL ou du client.
-  // Le pseudo sert de nom dans les groupes des Backrooms.
+  // Ils n'apparaissent en jeu que si l'admin les a actives dans le panneau
+  // admin (onglet « Triches en jeu »). Le pseudo sert de nom dans les
+  // groupes des Backrooms.
+  const cheatsOn = (await enabledCheatGames()).some((g) => g === slug);
   let devAllowed = false;
   let pseudo: string | null = null;
   if (slug === "manoir-maudit" || slug === "backrooms" || slug === "duel-1v1") {
@@ -38,7 +42,7 @@ export default async function Play3DPage({
         .select("is_admin, pseudo")
         .eq("id", user.id)
         .maybeSingle<{ is_admin: boolean | null; pseudo: string | null }>();
-      devAllowed = profile?.is_admin === true;
+      devAllowed = profile?.is_admin === true && cheatsOn;
       pseudo = profile?.pseudo ?? null;
     }
   }

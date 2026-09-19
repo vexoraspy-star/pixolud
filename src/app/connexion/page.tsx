@@ -35,10 +35,11 @@ export default async function ConnexionPage({
 
       <form action={login} className="mt-8 flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          {t("auth.email")}
+          {t("auth.emailOrPseudo")}
           <input
             name="email"
-            type="email"
+            type="text"
+            autoComplete="username"
             placeholder="toi@exemple.com"
             required
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
