@@ -58,8 +58,8 @@ function makePassword() {
 }
 
 const tile =
-  "flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.06] px-2 text-xs font-bold text-white transition hover:border-violet-400/70 hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40";
-const field = "min-h-9 w-full rounded-lg border border-white/10 bg-black/40 px-2.5 text-xs text-white outline-none focus:border-violet-400";
+  "admin-tile flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.06] px-2 text-xs font-bold text-white transition hover:border-violet-400/70 hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40";
+const field = "admin-field min-h-9 w-full rounded-lg border border-white/10 bg-black/40 px-2.5 text-xs text-white outline-none focus:border-violet-400";
 
 function Switch({ on, onClick, disabled, label }: { on: boolean; onClick: () => void; disabled?: boolean; label: string }) {
   return (
@@ -70,7 +70,7 @@ function Switch({ on, onClick, disabled, label }: { on: boolean; onClick: () => 
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${on ? "bg-fuchsia-500" : "bg-white/15"}`}
+      className={`admin-switch relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${on ? "bg-fuchsia-500" : "bg-white/15"}`}
     >
       <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${on ? "left-5" : "left-0.5"}`} />
     </button>
@@ -170,7 +170,7 @@ export default function AdminQuickButton({
         aria-expanded={open}
         aria-label="Admin Panel"
         title="Admin Panel"
-        className={`fixed left-2 top-1/2 z-[90] flex size-10 -translate-y-1/2 items-center justify-center rounded-xl border text-lg shadow-lg backdrop-blur transition ${
+        className={`admin-launcher fixed left-2 top-1/2 z-[90] flex size-10 -translate-y-1/2 items-center justify-center rounded-xl border text-lg shadow-lg backdrop-blur transition ${
           gameOn
             ? "border-fuchsia-300 bg-fuchsia-600/90"
             : open
@@ -187,10 +187,10 @@ export default function AdminQuickButton({
           role="dialog"
           aria-label="Admin Panel"
           // Les touches tapees ici ne doivent pas piloter le jeu en dessous.
-          onKeyDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") setOpen(false); }}
           onKeyUp={(e) => e.stopPropagation()}
           style={pos ? { left: pos.x, top: pos.y } : undefined}
-          className={`fixed z-[95] flex h-[min(480px,calc(100dvh-24px))] w-[min(620px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0e0f15]/95 text-white shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-xl ${
+          className={`admin-window fixed z-[95] flex h-[min(580px,calc(100dvh-24px))] w-[min(780px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0e0f15]/95 text-white shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-xl ${
             pos ? "" : "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
           }`}
         >
@@ -199,16 +199,16 @@ export default function AdminQuickButton({
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            className="flex cursor-move select-none items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-violet-600/30 to-fuchsia-600/10 px-4 py-2.5"
+            className="admin-window-heading flex cursor-move select-none items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-violet-600/30 to-fuchsia-600/10 px-4 py-2.5"
           >
-            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 text-sm shadow">🛡️</span>
-            <span className="text-sm font-extrabold tracking-wide">Admin Panel</span>
+            <span className="admin-heading-emblem">🛡️</span>
+            <div className="admin-heading-copy"><span>ESPACE DE CONTRÔLE</span><h2>Administration</h2></div>
             {pending && <span className="text-[10px] font-semibold text-violet-300">chargement…</span>}
             <Link
               href="/admin"
               onClick={() => setOpen(false)}
               title="Ouvrir le panneau complet"
-              className="ml-auto rounded-md px-2 py-1 text-xs font-bold text-zinc-300 hover:bg-white/10 hover:text-white"
+              className="admin-expand ml-auto rounded-md px-2 py-1 text-xs font-bold text-zinc-300 hover:bg-white/10 hover:text-white"
             >
               Plein écran ↗
             </Link>
@@ -216,17 +216,17 @@ export default function AdminQuickButton({
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Fermer"
-              className="rounded-md px-2 py-1 text-lg leading-none text-zinc-400 hover:bg-white/10 hover:text-white"
+              className="utility-close rounded-md px-2 py-1 text-lg leading-none text-zinc-400 hover:bg-white/10 hover:text-white"
             >
               ✕
             </button>
           </div>
 
-          <div className="flex min-h-0 flex-1">
+          <div className="admin-window-body flex min-h-0 flex-1">
             {/* Menu de gauche */}
-            <aside className="flex w-40 shrink-0 flex-col border-r border-white/10 bg-black/25 p-3">
-              <div className="flex items-center gap-2.5 pb-3">
-                <span className="flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-violet-600 text-sm font-black">
+            <aside className="admin-sidebar flex w-40 shrink-0 flex-col border-r border-white/10 bg-black/25 p-3">
+              <div className="admin-identity flex items-center gap-2.5 pb-3">
+                <span className="admin-avatar">
                   {initials(data?.me.pseudo ?? "AD")}
                 </span>
                 <span className="min-w-0 leading-tight">
@@ -234,7 +234,7 @@ export default function AdminQuickButton({
                   <b className="block truncate text-sm">{data?.me.pseudo ?? "…"}</b>
                 </span>
               </div>
-              <nav className="flex flex-col gap-1">
+              <nav className="admin-sidebar-nav flex flex-col gap-1">
                 {NAV.map((n) => {
                   const count =
                     n.id === "bannis"
@@ -251,7 +251,7 @@ export default function AdminQuickButton({
                         setToast(null);
                       }}
                       aria-current={view === n.id ? "page" : undefined}
-                      className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-bold transition ${
+                      className={`admin-nav-item flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-bold transition ${
                         view === n.id ? "bg-violet-600 text-white" : "text-zinc-300 hover:bg-white/10"
                       }`}
                     >
@@ -262,11 +262,11 @@ export default function AdminQuickButton({
                   );
                 })}
               </nav>
-              <p className="mt-auto pt-3 text-[10px] text-zinc-500">Pixolud · Admin v1.0</p>
+              <p className="admin-sidebar-footer mt-auto pt-3 text-[10px] text-zinc-500">✣ Pixolud · Administration</p>
             </aside>
 
             {/* Contenu */}
-            <section className="min-w-0 flex-1 overflow-y-auto p-4">
+            <section className="admin-content min-w-0 flex-1 overflow-y-auto p-4">
               {loadError && (
                 <p className="rounded-lg bg-red-500/15 p-3 text-xs text-red-200">
                   Impossible de charger les données : vérifie la clé secrète sur Vercel, ou ouvre le panneau complet.
@@ -346,7 +346,7 @@ function CheatsView({
         {games
           .filter((g) => g.slug !== current)
           .map((g) => (
-            <li key={g.slug} className="flex items-center gap-3 rounded-lg bg-white/[0.05] px-3 py-2">
+            <li key={g.slug} className="admin-game-setting flex items-center gap-3 rounded-lg bg-white/[0.05] px-3 py-2">
               <span className="min-w-0 flex-1 text-xs font-bold">{g.label}</span>
               <Switch on={cheats.includes(g.slug)} disabled={pending} onClick={() => toggle(g.slug)} label={`Triches dans ${g.label}`} />
             </li>

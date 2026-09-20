@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import PixoAvatar from "./PixoAvatar";
 import { useRouter } from "next/navigation";
 import { onFunEvent } from "@/lib/fun";
 import { CATEGORIES } from "@/lib/types";
@@ -22,6 +23,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Course: "🏁",
   Runner: "🦔",
   Musique: "🎵",
+  Mélodie: "🎶",
   "Calcul Mental": "🧮",
   "Petit Bac": "📝",
   Devinettes: "🔍",
@@ -106,80 +108,42 @@ export default function Mascot() {
     router.push(`/catalogue?categorie=${encodeURIComponent(cat)}`);
   }
 
-  function answerFaq(answer: string) {
-    setMenuOpen(false);
-    say(answer, 7000);
-  }
-
   return (
-    <div data-site-chrome className="fixed bottom-4 end-4 z-40 flex flex-col items-end gap-2">
-      {message && !menuOpen && (
-        <div className="max-w-[220px] rounded-2xl rounded-br-sm bg-white px-3 py-2 text-xs text-zinc-700 shadow-lg dark:bg-zinc-800 dark:text-zinc-200">
-          {message}
-        </div>
-      )}
-
+    <div data-site-chrome className="pixo-dock">
+      {message && !menuOpen && <div className="pixo-message"><span className="pixo-message-label">Pixo</span>{message}</div>}
       {menuOpen && (
         <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={() => setMenuOpen(false)}
-            className="fixed inset-0 z-40 cursor-default"
-          />
-          <div className="relative z-50 flex w-72 max-h-[70vh] flex-col gap-3 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs font-bold text-zinc-900 dark:text-white">
-              🤖 Besoin d&apos;aide ? Pixo à ton service
-            </p>
-
-            <div>
-              <p className="mb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
-                🔍 Trouver un jeu vite
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => goToCategory(cat)}
-                    className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-violet-100 hover:text-violet-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-violet-900/40 dark:hover:text-violet-300"
-                  >
-                    {CATEGORY_EMOJI[cat]} {cat}
-                  </button>
-                ))}
-              </div>
+          <button type="button" aria-hidden tabIndex={-1} onClick={() => setMenuOpen(false)} className="fixed inset-0 z-40 cursor-default" />
+          <section id="pixo-help" role="dialog" aria-labelledby="pixo-title" className="utility-panel pixo-panel"
+            onKeyDown={(e) => { if (e.key === "Escape") setMenuOpen(false); }}>
+            <header className="utility-heading">
+              <PixoAvatar className="pixo-avatar" />
+              <div><p className="utility-kicker">TON GUIDE PIXOLUD</p><h2 id="pixo-title">Un coup de main ?</h2></div>
+              <button type="button" onClick={() => setMenuOpen(false)} aria-label="Fermer l’aide de Pixo" className="utility-close">×</button>
+            </header>
+            <div className="pixo-scroll">
+              <div className="pixo-welcome"><span className="pixo-greeting">Salut, moi c’est Pixo !</span><p>Je t’aide à trouver ta prochaine partie et à faire tes premiers pas sur Pixolud.</p></div>
+              <section className="pixo-section">
+                <h3>À quoi veux-tu jouer ?<span>{CATEGORIES.length} catégories</span></h3>
+                <div className="pixo-categories">
+                  {CATEGORIES.map(cat => <button key={cat} type="button" onClick={() => goToCategory(cat)}><span aria-hidden="true">{CATEGORY_EMOJI[cat]}</span>{cat}<span className="pixo-category-arrow" aria-hidden="true">↗</span></button>)}
+                </div>
+              </section>
+              <section className="pixo-section">
+                <h3>Les réponses rapides</h3>
+                <div className="pixo-faq">
+                  {FAQ.map(f => <details key={f.question}><summary>{f.question}<span aria-hidden="true">+</span></summary><p>{f.answer}</p></details>)}
+                </div>
+              </section>
             </div>
-
-            <div>
-              <p className="mb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
-                💬 Questions fréquentes
-              </p>
-              <div className="flex flex-col gap-1">
-                {FAQ.map((f) => (
-                  <button
-                    key={f.question}
-                    type="button"
-                    onClick={() => answerFaq(f.answer)}
-                    className="rounded-lg px-2 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    {f.question}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+            <footer className="pixo-footer"><span className="pixo-status-dot" />Toujours partant pour t’aider.</footer>
+          </section>
         </>
       )}
-
-      <button
-        type="button"
-        onClick={() => setMenuOpen((o) => !o)}
-        onDoubleClick={() => setVisible(false)}
-        title="Pixo, la mascotte du site (double-clic pour la faire partir)"
-        className="portal-widget relative z-50 flex size-12 items-center justify-center text-2xl"
-      >
-        🤖
+      <button type="button" onClick={() => setMenuOpen(o => !o)} onDoubleClick={() => setVisible(false)}
+        aria-expanded={menuOpen} aria-controls="pixo-help" aria-label="Pixo, aide rapide"
+        title="Pixo, la mascotte du site (double-clic pour la faire partir)" className="utility-launcher pixo-launcher">
+        <PixoAvatar className="pixo-avatar" /><span>Pixo</span>
       </button>
     </div>
   );

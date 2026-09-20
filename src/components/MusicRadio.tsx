@@ -117,134 +117,59 @@ export default function MusicRadio() {
   );
 
   return (
-    <div data-site-chrome className="fixed bottom-20 start-4 z-40 flex flex-col items-start gap-2 sm:bottom-4 sm:start-20">
+    <div data-site-chrome className="radio-dock">
       <audio ref={audioElRef} onEnded={stop} />
-
       {open && (
-        <div className="flex max-h-[75vh] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-          <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
-            <span className="flex items-center gap-2 text-sm font-bold text-white">
-              <span className="text-lg">📻</span> Radio Pixolud
-              <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-                {RADIO_TRACKS.length} morceaux
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Fermer la radio"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-800 hover:text-white"
-            >
-              ✕
-            </button>
+        <section id="pixolud-radio" role="dialog" aria-labelledby="radio-title" className="utility-panel radio-panel"
+          onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}>
+          <header className="utility-heading">
+            <span className="utility-emblem radio-emblem" aria-hidden="true">♫</span>
+            <div><p className="utility-kicker">LA BANDE-SON DE TES PARTIES</p><h2 id="radio-title">Radio Pixolud</h2></div>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Fermer la radio" className="utility-close">×</button>
+          </header>
+
+          <div className="radio-current">
+            <div className="radio-record" aria-hidden="true"><span>{current.emoji}</span></div>
+            <div className="radio-current-copy">
+              <span className="radio-state"><i className={playing ? "is-playing" : ""} />{playing ? "À L’ÉCOUTE" : "PRÊT À JOUER"}</span>
+              <h3>{current.title}</h3>
+              <p>{current.kind === "audio" ? current.composer : current.category}</p>
+            </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-zinc-800 px-3 py-2">
-            <button
-              type="button"
-              onClick={() => setCategory(null)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                category === null
-                  ? "bg-violet-600 text-white"
-                  : "bg-zinc-900 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              Tout
-            </button>
-            {RADIO_CATEGORIES.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setCategory(cat)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                  category === cat
-                    ? "bg-violet-600 text-white"
-                    : "bg-zinc-900 text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {cat}
-              </button>
+          <div className="radio-library-header"><h3>Ta sélection musicale</h3><span>{RADIO_TRACKS.length} titres</span></div>
+          <div className="radio-filters" aria-label="Styles musicaux">
+            <button type="button" onClick={() => setCategory(null)} aria-pressed={category === null}>Tout</button>
+            {RADIO_CATEGORIES.map(cat => <button key={cat} type="button" onClick={() => setCategory(cat)} aria-pressed={category === cat}>{cat}</button>)}
+          </div>
+          <ul className="radio-tracks" aria-label="Morceaux disponibles">
+            {visibleTracks.map((track, index) => (
+              <li key={track.id}>
+                <button type="button" onClick={() => selectTrack(track)} aria-pressed={track.id === currentId} className="radio-track">
+                  <span className="radio-track-number" aria-hidden="true">{track.id === currentId ? "♫" : String(index + 1).padStart(2, "0")}</span>
+                  <span className="radio-track-copy"><strong>{track.title}</strong><span>{track.kind === "audio" ? track.composer : track.category}</span></span>
+                  <span className="radio-track-style">{track.category}</span>
+                </button>
+              </li>
             ))}
-          </div>
-
-          <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-            {visibleTracks.map((t) => {
-              const active = t.id === currentId;
-              return (
-                <li key={t.id}>
-                  <button
-                    type="button"
-                    onClick={() => selectTrack(t)}
-                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
-                      active ? "bg-violet-600/20 text-violet-300" : "text-zinc-300 hover:bg-zinc-900"
-                    }`}
-                  >
-                    <span className="text-base">{t.emoji}</span>
-                    <span className="flex-1 truncate">
-                      <span className="block truncate font-medium">{t.title}</span>
-                      <span className="block truncate text-[10px] text-zinc-500">
-                        {t.kind === "audio" ? `${t.composer} · ${t.category}` : t.category}
-                      </span>
-                    </span>
-                    {active && playing && <span className="text-xs text-violet-400">▶</span>}
-                  </button>
-                </li>
-              );
-            })}
           </ul>
 
-          <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white shadow-md transition hover:scale-105 active:scale-95"
-              >
-                {playing ? "⏸" : "▶"}
-              </button>
-              <button
-                type="button"
-                onClick={toggleMute}
-                title={muted ? "Réactiver le son" : "Couper le son"}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-zinc-800"
-              >
-                {muted ? "🔇" : "🔊"}
-              </button>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-white">{current.title}</p>
-                <p className="truncate text-[10px] text-zinc-400">
-                  {current.kind === "audio"
-                    ? `${current.license}${current.attribution ? ` · ${current.attribution}` : ""}`
-                    : "Musique générée, libre de droit"}
-                </p>
+          <footer className="radio-player">
+            <div className="radio-transport">
+              <button type="button" onClick={togglePlay} aria-label={playing ? "Mettre en pause" : "Écouter le morceau"} className="radio-play">{playing ? "Ⅱ" : "▶"}</button>
+              <div className="radio-volume">
+                <div><span>Volume</span><output>{muted ? "Muet" : Math.round(volume * 100) + " %"}</output></div>
+                <input type="range" min={0} max={100} value={Math.round(volume * 100)} onChange={e => changeVolume(Number(e.target.value) / 100)} aria-label="Volume" />
               </div>
+              <button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Réactiver le son" : "Couper le son"} className="radio-mute">{muted ? "🔇" : "🔊"}</button>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-500">🔉</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round(volume * 100)}
-                onChange={(e) => changeVolume(Number(e.target.value) / 100)}
-                aria-label="Volume"
-                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-800 accent-violet-500"
-              />
-              <span className="text-xs text-zinc-500">🔊</span>
-            </div>
-          </div>
-        </div>
+            <p className="radio-credit">{current.kind === "audio" ? current.license + (current.attribution ? " · " + current.attribution : "") : "Musique générée, libre de droit"}</p>
+          </footer>
+        </section>
       )}
-
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="portal-widget flex items-center gap-2 px-3 py-2"
-      >
-        <span className="text-lg">{playing ? current.emoji : "📻"}</span>
-        <span className="max-w-[8rem] truncate text-xs font-semibold">
-          {playing ? current.title : "Radio"}
-        </span>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls="pixolud-radio" className="utility-launcher radio-launcher">
+        <span className="launcher-note" aria-hidden="true">♫</span><span>{playing ? current.title : "Radio"}</span>
+        {playing && <span className="radio-equalizer" aria-hidden="true"><i /><i /><i /></span>}
       </button>
     </div>
   );

@@ -1,85 +1,23 @@
 "use client";
-
-import { useState } from "react";
 import { SECRET_CHARACTER, SHAME_BADGES, useSecretUnlocked, useUnlockedBadges } from "@/lib/fun";
-
+import useHeaderPopover from "./useHeaderPopover";
 export default function TrophyPanel() {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, root, trigger } = useHeaderPopover();
   const unlockedBadges = useUnlockedBadges();
   const secretUnlocked = useSecretUnlocked();
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Trophées"
-        className="flex items-center gap-1 rounded-full border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-      >
-        🏆
-      </button>
-
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-40 cursor-default"
-          />
-          <div className="absolute end-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="mb-2 text-xs font-bold text-zinc-900 dark:text-white">
-              🏆 Trophées à débloquer
-            </p>
-            <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
-              {SHAME_BADGES.map((b) => {
-                const done = unlockedBadges.has(b.id);
-                return (
-                  <li
-                    key={b.id}
-                    className={`flex items-start gap-2 rounded-lg p-2 text-xs ${
-                      done ? "bg-amber-50 dark:bg-amber-950/30" : "bg-zinc-50 dark:bg-zinc-800/50"
-                    }`}
-                  >
-                    <span className="text-lg">{done ? b.emoji : "🔒"}</span>
-                    <span>
-                      <span
-                        className={`block font-medium ${
-                          done ? "text-amber-700 dark:text-amber-300" : "text-zinc-500 dark:text-zinc-400"
-                        }`}
-                      >
-                        {b.label}
-                      </span>
-                      <span className="text-zinc-400">{b.description}</span>
-                    </span>
-                  </li>
-                );
-              })}
-              <li
-                className={`flex items-start gap-2 rounded-lg p-2 text-xs ${
-                  secretUnlocked ? "bg-amber-50 dark:bg-amber-950/30" : "bg-zinc-50 dark:bg-zinc-800/50"
-                }`}
-              >
-                <span className="text-lg">{secretUnlocked ? SECRET_CHARACTER : "🔒"}</span>
-                <span>
-                  <span
-                    className={`block font-medium ${
-                      secretUnlocked ? "text-amber-700 dark:text-amber-300" : "text-zinc-500 dark:text-zinc-400"
-                    }`}
-                  >
-                    Code Secret
-                  </span>
-                  <span className="text-zinc-400">Trouver le Konami Code (↑↑↓↓←→←→BA).</span>
-                </span>
-              </li>
-            </ul>
-            <p className="mt-2 text-[10px] text-zinc-400">
-              Suivi sur cet appareil uniquement.
-            </p>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  const trophies = [...SHAME_BADGES.map(b => ({ ...b, done: unlockedBadges.has(b.id) })), {
+    id: "secret", label: "Code Secret", emoji: SECRET_CHARACTER,
+    description: "Trouver le Konami Code (↑↑↓↓←→←→BA).", done: secretUnlocked,
+  }];
+  const count = trophies.filter(t => t.done).length;
+  return <div ref={root} className="header-popover-root">
+    <button ref={trigger} type="button" className="header-popover-trigger trophy-trigger" aria-label="Trophées" aria-expanded={open} aria-controls="trophy-collection" onClick={() => setOpen(!open)}>🏆</button>
+    {open && <section id="trophy-collection" className="utility-panel header-popover trophy-panel" aria-labelledby="trophy-title">
+      <header className="utility-heading"><span className="utility-emblem trophy-emblem" aria-hidden="true">🏆</span><div><p className="utility-kicker">TES PETITES VICTOIRES</p><h2 id="trophy-title">Ta collection</h2></div><button type="button" className="utility-close" aria-label="Fermer les trophées" onClick={() => { setOpen(false); trigger.current?.focus(); }}>×</button></header>
+      <div className="trophy-progress"><div><strong>{count} / {trophies.length}</strong><span>trophées débloqués</span></div><progress value={count} max={trophies.length} aria-label="Trophées débloqués" /></div>
+      <ul className="trophy-list">{trophies.map(b => <li key={b.id} className={b.done ? "trophy-card is-unlocked" : "trophy-card"}>
+        <span className="trophy-icon" aria-hidden="true">{b.done ? b.emoji : "🔒"}</span><div><span className="trophy-status">{b.done ? "DÉBLOQUÉ" : "À DÉCOUVRIR"}</span><h3>{b.label}</h3><p>{b.description}</p></div>{b.done && <span className="trophy-check" aria-hidden="true">✓</span>}
+      </li>)}</ul><p className="collection-note">Ta progression est enregistrée sur cet appareil.</p>
+    </section>}
+  </div>;
 }

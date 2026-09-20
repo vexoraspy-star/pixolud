@@ -1,63 +1,22 @@
 "use client";
-
-import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LANG_COOKIE, LANGUAGE_META, LOCALES, translate, type Locale } from "@/lib/i18n";
-
+import useHeaderPopover from "./useHeaderPopover";
+function saveLanguage(loc: Locale) {
+  document.cookie = LANG_COOKIE + "=" + loc + "; path=/; max-age=31536000; SameSite=Lax";
+}
 export default function LanguageSwitcher({ current }: { current: Locale }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, root, trigger } = useHeaderPopover();
   const router = useRouter();
-
-  const change = useCallback(
-    (loc: Locale) => {
-      window.document.cookie = `${LANG_COOKIE}=${loc}; path=/; max-age=31536000`;
-      setOpen(false);
-      router.refresh();
-    },
-    [router],
-  );
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label={translate(current, "lang.choose")}
-        className="flex items-center gap-1 rounded-full border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-      >
-        <span>{LANGUAGE_META[current].flag}</span>
-        <span className="hidden sm:inline">{LANGUAGE_META[current].label}</span>
-        <span aria-hidden>▾</span>
-      </button>
-
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-40 cursor-default"
-          />
-          <div className="absolute end-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
-            {LOCALES.map((l) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => change(l)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-start text-sm ${
-                  l === current
-                    ? "bg-violet-50 font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
-                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                <span>{LANGUAGE_META[l].flag}</span>
-                {LANGUAGE_META[l].label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
+  const change = (loc: Locale) => {
+    saveLanguage(loc);
+    setOpen(false); trigger.current?.focus(); router.refresh();
+  };
+  return <div ref={root} className="header-popover-root">
+    <button ref={trigger} type="button" className="header-popover-trigger language-trigger" aria-label={translate(current, "lang.choose")} aria-expanded={open} aria-controls="language-options" onClick={() => setOpen(!open)}><span className="language-code" aria-hidden="true">{current.toUpperCase()}</span><span className="language-current">{LANGUAGE_META[current].label}</span><span aria-hidden="true">⌄</span></button>
+    {open && <section id="language-options" className="utility-panel header-popover language-panel" aria-labelledby="language-title">
+      <header className="utility-heading"><span className="utility-emblem radio-emblem" aria-hidden="true">◎</span><div><p className="utility-kicker">PIXOLUD</p><h2 id="language-title">{translate(current, "lang.choose")}</h2></div><button type="button" className="utility-close" aria-label="Fermer / Close" onClick={() => { setOpen(false); trigger.current?.focus(); }}>×</button></header>
+      <div className="language-list">{LOCALES.map(loc => <button key={loc} type="button" lang={loc} onClick={() => change(loc)} aria-pressed={loc === current}><span className="language-tile" aria-hidden="true">{loc.toUpperCase()}</span><span dir={LANGUAGE_META[loc].dir}>{LANGUAGE_META[loc].label}</span><span className="language-check" aria-hidden="true">{loc === current ? "✓" : ""}</span></button>)}</div>
+    </section>}
+  </div>;
 }

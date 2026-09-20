@@ -143,7 +143,7 @@ export default function AdminPanel({
   ];
 
   return (
-    <div className={compact ? "@container p-4" : "@container portal-container portal-page"}>
+    <div className={compact ? "admin-management @container p-4" : "admin-management @container portal-container portal-page"}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           {!compact && <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--portal-accent)]">🛡 Administration</p>}
