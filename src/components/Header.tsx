@@ -33,6 +33,7 @@ export default async function Header() {
               <summary>{badge} {pseudo}<span aria-hidden="true">⌄</span></summary>
               <div className="account-dropdown">
                 <Link href={"/profil/" + pseudo}>{pseudo}</Link>
+                <Link href="/amis">👥 Mes amis</Link>
                 {isAdmin && <Link href="/admin">🛡 Panneau admin</Link>}
                 <Link href="/parametres">{t("nav.settings")}</Link>
                 <form action={logout}><button type="submit">{t("nav.logout")}</button></form>

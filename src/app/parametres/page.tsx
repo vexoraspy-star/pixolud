@@ -4,6 +4,7 @@ import { logout } from "@/app/connexion/actions";
 import Link from "next/link";
 import { deleteMyAccount, updateProfile } from "./actions";
 import ShameBadges from "@/components/ShameBadges";
+import MicTest from "@/components/MicTest";
 
 export default async function ParametresPage({
   searchParams,
@@ -79,6 +80,10 @@ export default async function ParametresPage({
       </form>
 
       <ShameBadges />
+
+      <div className="mt-10">
+        <MicTest />
+      </div>
 
       {/* Droits RGPD : recuperer ses donnees, ou tout effacer. */}
       <section className="mt-10 border-t border-zinc-200 pt-6 dark:border-zinc-800">

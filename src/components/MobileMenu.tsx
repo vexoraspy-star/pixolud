@@ -86,6 +86,13 @@ export default function MobileMenu({
                 >
                   {pseudo}
                 </Link>
+                <Link
+                  href="/amis"
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg px-3 py-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                >
+                  👥 Mes amis
+                </Link>
                 {isAdmin && (
                   <Link
                     href="/admin"

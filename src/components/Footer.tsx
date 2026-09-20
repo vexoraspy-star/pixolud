@@ -20,6 +20,9 @@ export default async function Footer() {
           >
             {t("footer.privacy")}
           </Link>
+          <Link href="/a-propos" className="hover:text-zinc-900 dark:hover:text-white">
+            À propos
+          </Link>
           <Link href="/cookies" className="hover:text-zinc-900 dark:hover:text-white">
             Cookies
           </Link>
