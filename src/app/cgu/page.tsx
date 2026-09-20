@@ -1,169 +1,177 @@
-export default function CGUPage() {
+import type { Metadata } from "next";
+import LegalPage, { ContactLine } from "@/components/LegalPage";
+import { CONTACT_EMAIL } from "@/lib/legal";
+
+export const metadata: Metadata = {
+  title: "Conditions d'utilisation — Pixolud",
+  description: "Les règles du jeu sur Pixolud : compte, contenus autorisés, modération, droits sur tes créations.",
+};
+
+export default function CguPage() {
   return (
-    <div className="studio-page legal-page mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-bold text-zinc-900 dark:text-white">
-        Conditions Générales d&apos;Utilisation (CGU)
-      </h1>
-      <p className="mt-2 text-sm text-zinc-400">
-        Dernière mise à jour : 3 septembre 2026
-      </p>
-
-      <div className="mt-8">
-        <Section title="1. Objet">
-          <p>
-            Les présentes CGU définissent les règles d&apos;utilisation de
-            Pixolud (ci-après « la Plateforme »), un service communautaire
-            permettant de créer, publier, découvrir et jouer à des mini-jeux
-            en 2D. En créant un compte ou en utilisant la Plateforme, tu
-            acceptes sans réserve les présentes conditions.
-          </p>
-        </Section>
-
-        <Section title="2. Compte utilisateur">
-          <p>
-            La création d&apos;un compte nécessite un pseudo, une adresse
-            email valide et un mot de passe. Tu es responsable de la
-            confidentialité de tes identifiants et de toute activité
-            effectuée depuis ton compte. Un compte est réservé à un seul
-            utilisateur ; les comptes doivent correspondre à des personnes
-            réelles (pas de robots ni de comptes générés en masse).
-          </p>
-        </Section>
-
-        <Section title="3. Contenu interdit">
-          <p>
-            Il est strictement interdit de publier, via un jeu, un
-            commentaire, un pseudo, un avatar ou tout autre contenu, des
-            éléments comprenant :
-          </p>
-          <ul>
-            <li>
-              de la <strong>violence extrême ou gratuite</strong> (contenu
-              gore, actes de cruauté mis en scène de façon réaliste et
-              choquante) ;
-            </li>
-            <li>
-              du <strong>contenu haineux</strong> ou discriminatoire (racisme,
-              sexisme, homophobie, incitation à la haine envers un groupe ou
-              une personne) ;
-            </li>
-            <li>
-              du contenu à caractère sexuel impliquant des mineurs, ou plus
-              largement tout contenu pornographique ;
-            </li>
-            <li>
-              de la <strong>triche</strong> : exploitation de failles pour
-              fausser les classements, scripts ou bots automatisant le jeu,
-              manipulation artificielle des vues/notes/commentaires ;
-            </li>
-            <li>
-              du <strong>plagiat</strong> : republier un jeu, des sprites, des
-              niveaux ou des textes créés par quelqu&apos;un d&apos;autre sans
-              autorisation ni attribution ;
-            </li>
-            <li>
-              du harcèlement, des menaces, de la diffamation ou toute atteinte
-              à la vie privée d&apos;autrui (doxxing) ;
-            </li>
-            <li>
-              des liens ou contenus malveillants (virus, hameçonnage, spam
-              publicitaire).
-            </li>
-          </ul>
-        </Section>
-
-        <Section title="4. Règles de modération">
-          <p>
-            La Plateforme se réserve le droit de retirer tout contenu
-            contrevenant aux présentes CGU, sans préavis. Selon la gravité, la
-            modération peut :
-          </p>
-          <ul>
-            <li>retirer ou masquer un jeu, un commentaire ou un avatar ;</li>
-            <li>adresser un avertissement au compte concerné ;</li>
-            <li>
-              suspendre temporairement le compte (7 à 30 jours selon la
-              gravité) ;
-            </li>
-            <li>
-              bannir définitivement le compte en cas de récidive ou de faute
-              grave (contenu illégal, haine, contenu impliquant des mineurs).
-            </li>
-          </ul>
-          <p>
-            Tout utilisateur peut signaler un contenu via le bouton « Signaler
-            » présent sur chaque jeu, profil ou commentaire. Les signalements
-            sont examinés par l&apos;équipe de modération. Un utilisateur
-            banni peut contester la décision en écrivant à l&apos;adresse de
-            contact du site.
-          </p>
-        </Section>
-
-        <Section title="5. Droits d'auteur sur les créations">
-          <p>
-            Chaque créateur conserve la propriété intellectuelle des jeux
-            qu&apos;il publie sur la Plateforme. En publiant un jeu, tu
-            accordes à Pixolud une licence non exclusive, mondiale et
-            gratuite pour héberger, afficher, distribuer et permettre à
-            d&apos;autres utilisateurs de jouer à ton jeu au sein de la
-            Plateforme.
-          </p>
-          <p>
-            Tu garantis détenir tous les droits nécessaires sur les éléments
-            que tu importes (sprites, images, sons, textes). Toute création
-            utilisant des ressources dont tu n&apos;as pas les droits
-            (plagiat, contenu protégé par le droit d&apos;auteur d&apos;un
-            tiers) pourra être retirée sans préavis.
-          </p>
-        </Section>
-
-        <Section title="6. Conduite des utilisateurs">
-          <p>Sur la Plateforme, chaque utilisateur s&apos;engage à :</p>
-          <ul>
-            <li>faire preuve de respect envers les autres membres ;</li>
-            <li>
-              ne pas usurper l&apos;identité d&apos;une autre personne ou
-              organisation ;
-            </li>
-            <li>
-              ne pas tenter de contourner les mesures de sécurité ou de
-              modération de la Plateforme ;
-            </li>
-            <li>
-              signaler tout contenu ou comportement qui lui semble
-              contrevenir aux présentes règles.
-            </li>
-          </ul>
-        </Section>
-
-        <Section title="7. Suspension et résiliation">
-          <p>
-            Tu peux supprimer ton compte à tout moment depuis les paramètres.
-            Pixolud peut suspendre ou résilier un compte en cas de violation
-            des présentes CGU, conformément aux règles de modération
-            décrites ci-dessus.
-          </p>
-        </Section>
-
-        <Section title="8. Évolution des CGU">
-          <p>
-            Ces CGU peuvent être modifiées pour refléter l&apos;évolution du
-            service ou de la réglementation. Les utilisateurs seront informés
-            de tout changement substantiel.
-          </p>
-        </Section>
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-8">
-      <h2 className="text-lg font-bold text-zinc-900 dark:text-white">{title}</h2>
-      <div className="mt-2 space-y-3 text-sm leading-relaxed text-zinc-600 [&_li]:mb-1 [&_strong]:font-semibold [&_strong]:text-zinc-800 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 dark:text-zinc-300 dark:[&_strong]:text-zinc-100">
-        {children}
-      </div>
-    </section>
+    <LegalPage
+      eyebrow="Règles du site"
+      title="Conditions générales d'utilisation"
+      intro="Les règles à connaître pour utiliser Pixolud. En créant un compte ou en jouant, tu acceptes ces conditions."
+      highlights={[
+        { icon: "🎂", text: "Moins de 15 ans : l'accord d'un parent est nécessaire pour créer un compte." },
+        { icon: "🎨", text: "Tes créations restent à toi. Tu nous autorises seulement à les afficher." },
+        { icon: "🚫", text: "Contenu haineux, violent, sexuel ou volé : interdit, et retiré." },
+        { icon: "🆓", text: "Le service est gratuit et fourni tel quel, sans garantie de disponibilité." },
+      ]}
+      sections={[
+        {
+          id: "objet",
+          title: "Objet",
+          body: (
+            <p>
+              Pixolud est une plateforme gratuite qui permet de créer, publier et jouer à des mini-jeux, sans écrire de code,
+              et de jouer à des jeux 3D édités par l&apos;équipe. Ces conditions décrivent les règles d&apos;utilisation du
+              site. Elles s&apos;appliquent à tous : visiteurs sans compte comme membres inscrits.
+            </p>
+          ),
+        },
+        {
+          id: "age",
+          title: "Âge et accord des parents",
+          body: (
+            <>
+              <p>
+                Jouer est possible sans compte et sans condition d&apos;âge. Pour créer un compte, si tu as{" "}
+                <strong>moins de 15 ans</strong>, tu dois avoir l&apos;accord d&apos;un de tes parents ou de ton responsable
+                légal : c&apos;est la règle en France pour les données personnelles des mineurs.
+              </p>
+              <p>
+                Un parent peut à tout moment demander la suppression du compte de son enfant en nous écrivant. Elle est faite
+                sans discussion et sans délai.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "compte",
+          title: "Ton compte",
+          body: (
+            <ul>
+              <li>Un compte par personne. Les informations données doivent être exactes.</li>
+              <li>Ton mot de passe est personnel : ne le partage avec personne, pas même avec un ami de confiance.</li>
+              <li>Tu es responsable de ce qui est publié depuis ton compte.</li>
+              <li>
+                Tu peux supprimer ton compte à tout moment depuis tes <a href="/parametres">Paramètres</a>. Tes jeux, tes
+                commentaires et tes notes sont alors effacés.
+              </li>
+            </ul>
+          ),
+        },
+        {
+          id: "interdit",
+          title: "Ce qui est interdit",
+          body: (
+            <>
+              <ul>
+                <li>les contenus haineux, racistes, sexistes, homophobes, ou qui harcèlent quelqu&apos;un ;</li>
+                <li>les contenus sexuels, ou très violents ;</li>
+                <li>les contenus qui ne t&apos;appartiennent pas : images, musiques, personnages ou jeux copiés ;</li>
+                <li>les informations personnelles, les tiennes ou celles des autres (nom complet, adresse, téléphone, école) ;</li>
+                <li>les arnaques, les faux concours, les liens piégés, la publicité ;</li>
+                <li>tricher pour gonfler ses statistiques, ou gêner volontairement le fonctionnement du site.</li>
+              </ul>
+              <p>
+                Un contenu qui enfreint ces règles peut être retiré sans préavis, et le compte concerné suspendu.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "moderation",
+          title: "Modération et sanctions",
+          body: (
+            <>
+              <p>
+                L&apos;équipe peut avertir un joueur, retirer un jeu du catalogue, supprimer un commentaire, suspendre un
+                compte pour une durée limitée ou définitive, et supprimer un compte en cas de faute grave ou répétée.
+              </p>
+              <p>
+                Un avertissement s&apos;affiche à l&apos;écran du joueur concerné et reste visible sur son profil. Une
+                suspension empêche la connexion et la publication ; son motif est indiqué.
+              </p>
+              <p>
+                Tu peux contester une décision en nous écrivant : elle sera réexaminée par un humain, et levée si elle était
+                injustifiée.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "creations",
+          title: "Tes créations",
+          body: (
+            <>
+              <p>
+                Les mini-jeux que tu crées <strong>restent ta propriété</strong>. En les publiant, tu accordes à Pixolud une
+                autorisation gratuite et non exclusive de les héberger, de les afficher et de les faire jouer sur le site,
+                tant qu&apos;ils y sont publiés.
+              </p>
+              <p>
+                Tu peux dépublier ou supprimer un jeu à tout moment. Les jeux 3D édités par l&apos;équipe, le code et
+                l&apos;habillage du site ne sont pas réutilisables sans autorisation.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "gratuite",
+          title: "Gratuité et paliers",
+          body: (
+            <p>
+              Le site est gratuit. Les paliers Standard et Max présentés sur la page <a href="/premium">Premium</a> ne sont
+              pas vendus aujourd&apos;hui : aucun paiement n&apos;est possible. Les règles qui s&apos;appliqueront le jour où
+              une offre payante existera sont décrites sur la page <a href="/remboursement">Paiements et remboursement</a>.
+            </p>
+          ),
+        },
+        {
+          id: "responsabilite",
+          title: "Responsabilité",
+          body: (
+            <>
+              <p>
+                Pixolud est un projet personnel fourni « tel quel » : le service peut être interrompu, modifié ou arrêté, et
+                des bugs peuvent exister. Nous faisons de notre mieux pour conserver les jeux et les comptes, sans pouvoir
+                garantir l&apos;absence totale de perte de données. Pense à exporter tes créations importantes.
+              </p>
+              <p>
+                Les jeux publiés par les joueurs sont sous leur responsabilité. Un contenu qui poserait problème peut être
+                signalé depuis la page <a href="/signalement">Signaler un contenu</a> ; il sera examiné rapidement.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "evolution",
+          title: "Évolution des règles",
+          body: (
+            <p>
+              Ces conditions peuvent évoluer avec le site. La date de mise à jour est indiquée en haut de cette page. En cas
+              de changement important, l&apos;information sera affichée sur le site.
+            </p>
+          ),
+        },
+        {
+          id: "droit",
+          title: "Droit applicable et contact",
+          body: (
+            <>
+              <p>
+                Ces conditions sont soumises au droit français. En cas de désaccord, une solution amiable sera recherchée
+                d&apos;abord ; à défaut, les tribunaux français sont compétents. Un consommateur peut aussi recourir
+                gratuitement à un médiateur de la consommation.
+              </p>
+              <ContactLine email={CONTACT_EMAIL} />
+            </>
+          ),
+        },
+      ]}
+    />
   );
 }

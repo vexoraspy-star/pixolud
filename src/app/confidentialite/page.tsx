@@ -1,139 +1,215 @@
+import type { Metadata } from "next";
+import LegalPage, { ContactLine } from "@/components/LegalPage";
+import { CONTACT_EMAIL, DATA_REGION, HOSTS, PUBLISHER } from "@/lib/legal";
+
+export const metadata: Metadata = {
+  title: "Politique de confidentialité — Pixolud",
+  description: "Quelles données Pixolud collecte, pourquoi, combien de temps, et comment exercer tes droits.",
+};
+
 export default function ConfidentialitePage() {
   return (
-    <div className="studio-page legal-page mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-bold text-zinc-900 dark:text-white">
-        Politique de confidentialité
-      </h1>
-      <p className="mt-2 text-sm text-zinc-400">
-        Dernière mise à jour : 3 septembre 2026
-      </p>
-
-      <div className="mt-8">
-        <Section title="1. Données collectées">
-          <p>Lors de l&apos;utilisation de Pixolud, nous collectons :</p>
-          <ul>
-            <li>
-              <strong>Données de compte</strong> : pseudo, adresse email, mot
-              de passe (stocké de façon chiffrée/hachée, jamais en clair) ;
-            </li>
-            <li>
-              <strong>Données de profil</strong> : avatar, bio, si tu choisis
-              de les renseigner ;
-            </li>
-            <li>
-              <strong>Contenus créés</strong> : jeux, niveaux, sprites
-              importés, commentaires, notes ;
-            </li>
-            <li>
-              <strong>Données d&apos;usage</strong> : jeux joués, temps de
-              jeu, interactions avec la Plateforme, à des fins statistiques et
-              d&apos;amélioration du service.
-            </li>
-          </ul>
-        </Section>
-
-        <Section title="2. Finalités du traitement">
-          <p>Ces données sont utilisées pour :</p>
-          <ul>
-            <li>créer et gérer ton compte utilisateur ;</li>
-            <li>permettre la publication et la découverte de mini-jeux ;</li>
-            <li>assurer la modération et la sécurité de la Plateforme ;</li>
-            <li>
-              t&apos;envoyer des emails liés à ton compte (confirmation,
-              réinitialisation de mot de passe) ;
-            </li>
-            <li>améliorer le fonctionnement du service (statistiques agrégées).</li>
-          </ul>
-          <p>
-            Nous ne vendons jamais tes données personnelles à des tiers et ne
-            les utilisons pas à des fins publicitaires sans ton consentement
-            explicite.
-          </p>
-        </Section>
-
-        <Section title="3. Base légale et conservation">
-          <p>
-            Le traitement de tes données repose sur l&apos;exécution du
-            contrat qui te lie à Pixolud (fourniture du service) et, le cas
-            échéant, sur ton consentement. Les données de compte sont
-            conservées tant que ton compte est actif, puis supprimées ou
-            anonymisées dans un délai raisonnable après la suppression du
-            compte, sauf obligation légale de conservation plus longue.
-          </p>
-        </Section>
-
-        <Section title="4. Tes droits">
-          <p>
-            Conformément au Règlement Général sur la Protection des Données
-            (RGPD), tu disposes des droits suivants sur tes données
-            personnelles :
-          </p>
-          <ul>
-            <li>droit d&apos;accès et de rectification ;</li>
-            <li>droit à l&apos;effacement (« droit à l&apos;oubli ») ;</li>
-            <li>droit à la portabilité de tes données ;</li>
-            <li>droit d&apos;opposition et de limitation du traitement ;</li>
-            <li>
-              droit de retirer ton consentement à tout moment lorsque le
-              traitement en dépend.
-            </li>
-          </ul>
-          <p>
-            Tu peux exercer ces droits directement depuis la page{" "}
-            <strong>Paramètres</strong> de ton compte, ou en contactant
-            l&apos;équipe de Pixolud.
-          </p>
-        </Section>
-
-        <Section title="5. Partage des données">
-          <p>
-            Certaines données peuvent être traitées par des prestataires
-            techniques (hébergement, base de données, envoi d&apos;emails)
-            strictement nécessaires au fonctionnement de la Plateforme, dans
-            le respect de la réglementation applicable. Ton pseudo, ton
-            avatar, ta bio et les jeux que tu publies sont visibles
-            publiquement par tous les visiteurs de la Plateforme.
-          </p>
-        </Section>
-
-        <Section title="6. Cookies">
-          <p>
-            Pixolud utilise des cookies strictement nécessaires au
-            fonctionnement du service (maintien de ta session de connexion).
-            Aucun cookie publicitaire ou de tracking tiers n&apos;est utilisé
-            sans ton consentement préalable.
-          </p>
-        </Section>
-
-        <Section title="7. Sécurité">
-          <p>
-            Nous mettons en œuvre des mesures techniques et organisationnelles
-            raisonnables pour protéger tes données contre l&apos;accès non
-            autorisé, la perte ou l&apos;altération, notamment le chiffrement
-            des mots de passe et un contrôle d&apos;accès aux données
-            sensibles.
-          </p>
-        </Section>
-
-        <Section title="8. Contact">
-          <p>
-            Pour toute question relative à cette politique de confidentialité
-            ou pour exercer tes droits, tu peux contacter l&apos;équipe de
-            Pixolud via la page de contact du site.
-          </p>
-        </Section>
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-8">
-      <h2 className="text-lg font-bold text-zinc-900 dark:text-white">{title}</h2>
-      <div className="mt-2 space-y-3 text-sm leading-relaxed text-zinc-600 [&_li]:mb-1 [&_strong]:font-semibold [&_strong]:text-zinc-800 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 dark:text-zinc-300 dark:[&_strong]:text-zinc-100">
-        {children}
-      </div>
-    </section>
+    <LegalPage
+      eyebrow="Vie privée"
+      title="Politique de confidentialité"
+      intro="Cette page explique, simplement, quelles informations Pixolud garde sur toi, pourquoi, pendant combien de temps, et comment les récupérer ou les effacer."
+      highlights={[
+        { icon: "📝", text: "Pour jouer, rien n'est demandé. Pour publier un jeu, il faut un compte." },
+        { icon: "🙅", text: "Aucune publicité, aucun traceur, aucune vente de données." },
+        { icon: "🗑️", text: "Tu peux tout effacer toi-même depuis tes Paramètres, en un clic." },
+        { icon: "📦", text: "Tu peux télécharger toutes tes données en un fichier." },
+      ]}
+      sections={[
+        {
+          id: "responsable",
+          title: "Qui est responsable",
+          body: (
+            <p>
+              Le responsable du traitement est <strong>{PUBLISHER}</strong>, éditeur du site
+              (voir les <a href="/mentions-legales">mentions légales</a>). Pixolud est un projet personnel, sans société,
+              sans publicité et sans revente de données.
+            </p>
+          ),
+        },
+        {
+          id: "donnees",
+          title: "Ce que nous collectons",
+          body: (
+            <>
+              <p>
+                <strong>Sans compte</strong>, tu peux jouer librement : aucune information personnelle n&apos;est demandée.
+                Ton navigateur reçoit seulement un numéro au hasard (« Joueur 482193 ») pour t&apos;afficher un nom dans les
+                parties à plusieurs, ainsi que les sauvegardes de tes parties, qui restent sur ton appareil.
+              </p>
+              <p>
+                <strong>Avec un compte</strong>, nous conservons :
+              </p>
+              <ul>
+                <li>
+                  <strong>le nécessaire au compte</strong> : adresse e-mail, pseudo, mot de passe (jamais en clair, uniquement
+                  sous forme hachée), date d&apos;inscription et de dernière connexion ;
+                </li>
+                <li>
+                  <strong>ce que tu écris ou publies</strong> : bio, avatar, mini-jeux, commentaires, notes, signalements ;
+                </li>
+                <li>
+                  <strong>la modération</strong> : avertissements reçus, suspension éventuelle et son motif ;
+                </li>
+                <li>
+                  <strong>des compteurs simples</strong> : nombre de parties jouées sur un jeu. Nous ne suivons pas ta
+                  navigation page par page.
+                </li>
+              </ul>
+              <p>
+                Nos hébergeurs enregistrent en plus, pour la sécurité, des journaux techniques contenant notamment ton adresse
+                IP et la date de tes visites.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "pourquoi",
+          title: "Pourquoi, et sur quelle base légale",
+          body: (
+            <ul>
+              <li>
+                <strong>Faire fonctionner le service</strong> (compte, publication, parties à plusieurs) : exécution du
+                contrat qui nous lie, c&apos;est-à-dire les <a href="/cgu">CGU</a>.
+              </li>
+              <li>
+                <strong>Sécurité et modération</strong> (signalements, avertissements, suspensions, journaux) : notre intérêt
+                légitime à garder un site sain pour un public jeune.
+              </li>
+              <li>
+                <strong>E-mails liés au compte</strong> (confirmation, mot de passe oublié) : exécution du contrat.
+              </li>
+              <li>
+                <strong>Obligations légales</strong> : conservation de certaines données en cas de demande d&apos;une autorité.
+              </li>
+            </ul>
+          ),
+        },
+        {
+          id: "duree",
+          title: "Combien de temps",
+          body: (
+            <ul>
+              <li>
+                <strong>Compte et contenus</strong> : tant que le compte existe. À sa suppression, compte, jeux, commentaires
+                et notes sont effacés immédiatement.
+              </li>
+              <li>
+                <strong>Compte inactif</strong> : après 3 ans sans connexion, le compte peut être supprimé après un e-mail
+                de prévenance.
+              </li>
+              <li>
+                <strong>Décisions de modération</strong> (avertissement, suspension) : jusqu&apos;à 1 an après la fin de la
+                sanction.
+              </li>
+              <li>
+                <strong>Journaux techniques des hébergeurs</strong> : selon leurs propres durées, en général quelques
+                semaines à un an.
+              </li>
+            </ul>
+          ),
+        },
+        {
+          id: "qui-voit",
+          title: "Qui voit quoi",
+          body: (
+            <>
+              <p>
+                <strong>Public</strong> : ton pseudo, ton avatar, ta bio, tes jeux publiés, tes commentaires, ton badge
+                certifié et, le cas échéant, le nombre d&apos;avertissements reçus.
+              </p>
+              <p>
+                <strong>Toi et l&apos;équipe seulement</strong> : ton adresse e-mail, ta date de dernière connexion, le détail
+                des mesures de modération.
+              </p>
+              <p>
+                <strong>Nos prestataires techniques</strong>, qui hébergent le site et la base de données :{" "}
+                {HOSTS.map((h) => h.name).join(", ")}. Données hébergées dans la région : {DATA_REGION}. Ces sociétés étant
+                américaines ou singapouriennes, un transfert hors Union européenne est possible ; il est encadré par les
+                clauses contractuelles types de la Commission européenne.
+              </p>
+              <p>Nous ne vendons ni ne louons aucune donnée, et n&apos;affichons aucune publicité.</p>
+            </>
+          ),
+        },
+        {
+          id: "droits",
+          title: "Tes droits, et comment les exercer",
+          body: (
+            <>
+              <p>Le RGPD te donne le droit d&apos;accéder à tes données, de les corriger, de les effacer, de les récupérer et de t&apos;opposer à certains traitements.</p>
+              <ul>
+                <li>
+                  <strong>Les récupérer</strong> : bouton « Télécharger mes données » dans tes{" "}
+                  <a href="/parametres">Paramètres</a> (fichier JSON).
+                </li>
+                <li>
+                  <strong>Les corriger</strong> : pseudo, bio et avatar se modifient dans les Paramètres.
+                </li>
+                <li>
+                  <strong>Tout effacer</strong> : bouton « Supprimer mon compte » dans les Paramètres. C&apos;est immédiat et
+                  définitif.
+                </li>
+                <li>
+                  <strong>Nous écrire</strong> pour toute autre demande (voir ci-dessous).
+                </li>
+              </ul>
+              <p>
+                Si une réponse ne te satisfait pas, tu peux saisir la CNIL : <a href="https://www.cnil.fr/fr/plaintes">cnil.fr/fr/plaintes</a>.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "mineurs",
+          title: "Les enfants",
+          body: (
+            <>
+              <p>
+                Pixolud s&apos;adresse à un public jeune. En France, un enfant de moins de 15 ans ne peut pas consentir seul au
+                traitement de ses données : la création d&apos;un compte doit être faite avec l&apos;accord d&apos;un parent ou du
+                responsable légal.
+              </p>
+              <p>
+                Un parent peut demander à tout moment la suppression du compte de son enfant, sans justification, en nous
+                écrivant.
+              </p>
+              <p>Conseil : n&apos;écris jamais ton nom complet, ton adresse, ton école ou ton numéro de téléphone dans ton pseudo, ta bio ou un jeu.</p>
+            </>
+          ),
+        },
+        {
+          id: "securite",
+          title: "Sécurité",
+          body: (
+            <p>
+              Les mots de passe sont hachés par notre prestataire d&apos;authentification, les échanges passent par HTTPS, et la
+              base de données applique des règles d&apos;accès par ligne : chacun ne peut modifier que ses propres contenus. En
+              cas de fuite de données présentant un risque, nous préviendrons les personnes concernées et la CNIL dans les
+              72 heures.
+            </p>
+          ),
+        },
+        {
+          id: "cookies",
+          title: "Cookies",
+          body: (
+            <p>
+              Le site n&apos;utilise que des cookies nécessaires à son fonctionnement, sans publicité ni traceur. Le détail se
+              trouve sur la page <a href="/cookies">Cookies</a>.
+            </p>
+          ),
+        },
+        {
+          id: "contact",
+          title: "Nous contacter",
+          body: <ContactLine email={CONTACT_EMAIL} />,
+        },
+      ]}
+    />
   );
 }

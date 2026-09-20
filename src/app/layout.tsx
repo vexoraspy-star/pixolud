@@ -15,6 +15,7 @@ import { logout } from "@/app/connexion/actions";
 import { CHEAT_GAMES, enabledCheatGames } from "@/lib/admin";
 import AdminQuickButton from "@/components/AdminQuickButton";
 import SiteLive from "@/components/SiteLive";
+import CookieNotice from "@/components/CookieNotice";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,9 +51,9 @@ export const metadata: Metadata = {
   // Code donne par Google Search Console pour prouver que le site est a nous.
   // Il est public (il s'affiche dans la page) : il vit dans une variable
   // NEXT_PUBLIC_, ou on l'ecrit ici directement.
-  verification: process.env.NEXT_PUBLIC_GOOGLE_VERIFICATION
-    ? { google: process.env.NEXT_PUBLIC_GOOGLE_VERIFICATION }
-    : undefined,
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_VERIFICATION || "mFEDuRnnHB74bfj3-k3T_fgaYhHiyVm5xKbda-3ike8",
+  },
 };
 
 export const viewport: Viewport = {
@@ -108,6 +109,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           )}
         </main>
         <Footer />
+        <CookieNotice />
       </body>
     </html>
   );

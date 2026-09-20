@@ -1,15 +1,16 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/app/connexion/actions";
-import { updateProfile } from "./actions";
+import Link from "next/link";
+import { deleteMyAccount, updateProfile } from "./actions";
 import ShameBadges from "@/components/ShameBadges";
 
 export default async function ParametresPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ saved?: string; erreur?: string }>;
 }) {
-  const { saved } = await searchParams;
+  const { saved, erreur } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -31,6 +32,12 @@ export default async function ParametresPage({
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
         Paramètres du compte
       </h1>
+
+      {erreur && (
+        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {erreur}
+        </p>
+      )}
 
       {saved && (
         <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
@@ -72,6 +79,52 @@ export default async function ParametresPage({
       </form>
 
       <ShameBadges />
+
+      {/* Droits RGPD : recuperer ses donnees, ou tout effacer. */}
+      <section className="mt-10 border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Mes données</h2>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          Tu peux récupérer une copie de tout ce que Pixolud garde sur toi, ou tout effacer. Détails sur la page{" "}
+          <Link href="/confidentialite" className="text-violet-600 underline">
+            Confidentialité
+          </Link>
+          .
+        </p>
+        <a
+          href="/api/mes-donnees"
+          download
+          className="mt-3 inline-block rounded-full border border-zinc-300 px-5 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+        >
+          📦 Télécharger mes données
+        </a>
+
+        <details className="mt-6 rounded-xl border border-red-300/60 p-4 dark:border-red-900/60">
+          <summary className="cursor-pointer text-sm font-semibold text-red-600 dark:text-red-400">
+            Supprimer mon compte définitivement
+          </summary>
+          <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+            Ton compte, tes jeux, tes commentaires et tes notes seront effacés tout de suite, sans retour possible. Pense à
+            télécharger tes données avant. Si tu as moins de 15 ans, préviens tes parents.
+          </p>
+          <form action={deleteMyAccount} className="mt-3 flex flex-col gap-2">
+            <label className="text-sm text-zinc-700 dark:text-zinc-200">
+              Tape ton pseudo <b>{profile?.pseudo}</b> pour confirmer :
+              <input
+                name="confirmation"
+                required
+                autoComplete="off"
+                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-red-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              />
+            </label>
+            <button
+              type="submit"
+              className="self-start rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Supprimer définitivement
+            </button>
+          </form>
+        </details>
+      </section>
 
       <form action={logout} className="mt-10 border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <button

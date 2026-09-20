@@ -16,6 +16,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/inscription`, changeFrequency: "monthly", priority: 0.5 },
     { url: `${SITE_URL}/cgu`, changeFrequency: "yearly", priority: 0.2 },
     { url: `${SITE_URL}/confidentialite`, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${SITE_URL}/cookies`, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${SITE_URL}/mentions-legales`, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${SITE_URL}/remboursement`, changeFrequency: "yearly", priority: 0.2 },
   ];
 
   const gameRoutes: MetadataRoute.Sitemap = games.map((g) => ({
