@@ -487,6 +487,14 @@ export interface WeaponLook {
   hands?: boolean;
 }
 
+/**
+ * Hauteur, dans le modele, a laquelle le viseur se retrouve pile sur l'axe de
+ * la camera en visee. La scene pose l'arme a y = -0.12 avec une echelle de
+ * 0.66 (DuelScene) : 0.12 / 0.66. Avec l'ancienne valeur, le point rouge
+ * flottait au-dessus du centre de l'ecran et on tirait en dessous.
+ */
+const AIM_SIGHT_Y = 0.12 / 0.66;
+
 export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponModel {
   const group = new THREE.Group();
   // Les pieces vivent dans un sous-groupe : la scene pilote `group` (position
@@ -721,11 +729,13 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.088, 0.105, 0.42, metal), 0, 0, -0.02);
       add(box(0.038, 0.018, 0.44, dark), 0, 0.062, -0.04);
       for (let i = 0; i < 9; i++) add(box(0.042, 0.026, 0.012, dark), 0, 0.064, -0.22 + i * 0.045);
-      // Viseur point rouge : c'est lui qu'on amene au centre en visee.
-      add(box(0.05, 0.055, 0.075, dark), 0, 0.09, 0.06);
-      put(body, ring(0.036, 0.007, dark), 0, 0.115, 0.03);
-      put(body, ring(0.036, 0.007, dark), 0, 0.115, 0.09);
-      const dot = add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.009, 6, 5)), accent), 0, 0.115, 0.055);
+      // Viseur point rouge : c'est lui qu'on amene au centre en visee. Son
+      // embase reste basse, sinon elle bouchait le bas de l'anneau et on ne
+      // voyait plus rien a travers.
+      add(box(0.05, 0.024, 0.075, dark), 0, 0.078, 0.06);
+      put(body, ring(0.032, 0.006, dark), 0, 0.128, 0.03);
+      put(body, ring(0.032, 0.006, dark), 0, 0.128, 0.09);
+      const dot = add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.009, 6, 5)), accent), 0, 0.128, 0.055);
       dot.name = "dot";
       // Garde-main ajoure et bloc de gaz.
       add(box(0.076, 0.082, 0.26, sable), 0, -0.012, -0.32);
@@ -756,7 +766,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.02, 0.09, 0.03, sable), 0, -0.015, 0.29);
       add(box(0.062, 0.145, 0.032, dark), 0, -0.015, 0.425);
       muzzleZ = -0.67;
-      sightY = 0.115;
+      sightY = 0.128;
       put(body, rightHand, 0.01, -0.16, 0.13).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.33).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
       break;
@@ -981,9 +991,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       // Boitier carene et compact, viseur holographique : un fusil moderne.
       add(box(0.09, 0.115, 0.44, polymer), 0, 0, 0.02);
       add(box(0.094, 0.028, 0.42, dark), 0, 0.068, 0);
-      add(box(0.05, 0.03, 0.1, dark), 0, 0.094, 0.04); // embase du viseur
-      put(body, ring(0.03, 0.006, dark), 0, 0.125, 0.04);
-      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.125, 0.06).name = "dot";
+      add(box(0.05, 0.024, 0.1, dark), 0, 0.082, 0.04); // embase du viseur
+      put(body, ring(0.028, 0.006, dark), 0, 0.132, 0.04);
+      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.132, 0.06).name = "dot";
       add(box(0.08, 0.085, 0.16, dark), 0, -0.01, -0.28);
       for (let i = 0; i < 3; i++) add(box(0.086, 0.014, 0.03, metal), 0, -0.01, -0.33 + i * 0.05);
       add(tube(0.017, 0.2, steel), 0, 0.012, -0.36);
@@ -1000,7 +1010,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.092, 0.14, 0.04, dark), 0, -0.02, 0.26);
       muzzleZ = -0.52;
       muzzleY = 0.012;
-      sightY = 0.125;
+      sightY = 0.132;
       put(body, rightHand, 0.01, -0.15, -0.01).rotation.set(-0.2, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.29).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
@@ -1108,14 +1118,24 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   group.updateMatrixWorld(true);
   if (!WEAPONS[id].zoomFov && !WEAPONS[id].melee) {
     let top = -Infinity;
+    const optic: THREE.Object3D[] = [];
     body.traverse((o) => {
       if (!(o instanceof THREE.Mesh) || isHandPart(o)) return;
-      if (o.geometry instanceof THREE.TorusGeometry || o.name === "dot") return;
+      if (o.geometry instanceof THREE.TorusGeometry || o.name === "dot") {
+        optic.push(o);
+        return;
+      }
       bounds.setFromObject(o);
       if (bounds.max.x < -0.025 || bounds.min.x > 0.025) return;
       top = Math.max(top, bounds.max.y);
     });
-    if (top > sightY - 0.004) sightY = top + 0.004;
+    // Le viseur doit rester AU-DESSUS de ce qui le porte : sinon on regardait
+    // a travers l'anneau... et on ne voyait que le boitier de l'arme.
+    const clair = top + 0.012;
+    if (clair > sightY) {
+      for (const o of optic) o.position.y += clair - sightY;
+      sightY = clair;
+    }
   }
   // En visee, la crosse passait juste devant l'oeil et bouchait le bas de
   // l'ecran : tout ce qui est derriere la poignee s'efface quand on epaule.
@@ -1199,8 +1219,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       // Respiration : un balancement lent, presque arrete en visee.
       const calm = 1 - anim.aim * 0.85;
       body.rotation.set(Math.sin(anim.time * 0.9) * 0.012 * calm, Math.sin(anim.time * 0.7 + 1) * 0.016 * calm, 0);
-      // En visee, on monte l'arme pour amener la ligne de mire au centre.
-      body.position.set(0, Math.sin(anim.time * 1.3) * 0.004 * calm + anim.aim * (0.2069 - sightY), 0);
+      // En visee, on monte l'arme pour poser la ligne de mire pile au centre
+      // de l'ecran : AIM_SIGHT_Y est la hauteur, dans le modele, ou le viseur
+      // tombe exactement sur l'axe de la camera (voir la constante).
+      body.position.set(0, Math.sin(anim.time * 1.3) * 0.004 * calm + anim.aim * (AIM_SIGHT_Y - sightY), 0);
     }
     rightHand.position.copy(rightBase);
     if (id === "poings") {

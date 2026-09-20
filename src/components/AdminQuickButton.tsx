@@ -12,6 +12,9 @@ import {
   renameUser,
   sendGift,
   sendNotice,
+  sendNoticeToAll,
+  createAccount,
+  deleteComment,
   setAdminRole,
   setCheatGames,
   setGamePublished,
@@ -33,22 +36,44 @@ import { pingPlayer, subscribeOnline, type OnlinePlayer } from "@/lib/livePresen
  * actions revérifient le droit admin cote serveur.
  */
 
-type View = "triches" | "give" | "enligne" | "joueurs" | "bannis" | "jeux" | "signalements";
+type View =
+  | "triches"
+  | "give"
+  | "annonce"
+  | "enligne"
+  | "joueurs"
+  | "creer"
+  | "bannis"
+  | "jeux"
+  | "commentaires"
+  | "signalements"
+  | "journal";
 
 const NAV: { id: View; icon: string; label: string }[] = [
   { id: "triches", icon: "🎮", label: "Triches" },
   { id: "give", icon: "🎁", label: "Give" },
+  { id: "annonce", icon: "📣", label: "Annonce" },
   { id: "enligne", icon: "🟢", label: "En ligne" },
   { id: "joueurs", icon: "👥", label: "Joueurs" },
+  { id: "creer", icon: "➕", label: "Créer" },
   { id: "bannis", icon: "⛔", label: "Bannis" },
   { id: "jeux", icon: "🕹️", label: "Jeux" },
+  { id: "commentaires", icon: "💬", label: "Commentaires" },
   { id: "signalements", icon: "🚩", label: "Signalements" },
+  { id: "journal", icon: "📜", label: "Journal" },
 ];
 
 const TIERS: Record<string, string> = { free: "Gratuit", standard: "Standard", max: "Max" };
 
 function initials(name: string) {
   return name.slice(0, 2).toUpperCase();
+}
+
+/** Date courte, ou « — » si la valeur manque. */
+function jour(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
 }
 
 function makePassword() {
@@ -117,6 +142,19 @@ export default function AdminQuickButton({
     if (open && !data) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Raccourci Alt+A : ouvrir ou fermer la fenetre, meme en pleine partie.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyA") {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen((o) => !o);
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   /** Une action : message, puis donnees fraiches. */
   function act(run: () => Promise<AdminResult>) {
@@ -204,11 +242,21 @@ export default function AdminQuickButton({
             <span className="admin-heading-emblem">🛡️</span>
             <div className="admin-heading-copy"><span>ESPACE DE CONTRÔLE</span><h2>Administration</h2></div>
             {pending && <span className="text-[10px] font-semibold text-violet-300">chargement…</span>}
+            <button
+              type="button"
+              onClick={load}
+              disabled={pending}
+              title="Recharger les données"
+              aria-label="Recharger les données"
+              className="ml-auto rounded-md px-2 py-1 text-sm text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
+            >
+              🔄
+            </button>
             <Link
               href="/admin"
               onClick={() => setOpen(false)}
               title="Ouvrir le panneau complet"
-              className="admin-expand ml-auto rounded-md px-2 py-1 text-xs font-bold text-zinc-300 hover:bg-white/10 hover:text-white"
+              className="admin-expand rounded-md px-2 py-1 text-xs font-bold text-zinc-300 hover:bg-white/10 hover:text-white"
             >
               Plein écran ↗
             </Link>
@@ -234,7 +282,7 @@ export default function AdminQuickButton({
                   <b className="block truncate text-sm">{data?.me.pseudo ?? "…"}</b>
                 </span>
               </div>
-              <nav className="admin-sidebar-nav flex flex-col gap-1">
+              <nav className="admin-sidebar-nav flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
                 {NAV.map((n) => {
                   const count =
                     n.id === "bannis"
@@ -262,7 +310,16 @@ export default function AdminQuickButton({
                   );
                 })}
               </nav>
-              <p className="admin-sidebar-footer mt-auto pt-3 text-[10px] text-zinc-500">✣ Pixolud · Administration</p>
+              <div className="pt-3">
+                {data && (
+                  <p className="mb-1 text-[10px] leading-relaxed text-zinc-500">
+                    👥 {data.users.length} joueur{data.users.length > 1 ? "s" : ""}
+                    <br />
+                    🕹️ {data.games.length} jeu{data.games.length > 1 ? "x" : ""}
+                  </p>
+                )}
+                <p className="admin-sidebar-footer text-[10px] text-zinc-500">✣ Pixolud · Alt+A</p>
+              </div>
             </aside>
 
             {/* Contenu */}
@@ -276,12 +333,18 @@ export default function AdminQuickButton({
                 <CheatsView games={games} current={game?.slug ?? null} cheats={cheats} pending={pending} save={saveCheats} />
               )}
               {view === "give" && <GiveView data={data} act={act} pending={pending} say={setToast} />}
+              {view === "annonce" && <AnnounceView me={data?.me.id ?? null} act={act} pending={pending} />}
               {view === "enligne" && <OnlineView me={data?.me.id ?? null} act={act} pending={pending} />}
               {data && view === "joueurs" && <PlayersView data={data} act={act} pending={pending} />}
               {data && view === "bannis" && <BannedView data={data} act={act} pending={pending} />}
               {data && view === "jeux" && <GamesView data={data} act={act} pending={pending} />}
               {data && view === "signalements" && <ReportsView data={data} act={act} pending={pending} />}
-              {!data && !loadError && !["triches", "give", "enligne"].includes(view) && <p className="text-xs text-zinc-400">Chargement…</p>}
+              {data && view === "creer" && <CreateView act={act} pending={pending} />}
+              {data && view === "commentaires" && <CommentsView data={data} act={act} pending={pending} />}
+              {data && view === "journal" && <LogView data={data} />}
+              {!data && !loadError && !["triches", "give", "annonce", "enligne"].includes(view) && (
+                <p className="text-xs text-zinc-400">Chargement…</p>
+              )}
             </section>
           </div>
 
@@ -352,6 +415,14 @@ function CheatsView({
             </li>
           ))}
       </ul>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button type="button" disabled={pending} onClick={() => save(games.map((g) => g.slug))} className={tile}>
+          ✅ Tout activer
+        </button>
+        <button type="button" disabled={pending} onClick={() => save([])} className={tile}>
+          🚫 Tout couper
+        </button>
+      </div>
       <p className="text-[10px] text-zinc-500">Réglage de ce navigateur. En ligne contre de vrais joueurs, la triche reste toujours coupée.</p>
     </div>
   );
@@ -520,6 +591,91 @@ function NoticeButtons({
   );
 }
 
+// ---------------------------------------------------------------- annonce
+
+/**
+ * Parler a tout le monde d'un coup, et surtout : s'envoyer l'effet a soi-meme
+ * pour voir ce que ca donne avant de le faire subir aux autres.
+ */
+function AnnounceView({ me, act, pending }: { me: string | null } & ActProps) {
+  const [texte, setTexte] = useState("");
+  const [players, setPlayers] = useState<OnlinePlayer[]>([]);
+  useEffect(() => subscribeOnline(setPlayers), []);
+  const invites = players.map((p) => p.guestNum).filter((n): n is string => !!n);
+
+  function tous(kind: "avertissement" | "message" | "screamer") {
+    const message = texte.trim();
+    if (kind !== "screamer" && !message) return;
+    const quoi = kind === "avertissement" ? "un avertissement" : kind === "screamer" ? "un SCREAMER" : "une annonce";
+    if (!window.confirm(`Envoyer ${quoi} à TOUS les joueurs du site ?`)) return;
+    act(async () => {
+      const r = await sendNoticeToAll(kind, message, invites);
+      if (r.ok) {
+        setTexte("");
+        for (const p of players) pingPlayer(p.key);
+      }
+      return r;
+    });
+  }
+
+  function surMoi(kind: "avertissement" | "message" | "screamer") {
+    if (!me) return;
+    act(async () => {
+      const r = await sendNotice({ userId: me }, kind, texte.trim() || "Ceci est un test.");
+      if (r.ok) pingPlayer(`u:${me}`);
+      return r;
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-extrabold">Parler à tout le monde</h3>
+        <p className="text-[10px] text-zinc-400">
+          Chaque compte reçoit le message, plus les {invites.length} invité{invites.length > 1 ? "s" : ""} en ligne. Ils le
+          voient dans la minute.
+        </p>
+        <textarea
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          maxLength={300}
+          rows={3}
+          placeholder="Ton message… (inutile pour un screamer)"
+          aria-label="Message pour tout le monde"
+          className={`${field} mt-2 resize-none py-2 leading-relaxed`}
+        />
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <button type="button" disabled={pending || !texte.trim()} onClick={() => tous("avertissement")} className={tile}>
+            ⚠️ Avertir tous
+          </button>
+          <button type="button" disabled={pending || !texte.trim()} onClick={() => tous("message")} className={tile}>
+            📢 Annoncer
+          </button>
+          <button type="button" disabled={pending} onClick={() => tous("screamer")} className={`${tile} hover:border-red-400 hover:bg-red-500/20`}>
+            😱 Screamer tous
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+        <h3 className="text-sm font-extrabold">Essayer sur moi</h3>
+        <p className="text-[10px] text-zinc-400">Pour voir l&apos;effet avant de l&apos;envoyer. Personne d&apos;autre ne le reçoit.</p>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <button type="button" disabled={pending || !me} onClick={() => surMoi("avertissement")} className={tile}>
+            ⚠️ Avertir
+          </button>
+          <button type="button" disabled={pending || !me} onClick={() => surMoi("message")} className={tile}>
+            📢 Message
+          </button>
+          <button type="button" disabled={pending || !me} onClick={() => surMoi("screamer")} className={tile}>
+            😱 Screamer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- en ligne
 
 function OnlineView({ me, act, pending }: { me: string | null } & ActProps) {
@@ -546,7 +702,7 @@ function OnlineView({ me, act, pending }: { me: string | null } & ActProps) {
               <span className="shrink-0 text-[10px] text-zinc-400">{p.where}</span>
             </button>
             {open === p.key && (
-              <div className="px-3 pb-3">
+              <div className="space-y-1.5 px-3 pb-3">
                 <NoticeButtons
                   target={p.userId ? { userId: p.userId } : { guest: p.guestNum ?? undefined }}
                   pingKey={p.key}
@@ -554,6 +710,24 @@ function OnlineView({ me, act, pending }: { me: string | null } & ActProps) {
                   act={act}
                   pending={pending}
                 />
+                {p.userId && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Link href={`/profil/${encodeURIComponent(p.name)}`} className={tile}>
+                      👤 Son profil
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        const motif = window.prompt(`Bannir ${p.name} pour 1 jour. Motif :`);
+                        if (motif !== null) act(() => banUser(p.userId as string, "1j", motif, false));
+                      }}
+                      className={`${tile} hover:border-red-400 hover:bg-red-500/20`}
+                    >
+                      ⛔ Bannir 1 jour
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </li>
@@ -565,13 +739,25 @@ function OnlineView({ me, act, pending }: { me: string | null } & ActProps) {
 
 // ------------------------------------------------------------------ joueurs
 
+const FILTRES: { id: string; label: string; garde: (u: AdminUser) => boolean }[] = [
+  { id: "tous", label: "Tous", garde: () => true },
+  { id: "admins", label: "Admins", garde: (u) => u.isAdmin },
+  { id: "certifies", label: "✔", garde: (u) => u.verified },
+  { id: "bannis", label: "Bannis", garde: (u) => u.banned },
+  { id: "attente", label: "Non activés", garde: (u) => !u.emailConfirmed },
+];
+
 function PlayersView({ data, act, pending }: { data: AdminData } & ActProps) {
   const [q, setQ] = useState("");
+  const [filtre, setFiltre] = useState("tous");
   const [selId, setSelId] = useState<string | null>(null);
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return data.users.filter((u) => !s || u.pseudo.toLowerCase().includes(s) || u.email.toLowerCase().includes(s));
-  }, [data.users, q]);
+    const garde = FILTRES.find((f) => f.id === filtre)?.garde ?? (() => true);
+    return data.users.filter(
+      (u) => garde(u) && (!s || u.pseudo.toLowerCase().includes(s) || u.email.toLowerCase().includes(s)),
+    );
+  }, [data.users, q, filtre]);
   const sel = data.users.find((u) => u.id === selId) ?? null;
 
   return (
@@ -579,7 +765,21 @@ function PlayersView({ data, act, pending }: { data: AdminData } & ActProps) {
       <div className="flex w-40 shrink-0 flex-col">
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Choisir un joueur</p>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher…" aria-label="Rechercher un joueur" className={field} />
-        <ul className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {FILTRES.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFiltre(f.id)}
+              aria-pressed={filtre === f.id}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${filtre === f.id ? "bg-violet-600" : "bg-white/10 hover:bg-white/20"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[10px] text-zinc-500">{list.length} affiché{list.length > 1 ? "s" : ""}</p>
+        <ul className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
           {list.map((u) => (
             <li key={u.id}>
               <button
@@ -617,6 +817,7 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
   const [reason, setReason] = useState("");
   const [name, setName] = useState(u.pseudo);
   const [pwd, setPwd] = useState(makePassword);
+  const [copie, setCopie] = useState<string | null>(null);
   const self = u.id === me;
   const protectedAccount = self || u.isAdmin;
 
@@ -639,7 +840,24 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
             {u.banned ? " · BANNI" : ""}
             {!u.emailConfirmed ? " · non activé" : ""} · {u.games} jeu{u.games > 1 ? "x" : ""}
           </p>
+          <p className="text-[10px] text-zinc-400">
+            Inscrit le {jour(u.createdAt)} · vu {jour(u.lastSignIn)}
+          </p>
         </div>
+        <button
+          type="button"
+          title="Copier le pseudo, l'e-mail et l'identifiant"
+          aria-label="Copier les informations du joueur"
+          onClick={() => {
+            navigator.clipboard
+              ?.writeText(`${u.pseudo}\n${u.email}\n${u.id}`)
+              .then(() => setCopie("copié !"))
+              .catch(() => setCopie("copie refusée"));
+          }}
+          className="shrink-0 rounded-md px-2 py-1 text-xs text-zinc-200 hover:bg-white/15"
+        >
+          {copie ?? "📋"}
+        </button>
       </div>
 
       <div>
@@ -832,6 +1050,9 @@ function GamesView({ data, act, pending }: { data: AdminData } & ActProps) {
                 {g.author} · {g.plays} parties
               </p>
             </div>
+            <Link href={`/jeu/${g.slug}`} target="_blank" title="Ouvrir la fiche du jeu" className={`${tile} px-2`}>
+              ↗
+            </Link>
             <button type="button" disabled={pending} onClick={() => act(() => setGamePublished(g.id, !g.published))} className={`${tile} px-2`}>
               {g.published ? "Retirer" : "Publier"}
             </button>
@@ -850,6 +1071,104 @@ function GamesView({ data, act, pending }: { data: AdminData } & ActProps) {
         ))}
       </ul>
     </div>
+  );
+}
+
+// -------------------------------------------------------------------- creer
+
+/** Ouvrir un compte a quelqu'un qui n'a pas d'adresse e-mail. */
+function CreateView({ act, pending }: ActProps) {
+  const [pseudo, setPseudo] = useState("");
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState(makePassword);
+  const [verifie, setVerifie] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-extrabold">Créer un compte</h3>
+        <p className="text-[10px] text-zinc-400">
+          Sans e-mail, le compte marche quand même : la personne se connecte avec son pseudo et ce mot de passe.
+        </p>
+      </div>
+      <input value={pseudo} onChange={(e) => setPseudo(e.target.value)} placeholder="Pseudo" aria-label="Pseudo" className={field} />
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail (facultatif)" aria-label="E-mail" className={field} />
+      <div className="flex gap-2">
+        <input value={pwd} onChange={(e) => setPwd(e.target.value)} aria-label="Mot de passe" className={field} />
+        <button type="button" onClick={() => setPwd(makePassword())} className={`${tile} px-2`} title="Autre mot de passe">
+          🎲
+        </button>
+      </div>
+      <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-300">
+        <Switch on={verifie} onClick={() => setVerifie((v) => !v)} label="Compte certifié" />
+        Certifié ✔ dès la création
+      </label>
+      <button
+        type="button"
+        disabled={pending || pseudo.trim().length < 3 || pwd.length < 8}
+        onClick={() => act(() => createAccount(pseudo, pwd, email, verifie))}
+        className="w-full rounded-lg bg-violet-600 py-2 text-xs font-extrabold hover:bg-violet-500 disabled:opacity-40"
+      >
+        Créer le compte
+      </button>
+      <p className="text-[10px] text-zinc-500">Note le mot de passe avant de valider : il ne se réaffiche pas.</p>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------- commentaires
+
+function CommentsView({ data, act, pending }: { data: AdminData } & ActProps) {
+  if (data.comments.length === 0) return <p className="text-xs text-zinc-400">Aucun commentaire.</p>;
+  return (
+    <ul className="space-y-1.5">
+      {data.comments.slice(0, 40).map((c) => (
+        <li key={c.id} className="flex items-start gap-2 rounded-lg bg-white/[0.05] px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] text-zinc-200">{c.text}</p>
+            <p className="truncate text-[10px] text-zinc-500">
+              {c.author} · sur {c.game} · {jour(c.createdAt)}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              if (window.confirm("Supprimer ce commentaire ?")) act(() => deleteComment(c.id));
+            }}
+            className={`${tile} px-2 hover:border-red-400 hover:bg-red-500/20`}
+            aria-label="Supprimer le commentaire"
+          >
+            🗑
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ------------------------------------------------------------------ journal
+
+/** Ce qui a ete fait depuis le panneau, du plus recent au plus ancien. */
+function LogView({ data }: { data: AdminData }) {
+  if (data.logError) {
+    return <p className="rounded-lg bg-amber-500/15 p-3 text-xs text-amber-200">Journal illisible : {data.logError}</p>;
+  }
+  if (data.log.length === 0) return <p className="text-xs text-zinc-400">Rien pour l&apos;instant.</p>;
+  return (
+    <ul className="space-y-1">
+      {data.log.slice(0, 60).map((l) => (
+        <li key={l.id} className="rounded-lg bg-white/[0.05] px-3 py-2">
+          <p className="text-[11px]">
+            <b className="text-violet-300">{l.action}</b> <span className="text-zinc-300">{l.details}</span>
+          </p>
+          <p className="text-[10px] text-zinc-500">
+            {l.admin} ·{" "}
+            {new Date(l.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }
 

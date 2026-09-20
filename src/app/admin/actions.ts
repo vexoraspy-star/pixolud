@@ -317,6 +317,39 @@ export async function sendNotice(
   });
 }
 
+/**
+ * La meme chose, mais pour tout le monde : un message a chaque compte, plus
+ * les invites dont le numero est passe (ceux qui sont en ligne). Les invites
+ * n'ont pas de compte : sans leur numero, on ne peut pas les prevenir.
+ */
+export async function sendNoticeToAll(kind: string, messageIn: string, guestsIn: string[] = []): Promise<AdminResult> {
+  return run(`${kind}-tous`, "tout le monde", async ({ db, admin }) => {
+    if (!["avertissement", "message", "screamer"].includes(kind)) throw new AdminError("Type invalide.");
+    const message = messageIn.trim().slice(0, 300);
+    if (kind !== "screamer" && !message) throw new AdminError("Écris le message.");
+
+    const { data: profils } = await db.from("profiles").select("id");
+    const guests = [...new Set(guestsIn.filter((g) => /^\d{6}$/.test(g)))].slice(0, 300);
+    const rows = [
+      ...(profils ?? []).map((p: { id: string }) => ({ kind, message, created_by: admin.id, user_id: p.id })),
+      ...guests.map((g) => ({ kind, message, created_by: admin.id, guest_num: g })),
+    ];
+    if (rows.length === 0) throw new AdminError("Personne à prévenir.");
+
+    const { error } = await db.from("admin_notices").insert(rows);
+    if (error) {
+      throw new AdminError(
+        /relation|schema cache|does not exist/i.test(error.message)
+          ? "Lance d'abord le fichier supabase/add_admin_notices.sql dans Supabase (SQL Editor)."
+          : "Envoi impossible.",
+      );
+    }
+    const label = kind === "avertissement" ? "⚠️ Avertissement" : kind === "screamer" ? "😱 Screamer" : "📢 Annonce";
+    const invites = guests.length ? ` et ${guests.length} invité${guests.length > 1 ? "s" : ""} en ligne` : "";
+    return `${label} envoyé à ${profils?.length ?? 0} compte${(profils?.length ?? 0) > 1 ? "s" : ""}${invites}.`;
+  });
+}
+
 // --------------------------------------------------------------------- jeux
 
 export async function setGamePublished(id: string, on: boolean): Promise<AdminResult> {
