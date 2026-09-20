@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Catalogue de mini-jeux — Pixolud",
+  description:
+    "Tous les mini-jeux créés par la communauté : plateforme, puzzle, arcade, labyrinthe, quiz. Jouables tout de suite, gratuitement, sans installation.",
+};
+
 import PortalHeading from "@/components/PortalHeading";
 import Link from "next/link";
 import GameCard from "@/components/GameCard";

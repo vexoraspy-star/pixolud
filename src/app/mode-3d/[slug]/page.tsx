@@ -8,6 +8,28 @@ import CubesGame from "@/components/CubesGame";
 import Game3DFrame from "@/components/Game3DFrame";
 import { createClient } from "@/lib/supabase/server";
 import { enabledCheatGames } from "@/lib/admin";
+import type { Metadata } from "next";
+import { GameJsonLd } from "@/components/SiteJsonLd";
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pixolud.vercel.app";
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const game = getGame3D(slug);
+  if (!game) return {};
+  return {
+    title: `${game.title} — jeu 3D gratuit sur Pixolud`,
+    description: game.description,
+    alternates: { canonical: `/mode-3d/${game.slug}` },
+    openGraph: {
+      type: "article",
+      url: `${SITE_URL}/mode-3d/${game.slug}`,
+      title: `${game.title} — jeu 3D gratuit sur Pixolud`,
+      description: game.description,
+      images: game.cover ? [{ url: game.cover }] : undefined,
+    },
+  };
+}
 
 export default async function Play3DPage({
   params,
@@ -49,6 +71,13 @@ export default async function Play3DPage({
 
   return (
     <Game3DFrame>
+      <GameJsonLd
+        siteUrl={SITE_URL}
+        url={`${SITE_URL}/mode-3d/${game.slug}`}
+        name={game.title}
+        description={game.description}
+        image={game.cover}
+      />
       {slug === "cubes" && <CubesGame title={title} />}
       {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
       {slug === "manoir-maudit" && <HorrorGame title={title} devAllowed={devAllowed} />}

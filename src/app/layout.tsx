@@ -17,6 +17,7 @@ import { CHEAT_GAMES, enabledCheatGames } from "@/lib/admin";
 import AdminQuickButton from "@/components/AdminQuickButton";
 import SiteLive from "@/components/SiteLive";
 import CookieNotice from "@/components/CookieNotice";
+import SiteJsonLd from "@/components/SiteJsonLd";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -77,6 +78,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="portal-shell min-h-full flex flex-col">
+        <SiteJsonLd siteUrl={SITE_URL} />
         <ServiceWorkerRegister />
         <KonamiCode />
         <Mascot />

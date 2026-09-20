@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Jouer à plusieurs — Pixolud",
+  description:
+    "Des parties à plusieurs dans le navigateur : territoire, bulles, échecs, chasse au trésor, et tes jeux entre amis avec un code de salon.",
+};
+
 import { createClient } from "@/lib/supabase/server";
 import MultiplayerHub from "@/components/MultiplayerHub";
 import type { Tier } from "@/lib/tiers";

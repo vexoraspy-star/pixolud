@@ -8,6 +8,10 @@ import RatingWidget from "@/components/RatingWidget";
 import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
 import InvitePartyButton from "@/components/InvitePartyButton";
 import { deleteComment, postComment } from "./actions";
+import ShareButton from "@/components/ShareButton";
+import { GameJsonLd } from "@/components/SiteJsonLd";
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pixolud.vercel.app";
 
 export async function generateMetadata({
   params,
@@ -66,6 +70,16 @@ export default async function GamePage({
 
   return (
     <div className="studio-page mx-auto max-w-4xl px-4 py-10 sm:px-6">
+      <GameJsonLd
+        siteUrl={SITE_URL}
+        url={`${SITE_URL}/jeu/${game.slug}`}
+        name={game.title}
+        description={game.description}
+        author={game.authorPseudo}
+        image={game.coverUrl ?? undefined}
+        datePublished={game.createdAt}
+        plays={game.plays}
+      />
       <Link href="/catalogue" className="detail-back">← Retour au catalogue</Link>
       <div className="detail-cover"><GameArtwork kind={game.category} cover={game.coverUrl} priority /></div>
 
@@ -99,6 +113,12 @@ export default async function GamePage({
             </Link>
           )}
           {game.multiplayerMode && <InvitePartyButton slug={game.slug} />}
+          <ShareButton
+            url={`${SITE_URL}/jeu/${game.slug}`}
+            title={`${game.title} sur Pixolud`}
+            text={`Joue à « ${game.title} » sur Pixolud, c'est gratuit :`}
+            className="rounded-full border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          />
           <Link
             href={`/jeu/${game.slug}/jouer`}
             className="portal-button"
