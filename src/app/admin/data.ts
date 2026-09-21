@@ -10,7 +10,7 @@ const bool = (v: unknown) => v === true;
 export async function loadAdminData(me: { id: string; pseudo: string }): Promise<AdminData> {
   const db = createAdminClient();
 
-  const [profilesRes, usersRes, gamesRes, commentsRes, reportsRes, logRes, cheats] = await Promise.all([
+  const [profilesRes, usersRes, gamesRes, commentsRes, reportsRes, logRes, cheats, playsRes] = await Promise.all([
     db.from("profiles").select("*").order("created_at", { ascending: false }).limit(1000),
     db.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     db
@@ -22,6 +22,9 @@ export async function loadAdminData(me: { id: string; pseudo: string }): Promise
     db.from("reports").select("*").order("created_at", { ascending: false }).limit(300),
     db.from("admin_log").select("*").order("created_at", { ascending: false }).limit(200),
     enabledCheatGames(),
+    // Parties jouees par joueur : absent tant que add_historique_parties.sql
+    // n'est pas lance, et le panneau s'affiche quand meme.
+    db.from("play_stats").select("user_id, parties, derniere, dernier_jeu"),
   ]);
 
   const profiles = (profilesRes.data ?? []) as Row[];
@@ -30,6 +33,9 @@ export async function loadAdminData(me: { id: string; pseudo: string }): Promise
   const comments = (commentsRes.data ?? []) as Row[];
   const reports = (reportsRes.data ?? []) as Row[];
   const log = logRes.error ? [] : ((logRes.data ?? []) as Row[]);
+  const playStats = new Map(
+    (playsRes.error ? [] : ((playsRes.data ?? []) as Row[])).map((r) => [str(r.user_id), r]),
+  );
 
   const pseudoOf = new Map(profiles.map((p) => [str(p.id), str(p.pseudo)]));
   const authOf = new Map(authUsers.map((u) => [u.id, u]));
@@ -63,6 +69,9 @@ export async function loadAdminData(me: { id: string; pseudo: string }): Promise
         createdAt: str(p.created_at),
         lastSignIn: auth?.last_sign_in_at ?? "",
         games: gamesBy.get(id) ?? 0,
+        parties: typeof playStats.get(id)?.parties === "number" ? (playStats.get(id)!.parties as number) : 0,
+        dernierePartie: str(playStats.get(id)?.derniere),
+        dernierJeu: str(playStats.get(id)?.dernier_jeu),
       };
     }),
     games: games.map((g) => ({

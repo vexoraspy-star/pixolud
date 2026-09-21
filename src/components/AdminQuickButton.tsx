@@ -77,6 +77,16 @@ function jour(iso: string) {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
 }
 
+/** Date ET heure : « 21 sept. à 14:32 », ou « — ». */
+function heure(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const meme = d.toDateString() === new Date().toDateString();
+  const h = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return meme ? `aujourd'hui à ${h}` : `${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} à ${h}`;
+}
+
 function makePassword() {
   const words = ["pixel", "cube", "fusee", "dragon", "etoile", "robot", "comete", "tigre", "vague", "orage", "lynx", "nova"];
   const pick = () => words[Math.floor(Math.random() * words.length)];
@@ -844,6 +854,10 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
           </p>
           <p className="text-[10px] text-zinc-400">
             Inscrit le {jour(u.createdAt)} · vu {jour(u.lastSignIn)}
+          </p>
+          <p className="text-[10px] text-zinc-300">
+            🎮 {u.parties} partie{u.parties > 1 ? "s" : ""}
+            {u.dernierePartie ? ` · dernière : ${u.dernierJeu || "?"}, ${heure(u.dernierePartie)}` : " · jamais joué"}
           </p>
         </div>
         <button

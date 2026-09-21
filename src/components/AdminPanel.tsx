@@ -36,6 +36,12 @@ export interface AdminUser {
   createdAt: string;
   lastSignIn: string;
   games: number;
+  /** Parties jouees (0 tant que add_historique_parties.sql n'est pas lance). */
+  parties: number;
+  /** Date ISO de la derniere partie, vide si aucune. */
+  dernierePartie: string;
+  /** Titre du dernier jeu lance. */
+  dernierJeu: string;
 }
 
 export interface AdminData {
@@ -381,6 +387,10 @@ function UserActions({ u, me, act, pending }: { u: AdminUser; me: string } & Act
         </div>
         <p className="text-xs text-[var(--portal-muted)]">
           Dernière connexion : {date(u.lastSignIn, true)} · e-mail {u.emailConfirmed ? "confirmé" : "non confirmé"}
+        </p>
+        <p className="text-xs text-[var(--portal-muted)]">
+          🎮 {u.parties} partie{u.parties > 1 ? "s" : ""} jouée{u.parties > 1 ? "s" : ""}
+          {u.dernierePartie ? ` · dernière : ${u.dernierJeu || "?"}, le ${date(u.dernierePartie, true)}` : " · n'a encore jamais joué"}
         </p>
       </section>
 
