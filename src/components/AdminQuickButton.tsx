@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import ScreamerGallery from "./ScreamerGallery";
 import {
   banUser,
   confirmEmail,
@@ -672,6 +673,7 @@ function AnnounceView({ me, act, pending }: { me: string | null } & ActProps) {
           </button>
         </div>
       </div>
+      <ScreamerGallery />
     </div>
   );
 }
