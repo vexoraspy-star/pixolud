@@ -1,3 +1,13 @@
+import type { Metadata } from "next";
+
+// Page de service : utile une fois connecte, sans interet dans un moteur
+// de recherche. `index: false` evite qu'elle sorte a la place du catalogue.
+export const metadata: Metadata = {
+  title: "Mot de passe oublié — Pixolud",
+  description: "Recevoir un lien pour choisir un nouveau mot de passe.",
+  robots: { index: false, follow: true },
+};
+
 import Link from "next/link";
 import AuthCard from "@/components/AuthCard";
 import { translate } from "@/lib/i18n";

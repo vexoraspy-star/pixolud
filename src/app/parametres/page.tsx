@@ -1,3 +1,13 @@
+import type { Metadata } from "next";
+
+// Page de service : utile une fois connecte, sans interet dans un moteur
+// de recherche. `index: false` evite qu'elle sorte a la place du catalogue.
+export const metadata: Metadata = {
+  title: "Paramètres du compte — Pixolud",
+  description: "Photo, cadre, micro et donnees personnelles.",
+  robots: { index: false, follow: true },
+};
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/app/connexion/actions";

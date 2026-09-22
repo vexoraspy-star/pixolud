@@ -1,3 +1,13 @@
+import type { Metadata } from "next";
+
+// Page de service : utile une fois connecte, sans interet dans un moteur
+// de recherche. `index: false` evite qu'elle sorte a la place du catalogue.
+export const metadata: Metadata = {
+  title: "Mon atelier — Pixolud",
+  description: "Tes jeux en cours et tes brouillons.",
+  robots: { index: false, follow: true },
+};
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -43,6 +53,9 @@ export default async function EditeurPage() {
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
           Ton atelier de création
         </h1>
+        <Link href="/game-script" className="rounded-full bg-gradient-to-r from-zinc-700 to-violet-700 px-4 py-2 text-sm font-bold text-white hover:opacity-90">
+          ⌨️ Mode Game Script
+        </Link>
         <div className="editor-create">
           {NEW_GAME_BUTTONS.map((b) => (
             <form key={b.type} action={createDraft}>

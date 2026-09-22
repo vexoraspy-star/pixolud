@@ -336,3 +336,23 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 .script-trop { color: #d9534f; font-weight: 700; }
 .script-limite { padding: 8px 10px; border-radius: 10px; background: var(--portal-accent-soft); color: var(--portal-ink); font-size: 11px; line-height: 1.7; }
 .script-limite a { color: var(--portal-accent); font-weight: 600; }
+
+/* -------------------------------------------- mode Game Script (page) -- */
+/* La barre reste visible pendant qu'on parcourt la liste : le bouton
+   « Creer mon jeu » ne doit jamais etre a remonter chercher. */
+.script-bar { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 26px; padding: 14px 18px; border: 1px solid var(--portal-line); border-radius: 16px; background: var(--portal-surface); box-shadow: 0 10px 30px #00000022; }
+.script-bar-note { font-size: 11px; color: var(--portal-muted); }
+.script-mine { margin-inline-start: auto; font-size: 11px; }
+.script-mine summary { cursor: pointer; color: var(--portal-accent); font-weight: 600; }
+.script-mine ul { margin-top: 6px; display: grid; gap: 4px; }
+.script-mine a:hover { text-decoration: underline; }
+.script-demo { margin-top: 18px; border: 1px solid var(--portal-line); border-radius: 18px; background: var(--portal-surface); overflow: hidden; }
+.script-demo-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--portal-line); }
+.script-demo-tabs button { min-height: 34px; padding: 0 14px; border-radius: 10px; background: var(--portal-soft); color: var(--portal-muted); font-size: 12px; font-weight: 700; }
+.script-demo-tabs button[aria-pressed=true] { background: var(--portal-accent); color: #fff; }
+.script-demo-body { display: grid; gap: 14px; padding: 14px; }
+.script-demo-stage { max-width: 560px; margin-inline: auto; width: 100%; }
+.script-demo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.script-demo-note { font-size: 11px; color: var(--portal-muted); }
+.script-demo-code { max-height: 320px; overflow: auto; padding: 14px; border-radius: 12px; background: #0c1020; color: #dfe6f5; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+@media (max-width: 720px) { .script-bar { position: static; } .script-mine { margin-inline-start: 0; } }

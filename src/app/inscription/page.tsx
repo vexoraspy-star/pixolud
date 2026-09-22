@@ -1,3 +1,13 @@
+import type { Metadata } from "next";
+
+// Page de service : utile une fois connecte, sans interet dans un moteur
+// de recherche. `index: false` evite qu'elle sorte a la place du catalogue.
+export const metadata: Metadata = {
+  title: "Créer un compte — Pixolud",
+  description: "Crée ton compte Pixolud pour publier tes jeux.",
+  robots: { index: false, follow: true },
+};
+
 import Link from "next/link";
 import AuthCard from "@/components/AuthCard";
 import { translate } from "@/lib/i18n";
