@@ -491,6 +491,13 @@ function Party({
           <strong>{party.nom}</strong>
           <em>{membres.length} membre{membres.length > 1 ? "s" : ""}{party.jeSuisChef ? " · tu es le chef" : ""}</em>
         </span>
+        <Link
+          href={`/pixocall?salon=${party.id.slice(0, 8).toUpperCase()}`}
+          title="Ouvrir un salon vocal pour la party"
+          className="friends-dock-call"
+        >
+          🎙️ Vocal
+        </Link>
         <button
           type="button"
           disabled={pending}

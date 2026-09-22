@@ -64,6 +64,13 @@ export default function MobileMenu({
               {t("nav.multiplayer")}
             </Link>
             <Link
+              href="/pixocall"
+              onClick={() => setOpen(false)}
+              className="rounded-lg px-3 py-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              🎙️ {t("nav.pixocall")}
+            </Link>
+            <Link
               href="/editeur"
               onClick={() => setOpen(false)}
               className="rounded-lg px-3 py-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"

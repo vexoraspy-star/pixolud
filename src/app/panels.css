@@ -295,3 +295,7 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 /* Le point de presence se pose aussi sur une photo (page /amis). */
 .friend-avatar-wrap { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
 .friend-avatar-wrap > .friend-dot { position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px; border: 2px solid var(--portal-surface); }
+
+/* Le raccourci vocal, dans l'en-tete d'une party. */
+.friends-dock-call { padding: 5px 10px; border-radius: 9px; background: var(--portal-accent-soft); color: var(--portal-accent); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.friends-dock-call:hover { background: var(--portal-accent); color: #fff; }
