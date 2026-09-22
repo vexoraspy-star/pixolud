@@ -23,10 +23,12 @@ export async function generateMetadata({
   const game = await getGameBySlug(slug);
   if (!game) return {};
 
-  const title = `${game.title} — Pixolud`;
+  // Le titre porte la categorie et la promesse : c'est ce qui s'affiche dans
+  // Google, et « jeu gratuit en ligne » est ce que les gens tapent.
+  const title = `${game.title} — jeu ${game.category} gratuit en ligne | Pixolud`;
   const description =
-    game.description.trim() ||
-    `Un mini-jeu ${game.category} créé par ${game.authorPseudo} sur Pixolud.`;
+    `${game.description.trim() || `Un mini-jeu ${game.category} créé par ${game.authorPseudo}.`} ` +
+    "À jouer tout de suite dans le navigateur, gratuitement et sans installation.";
 
   return {
     title,

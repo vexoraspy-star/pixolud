@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { CATEGORIES_SEO } from "@/lib/categoriesSeo";
 import { getPublishedGames } from "@/lib/games";
 import { playableGames3D } from "@/lib/games3d";
 
@@ -15,6 +16,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/a-propos`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${SITE_URL}/pixocall`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${SITE_URL}/game-script`, changeFrequency: "weekly", priority: 0.8 },
+    // Une page par categorie : ce sont elles qui visent les recherches
+    // precises (« quiz a creer », « labyrinthe en ligne »...).
+    ...CATEGORIES_SEO.map((c) => ({
+      url: `${SITE_URL}/jeux/${c.slug}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    })),
     { url: `${SITE_URL}/premium`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${SITE_URL}/inscription`, changeFrequency: "monthly", priority: 0.5 },
     { url: `${SITE_URL}/cgu`, changeFrequency: "yearly", priority: 0.2 },

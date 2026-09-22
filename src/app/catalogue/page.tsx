@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Catalogue de mini-jeux — Pixolud",
+  title: "Mini-jeux gratuits à jouer sans installation — Pixolud",
   description:
-    "Tous les mini-jeux créés par la communauté : plateforme, puzzle, arcade, labyrinthe, quiz. Jouables tout de suite, gratuitement, sans installation.",
+    "Des mini-jeux créés par la communauté : plateforme, puzzle, arcade, labyrinthe, quiz, calcul mental. Jouables tout de suite dans le navigateur, gratuitement, sans téléchargement ni compte.",
 };
 
 import PortalHeading from "@/components/PortalHeading";
@@ -11,6 +11,7 @@ import Link from "next/link";
 import GameCard from "@/components/GameCard";
 import { getPublishedGames } from "@/lib/games";
 import { CATEGORIES } from "@/lib/types";
+import { CATEGORIES_SEO } from "@/lib/categoriesSeo";
 
 type SearchParams = Promise<{
   q?: string;
@@ -133,6 +134,27 @@ export default async function CataloguePage({
             : "Aucun jeu ne correspond à ta recherche."}
         </div>
       )}
+
+      {/* Les pages de categorie : chacune a son adresse et son texte, c'est
+          elles que les moteurs de recherche listent. Les pastilles du haut ne
+          font que filtrer cette page-ci. */}
+      <section className="mt-12 border-t border-[var(--portal-line)] pt-8">
+        <h2 className="text-lg font-bold">Explorer par type de jeu</h2>
+        <p className="mt-1 text-xs text-[var(--portal-muted)]">
+          Chaque catégorie a sa page, avec ses jeux et comment en créer un.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {CATEGORIES_SEO.map((c) => (
+            <Link
+              key={c.slug}
+              href={`/jeux/${c.slug}`}
+              className="rounded-full border border-[var(--portal-line)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--portal-accent)]"
+            >
+              {c.emoji} {c.categorie}
+            </Link>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
