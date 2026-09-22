@@ -36,7 +36,7 @@ export const TIERS: Record<
     maxPublishedGames: 3,
     bigBoards: false,
     featured: false,
-    scriptMax: 2000,
+    scriptMax: 4000,
     pitch: "Pour essayer, apprendre et publier ses premiers jeux.",
   },
   standard: {
@@ -46,7 +46,7 @@ export const TIERS: Record<
     maxPublishedGames: 15,
     bigBoards: false,
     featured: false,
-    scriptMax: 10000,
+    scriptMax: 12000,
     pitch: "Pour celui qui publie regulierement et veut un peu de place.",
   },
   max: {
@@ -56,7 +56,7 @@ export const TIERS: Record<
     maxPublishedGames: Infinity,
     bigBoards: true,
     featured: true,
-    scriptMax: 25000,
+    scriptMax: 27000,
     pitch: "Pour les gros niveaux, les jeux mis en avant, et sans compter.",
   },
   studio: {
@@ -66,7 +66,7 @@ export const TIERS: Record<
     maxPublishedGames: Infinity,
     bigBoards: true,
     featured: true,
-    scriptMax: 60000,
+    scriptMax: 62000,
     pitch: "Pour ceux qui programment de vrais jeux, longs et complets.",
   },
 };
