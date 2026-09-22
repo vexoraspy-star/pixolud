@@ -331,3 +331,8 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 .script-exemples span { font-size: 10px; color: var(--portal-muted); }
 .script-exemples li > div { flex: 1; min-width: 0; }
 @media (max-width: 720px) { .script-code { min-height: 260px; } }
+
+/* Limite de code par palier (Game Script). */
+.script-trop { color: #d9534f; font-weight: 700; }
+.script-limite { padding: 8px 10px; border-radius: 10px; background: var(--portal-accent-soft); color: var(--portal-ink); font-size: 11px; line-height: 1.7; }
+.script-limite a { color: var(--portal-accent); font-weight: 600; }

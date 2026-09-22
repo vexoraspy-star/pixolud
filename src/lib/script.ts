@@ -17,7 +17,12 @@ export interface ScriptData {
   aide: string;
 }
 
-export const SCRIPT_MAX = 20000;
+/**
+ * Plafond absolu, toutes offres confondues. La vraie limite d'une personne
+ * vient de son palier (TIERS[...].scriptMax) : un programme plus long, c'est
+ * du stockage et de la bande passante a chaque partie jouee.
+ */
+export const SCRIPT_MAX = 60000;
 export const SCRIPT_SIZES = [
   { w: 480, h: 360, label: "480 × 360 (classique)" },
   { w: 640, h: 360, label: "640 × 360 (large)" },
@@ -64,10 +69,10 @@ export function emptyScript(): ScriptData {
  * dessine quelque chose : sans `dessiner`, l'ecran reste noir et personne ne
  * comprend pourquoi.
  */
-export function isScriptPlayable(data: ScriptData): boolean {
+export function isScriptPlayable(data: ScriptData, limite = SCRIPT_MAX): boolean {
   if (!data || typeof data.code !== "string") return false;
   const code = data.code.trim();
-  if (code.length < 20 || code.length > SCRIPT_MAX) return false;
+  if (code.length < 20 || code.length > Math.min(limite, SCRIPT_MAX)) return false;
   if (!/function\s+dessiner\s*\(/.test(code)) return false;
   return (
     Number.isFinite(data.width) &&

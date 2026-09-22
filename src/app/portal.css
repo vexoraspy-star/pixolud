@@ -224,7 +224,8 @@ body.portal-shell { background: var(--portal-bg); color: var(--portal-ink); font
 .legal-page section :is(p,li) { line-height: 1.85; }
 .premium-eyebrow { color: var(--portal-accent); font-size: 10px; letter-spacing: 2px; font-weight: 700; margin-bottom: 20px; }
 .premium-page .tier-card { padding: 28px; }
-.premium-page .tier-card > p { font-size: 36px; margin-block: 18px; letter-spacing: -1px; }
+.premium-page .tier-card > .tier-price { font-size: 36px; margin-block: 18px; letter-spacing: -1px; }
+.premium-page .tier-card > .tier-pitch { font-size: 12px; line-height: 1.7; color: var(--portal-muted); margin-top: 8px; }
 .premium-page .tier-card > ul { gap: 14px; }
 .premium-page .tier-card button { min-height: 44px; border-radius: 10px; }
 .editor-workspace { padding-block: 12px 40px; }

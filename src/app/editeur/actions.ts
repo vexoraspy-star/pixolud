@@ -18,7 +18,7 @@ import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/li
 import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/education";
 import { emptyPython, isPythonPlayable, type PythonData } from "@/lib/python";
 import { emptyScript, isScriptPlayable, type ScriptData } from "@/lib/script";
-import { TIERS, type Tier } from "@/lib/tiers";
+import { scriptLimit, TIERS, tierOf, type Tier } from "@/lib/tiers";
 
 type AnyGameData =
   | MazeData
@@ -132,7 +132,7 @@ const GAME_TYPES = {
 
 type GameType = keyof typeof GAME_TYPES;
 
-function isPublishable(category: string, data: unknown): boolean {
+function isPublishable(category: string, data: unknown, tier: Tier = "studio"): boolean {
   if (category === "Labyrinthe") return isMazePlayable(data as MazeData);
   if (category === "Quiz") return isQuizPlayable(data as QuizData);
   if (category === "Puzzle") return isPuzzlePlayable(data as PuzzleData);
@@ -147,7 +147,7 @@ function isPublishable(category: string, data: unknown): boolean {
   if (category === "Devinettes") return isDevinettesPlayable(data as DevinettesData);
   if (category === "Éducation") return isEducationPlayable(data as EducationData);
   if (category === "Python") return isPythonPlayable(data as PythonData);
-  if (category === "Game Script") return isScriptPlayable(data as ScriptData);
+  if (category === "Game Script") return isScriptPlayable(data as ScriptData, scriptLimit(tier));
   return false;
 }
 
@@ -246,6 +246,22 @@ export async function saveGame(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false as const };
 
+  // Game Script : la longueur du programme depend du palier. Verifie ici, et
+  // pas seulement dans l'editeur — une action serveur est une adresse que
+  // n'importe qui peut appeler.
+  const { data: jeu } = await supabase.from("games").select("category").eq("id", gameId).maybeSingle();
+  if (jeu?.category === "Game Script") {
+    const { data: profil } = await supabase.from("profiles").select("tier").eq("id", user.id).maybeSingle();
+    const limite = scriptLimit(tierOf(profil?.tier));
+    const code = String((values.data as { code?: unknown })?.code ?? "");
+    if (code.length > limite) {
+      return {
+        ok: false as const,
+        message: `Ton palier permet ${limite.toLocaleString("fr-FR")} caractères de code. Passe à un palier supérieur pour écrire plus long.`,
+      };
+    }
+  }
+
   const { error } = await supabase
     .from("games")
     .update({
@@ -281,7 +297,16 @@ export async function publishGame(formData: FormData) {
     .eq("author_id", user.id)
     .maybeSingle<{ data: AnyGameData; slug: string; category: string }>();
 
-  if (!game || !isPublishable(game.category, game.data)) {
+  // Le palier est lu AVANT la porte de publication : pour un jeu Game Script,
+  // c'est lui qui fixe la longueur de code autorisee.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("tier")
+    .eq("id", user.id)
+    .single();
+  const tier = tierOf(profile?.tier);
+
+  if (!game || !isPublishable(game.category, game.data, tier)) {
     redirect(
       `/editeur/${gameId}?error=${encodeURIComponent(
         PUBLISH_ERROR_MESSAGES[game?.category ?? ""] ??
@@ -289,13 +314,6 @@ export async function publishGame(formData: FormData) {
       )}`,
     );
   }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tier")
-    .eq("id", user.id)
-    .single();
-  const tier = (profile?.tier as Tier) ?? "free";
 
   const { count: alreadyPublished } = await supabase
     .from("games")

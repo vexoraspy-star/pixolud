@@ -34,6 +34,8 @@ export const FRAMES: Frame[] = [
   { id: "neon", label: "Néon", couleurs: ["#22d3ee", "#a3e635"], anime: true, minTier: "standard" },
   { id: "diamant", label: "Diamant", couleurs: ["#e0f2fe", "#818cf8"], anime: true, minTier: "max" },
   { id: "couronne", label: "Couronne", couleurs: ["#fde68a", "#f43f5e"], anime: true, minTier: "max" },
+  { id: "aurore", label: "Aurore", couleurs: ["#34d399", "#a78bfa"], anime: true, minTier: "studio" },
+  { id: "eclipse", label: "Éclipse", couleurs: ["#f97316", "#0f172a"], anime: true, minTier: "studio" },
 ];
 
 export function frameById(id: string | null | undefined): Frame {

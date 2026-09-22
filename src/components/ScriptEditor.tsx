@@ -10,11 +10,11 @@ import {
   API_DOC,
   EXEMPLE_DEFAUT,
   isScriptPlayable,
-  SCRIPT_MAX,
   SCRIPT_SIZES,
   verifierCode,
   type ScriptData,
 } from "@/lib/script";
+import { scriptLimit, TIERS } from "@/lib/tiers";
 import { EXEMPLES } from "@/lib/scriptExemples";
 
 /**
@@ -89,6 +89,10 @@ export default function ScriptEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, description, data, gradient, emoji, coverUrl]);
 
+  // La longueur autorisee depend du palier : c'est la seule chose que
+  // l'abonnement change dans cet editeur.
+  const limite = scriptLimit(tier);
+  const trop = data.code.length > limite;
   const souci = verifierCode(data.code);
 
   function lancer() {
@@ -105,7 +109,7 @@ export default function ScriptEditor({
     setJournal((j) => [...j.slice(-40), `⚠️ ${texte}`]);
   }, []);
 
-  const jouable = isScriptPlayable(data) && !souci;
+  const jouable = isScriptPlayable(data, limite) && !souci;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
@@ -144,13 +148,13 @@ export default function ScriptEditor({
         <section className="script-panel">
           <header className="script-panel-head">
             <h2>Ton programme</h2>
-            <span>
-              {data.code.length} / {SCRIPT_MAX}
+            <span className={trop ? "script-trop" : undefined}>
+              {data.code.length.toLocaleString("fr-FR")} / {limite.toLocaleString("fr-FR")}
             </span>
           </header>
           <textarea
             value={data.code}
-            onChange={(e) => setData((d) => ({ ...d, code: e.target.value.slice(0, SCRIPT_MAX) }))}
+            onChange={(e) => setData((d) => ({ ...d, code: e.target.value.slice(0, limite) }))}
             onKeyDown={(e) => {
               if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                 e.preventDefault();
@@ -189,6 +193,22 @@ export default function ScriptEditor({
             </button>
           </div>
           {souci && <p className="script-souci">{souci}</p>}
+          {data.code.length > limite * 0.85 && (
+            <p className="script-limite">
+              {trop ? "Ton code dépasse la limite de ton palier." : "Tu approches de la limite de ton palier."}{" "}
+              {tier === "studio" ? (
+                <>C&apos;est le maximum du site : découpe ton jeu en plusieurs parties.</>
+              ) : (
+                <>
+                  Le palier {TIERS[tier].label} donne {limite.toLocaleString("fr-FR")} caractères.{" "}
+                  <Link href="/premium" className="underline">
+                    Voir les paliers
+                  </Link>{" "}
+                  pour écrire des jeux plus longs.
+                </>
+              )}
+            </p>
+          )}
         </section>
 
         {/* --- L'apercu et la console --- */}

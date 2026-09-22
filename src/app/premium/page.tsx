@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { TIERS, type Tier } from "@/lib/tiers";
+import { TIERS, TIER_ORDER, type Tier } from "@/lib/tiers";
 import { activateTier } from "./actions";
 
 export default async function PremiumPage({
@@ -53,13 +53,13 @@ export default async function PremiumPage({
       <div className="mt-10 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
         {isAdmin
           ? "🚧 Paiement réel pas encore disponible — en tant qu'admin, tu peux activer un palier gratuitement pour tester les avantages."
-          : "🚧 Le paiement réel arrive bientôt. Les paliers Standard et Max ne sont pas encore activables."}
+          : "🚧 Le paiement réel arrive bientôt : les paliers payants ne sont pas encore activables."}
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
-        <TierCard tier="free" current={currentTier === "free"} isAdmin={isAdmin} />
-        <TierCard tier="standard" current={currentTier === "standard"} isAdmin={isAdmin} />
-        <TierCard tier="max" current={currentTier === "max"} isAdmin={isAdmin} />
+        {TIER_ORDER.map((t) => (
+          <TierCard key={t} tier={t} current={currentTier === t} isAdmin={isAdmin} />
+        ))}
       </div>
 
       {!user && (
@@ -86,23 +86,24 @@ function TierCard({
   const config = TIERS[tier];
   const locked = tier !== "free" && !isAdmin && !current;
 
-  const features: string[] = [];
+  // Les avantages sont deduits des reglages du palier : impossible d'afficher
+  // une promesse que le code ne tient pas.
+  const features: string[] = [
+    config.maxPublishedGames === Infinity
+      ? "Jeux publiés illimités"
+      : `${config.maxPublishedGames} jeux publiés`,
+    `Game Script : ${config.scriptMax.toLocaleString("fr-FR")} caractères de code par jeu`,
+  ];
   if (tier === "free") {
-    features.push(`${config.maxPublishedGames} jeux publiés max`);
-    features.push("Toutes les fonctionnalités de base");
+    features.push("Toutes les catégories de jeux, sans exception");
+    features.push("Amis, party, PixoCall et favoris");
   } else {
-    features.push(
-      config.maxPublishedGames === Infinity
-        ? "Jeux publiés illimités"
-        : `${config.maxPublishedGames} jeux publiés max`,
-    );
     features.push(`Badge ${config.badge} sur ton profil et tes jeux`);
-    features.push("Vignettes et couleurs exclusives");
-    if (tier === "max") {
-      features.push("Niveaux plus grands (labyrinthe, plateforme, parcours)");
-      features.push("Jeux mis en avant dans le catalogue");
-    }
+    features.push("Vignettes, couleurs et cadres exclusifs");
   }
+  if (config.bigBoards) features.push("Grands niveaux (labyrinthe, plateforme, parcours)");
+  if (config.featured) features.push("Jeux mis en avant dans le catalogue");
+  if (tier === "studio") features.push("Cadres et vignettes réservés au palier Studio");
 
   return (
     <div
@@ -116,7 +117,8 @@ function TierCard({
         {config.badge ? `${config.badge} ` : ""}
         {config.label}
       </h2>
-      <p className="mt-1 text-2xl font-extrabold text-zinc-900 dark:text-white">
+      <p className="tier-pitch mt-1 text-xs text-zinc-500 dark:text-zinc-400">{config.pitch}</p>
+      <p className="tier-price mt-2 text-2xl font-extrabold text-zinc-900 dark:text-white">
         {config.price === 0 ? "0€" : `${config.price.toFixed(2)}€`}
         <span className="text-sm font-normal text-zinc-400">
           {config.price > 0 ? " / mois" : ""}

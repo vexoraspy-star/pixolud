@@ -69,7 +69,7 @@ const NAV: { id: View; icon: string; label: string }[] = [
   { id: "journal", icon: "📜", label: "Journal" },
 ];
 
-const TIERS: Record<string, string> = { free: "Gratuit", standard: "Standard", max: "Max" };
+const TIERS: Record<string, string> = { free: "Gratuit", standard: "Standard", max: "Max", studio: "Studio" };
 
 function initials(name: string) {
   return name.slice(0, 2).toUpperCase();
@@ -1134,7 +1134,7 @@ function PlayerCard({ u, me, act, pending }: { u: AdminUser; me: string } & ActP
 
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Palier</span>
-        {(["free", "standard", "max"] as const).map((t) => (
+        {(["free", "standard", "max", "studio"] as const).map((t) => (
           <button
             key={t}
             type="button"

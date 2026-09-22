@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHEAT_COOKIE, CHEAT_GAMES, currentAdmin } from "@/lib/admin";
 import { estScreamer, screamerById } from "@/lib/screamers";
+import { TIERS, type Tier } from "@/lib/tiers";
 import type { AdminData } from "@/components/AdminPanel";
 import { loadAdminData } from "./data";
 
@@ -115,10 +116,11 @@ export async function renameUser(id: string, newPseudo: string): Promise<AdminRe
 
 export async function setTier(id: string, tier: string): Promise<AdminResult> {
   return run("palier", id, async ({ db }) => {
-    if (!["free", "standard", "max"].includes(tier)) throw new AdminError("Palier invalide.");
+    if (!["free", "standard", "max", "studio"].includes(tier)) throw new AdminError("Palier invalide.");
     const p = await profileOf(db, id);
     await updateProfile(db, id, { tier });
-    return `${p.pseudo} passe au palier ${tier === "free" ? "Gratuit" : tier === "standard" ? "Standard" : "Max"}.`;
+    const nom = TIERS[tier as Tier]?.label ?? tier;
+    return `${p.pseudo} passe au palier ${nom}.`;
   });
 }
 

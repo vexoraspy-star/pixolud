@@ -72,7 +72,7 @@ export interface AdminData {
 
 type Tab = "tableau" | "joueurs" | "creer" | "jeux" | "commentaires" | "signalements" | "triches" | "journal";
 
-const TIER_LABEL: Record<string, string> = { free: "Gratuit", standard: "Standard", max: "Max" };
+const TIER_LABEL: Record<string, string> = { free: "Gratuit", standard: "Standard", max: "Max", studio: "Studio" };
 
 function date(iso: string, withTime = false) {
   if (!iso) return "—";
