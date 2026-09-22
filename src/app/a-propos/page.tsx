@@ -140,7 +140,35 @@ export default async function AProposPage() {
           <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">
             La section <Link href="/multijoueur" className="text-[var(--portal-accent)] underline">Multijoueur</Link> propose
             des parties rapides contre d&apos;autres joueurs : conquête de territoire, éclatement de bulles, échecs, chasse au
-            trésor. Tout passe par un code de salon, sans installation.
+            trésor. Tout passe par un code de salon, sans installation : tu crées le salon, tu envoies le code à tes amis,
+            et vous jouez. N&apos;importe quel jeu de la communauté peut aussi devenir une partie partagée, quand son auteur
+            a activé le mode à plusieurs.
+          </p>
+          <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">
+            Tu peux ajouter des amis par leur pseudo depuis la page{" "}
+            <Link href="/amis" className="text-[var(--portal-accent)] underline">Mes amis</Link>, ou depuis le bouton
+            « Amis » qui reste affiché dans le coin de l&apos;écran : la discussion s&apos;ouvre par-dessus le site, donc tu
+            peux parler sans quitter ta partie. Un point vert indique qui est connecté en ce moment. Une{" "}
+            <b>party</b> va plus loin : c&apos;est un salon de groupe, avec un chef — celui qui la crée — qui invite, renomme
+            et exclut. Tout le monde y discute, même si chacun joue à un jeu différent. Et avant une partie à plusieurs, le
+            testeur de micro des <Link href="/parametres" className="text-[var(--portal-accent)] underline">paramètres</Link>{" "}
+            te dit en trois secondes si on t&apos;entend.
+          </p>
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-bold">Retrouver ce qu&apos;on aime</h2>
+          <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">
+            Le catalogue grossit vite. Une étoile sur la page d&apos;un jeu le range dans{" "}
+            <Link href="/favoris" className="text-[var(--portal-accent)] underline">tes favoris</Link>, et tu le retrouves en
+            deux clics depuis le menu de ton compte. Tu peux aussi noter les jeux sur cinq étoiles et laisser un commentaire :
+            c&apos;est ce qui fait remonter les bons jeux et ce qui donne envie aux créateurs de continuer.
+          </p>
+          <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">
+            Ton profil t&apos;appartient : photo, cadre d&apos;avatar, petite bio. Les cadres les plus voyants demandent un
+            palier, mais aucun ne donne le moindre avantage en jeu — c&apos;est de la décoration, pas de la puissance. Et si
+            tu aimes fouiller : plusieurs <b>codes secrets</b> sont cachés dans le site, à taper au clavier. Les indices sont
+            dans tes paramètres, les codes eux-mêmes, à toi de les trouver.
           </p>
         </div>
 
@@ -152,6 +180,13 @@ export default async function AProposPage() {
             clic ; l&apos;équipe peut avertir, retirer un contenu ou suspendre un compte. Les règles sont écrites simplement
             dans les <Link href="/cgu" className="text-[var(--portal-accent)] underline">conditions d&apos;utilisation</Link>,
             et un compte pour un enfant de moins de 15 ans demande l&apos;accord d&apos;un parent.
+          </p>
+          <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">
+            Le chat est modéré, mais pas stérilisé : on peut se chamailler, se traiter de nul et râler après une défaite —
+            c&apos;est un site de jeu. Ce qui ne passe pas, en revanche, ne passe jamais : les insultes qui visent l&apos;origine,
+            la religion, le handicap ou l&apos;orientation de quelqu&apos;un, les menaces qui sortent du jeu, et tout contenu
+            sexuel sont bloqués avant même d&apos;être envoyés. Les numéros de téléphone, adresses et e-mails sont
+            automatiquement masqués : personne n&apos;a besoin de tes coordonnées pour jouer avec toi.
           </p>
         </div>
 
@@ -184,6 +219,55 @@ export default async function AProposPage() {
             Une idée, un bug, une remarque ? Écris par la page{" "}
             <Link href="/signalement" className="text-[var(--portal-accent)] underline">Signaler un contenu</Link>.
           </p>
+        </div>
+      </section>
+
+      {/* --- Questions que tout le monde se pose --- */}
+      <section className="mx-auto mt-16 max-w-3xl">
+        <h2 className="text-2xl font-bold">Les questions qu&apos;on nous pose</h2>
+        <div className="mt-5 divide-y divide-[var(--portal-line)] rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)]">
+          {[
+            {
+              q: "Faut-il un compte pour jouer ?",
+              r: "Non. On peut jouer à tout le catalogue sans compte : les visiteurs apparaissent simplement sous un numéro. Le compte sert à créer des jeux, garder ses favoris, ajouter des amis et discuter.",
+            },
+            {
+              q: "Faut-il savoir programmer pour créer un jeu ?",
+              r: "Non, jamais. On choisit une catégorie, on remplit un éditeur avec des clics et du texte, et on publie. Les seuls écrans où l'on voit du code sont les tutoriels Python — et là, c'est le jeu lui-même.",
+            },
+            {
+              q: "Combien ça coûte ?",
+              r: "Rien. Jouer, créer, publier et partager sont gratuits, et aucune donnée bancaire n'est demandée. Des paliers payants existeront plus tard pour publier davantage et débloquer des habillages, mais rien n'est vendu aujourd'hui.",
+            },
+            {
+              q: "Puis-je créer un jeu en 3D ?",
+              r: "Pas encore. Les mondes 3D (Manoir maudit, Backrooms, Duel, Cubes) sont faits par l'équipe, parce qu'ils demandent du code et de l'optimisation. Les créations des joueurs sont en 2D.",
+            },
+            {
+              q: "Mon jeu n'est pas publiable, pourquoi ?",
+              r: "Chaque catégorie a une condition minimale pour être jouable : un labyrinthe doit avoir un départ, une arrivée et un chemin entre les deux ; un quiz au moins une question complète. Le message affiché dans l'éditeur dit exactement ce qu'il manque.",
+            },
+            {
+              q: "Qui voit mes brouillons ?",
+              r: "Toi seul. Un jeu reste privé jusqu'au moment où tu appuies sur Publier, et tu peux le retirer du catalogue à tout moment.",
+            },
+            {
+              q: "Sur quoi ça marche ?",
+              r: "Sur n'importe quel navigateur récent, téléphone comme ordinateur. Rien à installer ; le site peut aussi s'ajouter à l'écran d'accueil comme une application.",
+            },
+            {
+              q: "Comment signaler un problème ?",
+              r: "Chaque jeu et chaque profil a un bouton de signalement, et la page « Signaler un contenu » accepte aussi les bugs et les idées. Les signalements arrivent directement dans le panneau de l'équipe.",
+            },
+          ].map((f) => (
+            <details key={f.q} className="group p-5">
+              <summary className="cursor-pointer list-none text-sm font-bold">
+                {f.q}
+                <span aria-hidden="true" className="float-right text-[var(--portal-accent)] group-open:rotate-45 transition">+</span>
+              </summary>
+              <p className="mt-3 text-sm leading-7 text-[var(--portal-muted)]">{f.r}</p>
+            </details>
+          ))}
         </div>
       </section>
 

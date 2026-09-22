@@ -41,6 +41,66 @@ async function moi() {
   return { supabase, user };
 }
 
+export interface AmiLigne {
+  /** Identifiant de l'amitie : c'est aussi celui de la conversation. */
+  id: string;
+  userId: string;
+  pseudo: string;
+  verified: boolean;
+  avatarUrl: string | null;
+  frame: string;
+}
+
+/**
+ * Mes amis et mes demandes, pour le panneau flottant.
+ *
+ * La page /amis fait le meme travail cote serveur ; cette action existe pour
+ * que le panneau puisse se rafraichir sans recharger la page.
+ */
+export async function mesAmis(): Promise<{
+  amis: AmiLigne[];
+  recues: AmiLigne[];
+  envoyees: AmiLigne[];
+  pret: boolean;
+}> {
+  const { supabase, user } = await moi();
+  const vide = { amis: [], recues: [], envoyees: [], pret: true };
+  if (!user) return vide;
+
+  const { data: liens, error } = await supabase
+    .from("friendships")
+    .select("id, a_id, b_id, requested_by, status")
+    .order("created_at", { ascending: false });
+  if (error) return { ...vide, pret: !absent(error.message) };
+
+  const lignes = (liens ?? []) as { id: string; a_id: string; b_id: string; requested_by: string; status: string }[];
+  const autres = lignes.map((l) => (l.a_id === user.id ? l.b_id : l.a_id));
+  const { data: profils } = autres.length
+    ? await supabase.from("profiles").select("id, pseudo, verified, avatar_url, frame").in("id", autres)
+    : { data: [] };
+  const parId = new Map((profils ?? []).map((p) => [String(p.id), p]));
+
+  const amis: AmiLigne[] = [];
+  const recues: AmiLigne[] = [];
+  const envoyees: AmiLigne[] = [];
+  for (const l of lignes) {
+    const autre = parId.get(l.a_id === user.id ? l.b_id : l.a_id);
+    const ligne: AmiLigne = {
+      id: l.id,
+      userId: String(autre?.id ?? ""),
+      pseudo: String(autre?.pseudo ?? "?"),
+      verified: autre?.verified === true,
+      avatarUrl: (autre?.avatar_url as string | null) ?? null,
+      frame: String(autre?.frame ?? "aucun"),
+    };
+    if (l.status === "acceptee") amis.push(ligne);
+    else if (l.requested_by === user.id) envoyees.push(ligne);
+    else recues.push(ligne);
+  }
+  amis.sort((x, y) => x.pseudo.localeCompare(y.pseudo, "fr"));
+  return { amis, recues, envoyees, pret: true };
+}
+
 /** Chercher quelqu'un par son pseudo pour l'ajouter. */
 export async function chercherJoueurs(q: string): Promise<{ id: string; pseudo: string; verified: boolean }[]> {
   const terme = q.trim();

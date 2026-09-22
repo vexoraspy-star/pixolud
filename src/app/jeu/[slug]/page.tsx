@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getCommentsForGame, getGameBySlug } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
+import FavoriteButton from "@/components/FavoriteButton";
 import RatingWidget from "@/components/RatingWidget";
 import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
 import InvitePartyButton from "@/components/InvitePartyButton";
@@ -56,6 +57,24 @@ export default async function GamePage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Favori : mon etat, et le nombre de personnes qui l'ont mis de cote. Les
+  // deux tables peuvent manquer (fichier SQL pas encore lance) : on continue.
+  let monFavori = false;
+  let favoris = 0;
+  if (user) {
+    const { data } = await supabase
+      .from("favorites")
+      .select("game_id")
+      .eq("game_id", game.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    monFavori = Boolean(data);
+  }
+  {
+    const { data } = await supabase.from("favorite_counts").select("favoris").eq("game_id", game.id).maybeSingle();
+    favoris = Number(data?.favoris ?? 0);
+  }
 
   let myRating = 0;
   if (user) {
@@ -125,6 +144,7 @@ export default async function GamePage({
           >
             ▶ Jouer
           </Link>
+          <FavoriteButton gameId={game.id} initial={monFavori} connecte={Boolean(user)} compteur={favoris} />
         </div>
       </div>
 

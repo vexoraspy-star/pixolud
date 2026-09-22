@@ -197,3 +197,101 @@
   .header-popover { position: fixed; inset-inline: 12px; top: 80px; width: auto; max-height: calc(100dvh - 100px); }
   .language-current { display: none; }
 }
+
+/* ------------------------------------------------ avatars et cadres ---- */
+.avatar-ring { display: inline-grid; place-items: center; border-radius: 50%; flex-shrink: 0; box-sizing: border-box; }
+.avatar-photo { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--portal-soft); }
+.avatar-initiales { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; background: linear-gradient(135deg,#8b5cf6,#d946ef); color: #fff; font-weight: 800; letter-spacing: -.5px; }
+@keyframes avatar-frame-spin { to { rotate: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .avatar-ring { animation: none !important; } }
+
+/* --------------------------------------------- panneau des amis (cote) - */
+.friends-dock { position: fixed; bottom: 16px; inset-inline-end: 24px; z-index: 44; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.friends-launcher { position: relative; padding: 8px 15px; }
+.friends-emblem { background: var(--portal-accent-soft); color: var(--portal-accent); font-size: 20px; }
+.friends-badge { position: absolute; top: -4px; inset-inline-end: -4px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 9px; background: #d9534f; color: #fff; font-size: 10px; font-weight: 800; }
+.friends-panel { height: min(600px,calc(100dvh - 105px)); }
+.friends-tabs { display: flex; gap: 6px; padding: 12px 20px 0; flex-shrink: 0; }
+.friends-tabs button { flex: 1; min-height: 34px; border-radius: 10px; background: var(--portal-soft); color: var(--portal-muted); font-size: 11px; font-weight: 700; }
+.friends-tabs button[aria-pressed=true] { background: var(--portal-accent-soft); color: var(--portal-accent); }
+.friends-dock-note { margin: 12px 20px 0; padding: 9px 11px; border-radius: 10px; background: var(--portal-soft); color: var(--portal-ink); font-size: 10px; line-height: 1.7; display: flex; align-items: center; gap: 8px; }
+.friends-dock-note code { font-size: 9px; overflow-wrap: anywhere; }
+.friends-dock-note button { margin-inline-start: auto; color: var(--portal-muted); font-size: 15px; line-height: 1; }
+.friends-dock-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 20px 6px; scrollbar-width: thin; scrollbar-color: var(--portal-line) transparent; }
+.friends-dock-add input, .friends-dock-chef select { width: 100%; min-height: 36px; padding: 0 12px; border: 1px solid var(--portal-line); border-radius: 18px; background: var(--portal-bg); color: var(--portal-ink); font-size: 11px; }
+.friends-dock-add input:focus-visible, .friends-dock-chef select:focus-visible { outline: none; border-color: var(--portal-accent); }
+.friends-dock-results { margin-top: 6px; border: 1px solid var(--portal-line); border-radius: 12px; overflow: hidden; }
+.friends-dock-results li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 11px; }
+.friends-dock-results li + li { border-top: 1px solid var(--portal-line); }
+.friends-dock-results li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.friends-dock-results em, .friends-dock-empty { color: var(--portal-muted); font-style: normal; font-size: 10px; line-height: 1.8; }
+.friends-dock-results button, .friends-dock-invites button, .friends-dock-chef button, .friends-dock-leave { padding: 5px 10px; border-radius: 9px; background: var(--portal-accent); color: #fff; font-size: 10px; font-weight: 700; }
+.friends-dock-invites button.is-soft, .friends-dock-leave { background: var(--portal-soft); color: var(--portal-muted); }
+.friends-dock-section { margin-top: 16px; }
+.friends-dock-section h3 { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; font-weight: 700; margin-bottom: 8px; }
+.friends-dock-section h3 > span { color: var(--portal-muted); font-weight: 400; }
+.friends-dock-invites li { display: flex; align-items: center; gap: 7px; padding: 6px 0; font-size: 11px; }
+.friends-dock-invites strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friends-dock-list li + li { margin-top: 2px; }
+.friends-dock-list button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 11px; text-align: start; }
+.friends-dock-list button:hover { background: var(--portal-soft); }
+.friends-dock-list span { flex: 1; min-width: 0; }
+.friends-dock-list strong { display: block; font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friends-dock-list em { display: block; font-style: normal; font-size: 9px; color: var(--portal-muted); margin-top: 2px; }
+.friend-dot { width: 7px; height: 7px; border-radius: 50%; background: #7d7a88; flex-shrink: 0; }
+.friend-dot.is-online { background: #65b294; }
+.friend-verified { color: #6aa9e0; }
+.friends-dock-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 12px 16px 14px; }
+.friends-dock-chat-head { display: flex; align-items: center; gap: 9px; padding-bottom: 10px; border-bottom: 1px solid var(--portal-line); }
+.friends-dock-chat-head > span { flex: 1; min-width: 0; }
+.friends-dock-chat-head strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friends-dock-chat-head em { font-style: normal; font-size: 9px; color: var(--portal-muted); }
+.friends-dock-chat-head > button:first-child { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--portal-soft); font-size: 16px; line-height: 1; }
+.friends-dock-members { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 0; }
+.friends-dock-members li { display: flex; align-items: center; gap: 5px; padding: 4px 8px 4px 4px; border-radius: 14px; background: var(--portal-soft); font-size: 10px; }
+.friends-dock-members li > button { color: var(--portal-muted); font-size: 13px; line-height: 1; padding: 0 2px; }
+.friends-dock-members li > button:hover { color: #d9534f; }
+.friends-dock-chef { display: flex; align-items: end; gap: 8px; padding-bottom: 10px; }
+.friends-dock-chef label { flex: 1; min-width: 0; font-size: 9px; color: var(--portal-muted); }
+.friends-dock-chef select { margin-top: 4px; }
+.friends-dock-thread { flex: 1; min-height: 80px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; overscroll-behavior: contain; padding: 12px 2px; scrollbar-width: thin; scrollbar-color: var(--portal-line) transparent; }
+.friends-dock-author { display: block; font-size: 9px; opacity: .75; margin-bottom: 2px; }
+.friends-panel .pixo-footer a { color: var(--portal-accent); }
+@media (max-width: 650px) {
+  .friends-dock { inset-inline-end: 12px; bottom: 74px; }
+}
+
+/* ------------------------------------------------- codes secrets -------- */
+/* Chaque code pose son nom sur <html> : le CSS fait le reste, et l'effet
+   survit aux changements de page. */
+html[data-codes~="nuit"] { filter: brightness(.82) saturate(1.1); }
+html[data-codes~="turbo"] * { animation-duration: .45s !important; transition-duration: .12s !important; }
+html[data-codes~="arcenciel"] body { cursor: crosshair; }
+html[data-codes~="arcenciel"] body::after {
+  content: ""; position: fixed; inset: 0; z-index: 9999; pointer-events: none; mix-blend-mode: screen; opacity: .18;
+  background: conic-gradient(from 0deg, #f472b6, #fbbf24, #34d399, #22d3ee, #a78bfa, #f472b6);
+  animation: code-rainbow 8s linear infinite;
+}
+@keyframes code-rainbow { to { rotate: 360deg; } }
+html[data-codes~="gravite"] .game-card, html[data-codes~="gravite"] .portal-card { animation: code-float 3.4s ease-in-out infinite alternate; }
+html[data-codes~="gravite"] .game-card:nth-child(2n), html[data-codes~="gravite"] .portal-card:nth-child(2n) { animation-delay: -1.7s; }
+@keyframes code-float { from { translate: 0 0; } to { translate: 0 -10px; } }
+html[data-codes~="pixo"] .pixo-launcher .pixo-avatar::after,
+html[data-codes~="pixo"] .pixo-panel .pixo-avatar::after {
+  content: "\1f389"; position: absolute; translate: 10px -16px; font-size: 18px;
+}
+html[data-codes~="pixo"] .pixo-avatar { position: relative; }
+.codes-list { display: flex; flex-direction: column; gap: 6px; }
+.codes-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--portal-line); border-radius: 11px; font-size: 10px; line-height: 1.7; }
+.codes-list li.is-found { border-color: var(--portal-accent); background: var(--portal-accent-soft); }
+.codes-list span { flex: 1; min-width: 0; }
+.codes-list strong { display: block; font-size: 11px; }
+.codes-list em { font-style: normal; color: var(--portal-muted); }
+@media (prefers-reduced-motion: reduce) {
+  html[data-codes~="gravite"] .game-card, html[data-codes~="gravite"] .portal-card { animation: none; }
+  html[data-codes~="arcenciel"] body::after { animation: none; }
+}
+
+/* Le point de presence se pose aussi sur une photo (page /amis). */
+.friend-avatar-wrap { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
+.friend-avatar-wrap > .friend-dot { position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px; border: 2px solid var(--portal-surface); }

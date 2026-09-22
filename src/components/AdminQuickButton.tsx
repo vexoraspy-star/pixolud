@@ -29,6 +29,7 @@ import {
 import type { AdminData, AdminUser } from "./AdminPanel";
 import { giveCubes, giveDuel } from "@/lib/adminGive";
 import { pingPlayer, subscribeOnline, type OnlinePlayer } from "@/lib/livePresence";
+import { SCREAMERS } from "@/lib/screamers";
 
 /**
  * Bouton 🛡 flottant (admins seulement, verifie cote serveur par le layout)
@@ -38,6 +39,7 @@ import { pingPlayer, subscribeOnline, type OnlinePlayer } from "@/lib/livePresen
  */
 
 type View =
+  | "tableau"
   | "triches"
   | "give"
   | "annonce"
@@ -52,6 +54,7 @@ type View =
   | "journal";
 
 const NAV: { id: View; icon: string; label: string }[] = [
+  { id: "tableau", icon: "📊", label: "Tableau" },
   { id: "triches", icon: "🎮", label: "Triches" },
   { id: "give", icon: "🎁", label: "Give" },
   { id: "annonce", icon: "📣", label: "Annonce" },
@@ -128,7 +131,7 @@ export default function AdminQuickButton({
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<View>("triches");
+  const [view, setView] = useState<View>("tableau");
   const [data, setData] = useState<AdminData | null>(initialData);
   const [loadError, setLoadError] = useState(false);
   const [cheats, setCheats] = useState<string[]>(enabled);
@@ -342,6 +345,7 @@ export default function AdminQuickButton({
                   Impossible de charger les données : vérifie la clé secrète sur Vercel, ou ouvre le panneau complet.
                 </p>
               )}
+              {data && view === "tableau" && <DashboardView data={data} aller={setView} />}
               {view === "triches" && (
                 <CheatsView games={games} current={game?.slug ?? null} cheats={cheats} pending={pending} save={saveCheats} />
               )}
@@ -380,6 +384,112 @@ export default function AdminQuickButton({
 }
 
 type ActProps = { act: (run: () => Promise<AdminResult>) => void; pending: boolean };
+
+// ----------------------------------------------------------------- tableau
+
+/**
+ * Le tableau de bord : ce qui demande une action, en premier.
+ *
+ * L'ordre n'est pas decoratif — signalements ouverts et messages bloques
+ * d'abord, parce que ce sont les deux seules choses qui n'attendent pas. Les
+ * chiffres du site viennent ensuite, et chaque case amene a l'onglet qui
+ * permet d'agir.
+ */
+function DashboardView({ data, aller }: { data: AdminData; aller: (v: View) => void }) {
+  const signalements = data.reports.filter((r) => r.status === "ouvert").length;
+  const bloques = data.moderation.filter((m) => m.verdict === "bloquer").length;
+  const bannis = data.users.filter((u) => u.banned).length;
+  const parties = data.users.reduce((t, u) => t + u.parties, 0);
+  const publies = data.games.filter((g) => g.published).length;
+  const joue = data.games.reduce((t, g) => t + g.plays, 0);
+
+  const urgences: { label: string; valeur: number; vue: View; ton: string }[] = [
+    { label: "signalement" + (signalements > 1 ? "s" : "") + " \u00e0 traiter", valeur: signalements, vue: "signalements", ton: "border-red-400/50 bg-red-500/15 text-red-200" },
+    { label: "message" + (bloques > 1 ? "s" : "") + " bloqu\u00e9" + (bloques > 1 ? "s" : ""), valeur: bloques, vue: "moderation", ton: "border-amber-400/50 bg-amber-500/15 text-amber-200" },
+    { label: "joueur" + (bannis > 1 ? "s" : "") + " banni" + (bannis > 1 ? "s" : ""), valeur: bannis, vue: "bannis", ton: "border-zinc-400/30 bg-white/[0.06] text-zinc-200" },
+  ];
+
+  const chiffres = [
+    { label: "Joueurs", valeur: data.users.length, vue: "joueurs" as View },
+    { label: "Jeux publi\u00e9s", valeur: publies, vue: "jeux" as View },
+    { label: "Parties jou\u00e9es", valeur: joue, vue: "jeux" as View },
+    { label: "Parties enregistr\u00e9es", valeur: parties, vue: "joueurs" as View },
+    { label: "Commentaires", valeur: data.comments.length, vue: "commentaires" as View },
+    { label: "Certifi\u00e9s", valeur: data.users.filter((u) => u.verified).length, vue: "joueurs" as View },
+  ];
+
+  const derniers = [...data.users]
+    .filter((u) => u.createdAt)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 4);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-extrabold">\u00c0 regarder maintenant</h3>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          {urgences.map((u) => (
+            <button
+              key={u.label}
+              type="button"
+              onClick={() => aller(u.vue)}
+              className={`rounded-xl border p-2 text-left transition hover:brightness-125 ${u.ton}`}
+            >
+              <b className="block text-xl leading-none">{u.valeur}</b>
+              <span className="text-[10px] leading-tight">{u.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-extrabold">Le site en chiffres</h3>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          {chiffres.map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => aller(c.vue)}
+              className="rounded-xl bg-white/[0.05] p-2 text-left transition hover:bg-white/[0.09]"
+            >
+              <b className="block text-lg leading-none">{c.valeur.toLocaleString("fr-FR")}</b>
+              <span className="text-[10px] text-zinc-400">{c.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-extrabold">Derniers inscrits</h3>
+        <ul className="mt-2 space-y-1">
+          {derniers.map((u) => (
+            <li key={u.id} className="flex items-center gap-2 rounded-lg bg-white/[0.05] px-3 py-1.5 text-[11px]">
+              <span className="min-w-0 flex-1 truncate font-bold">{u.pseudo}</span>
+              <span className="text-[10px] text-zinc-400">{jour(u.createdAt)}</span>
+            </li>
+          ))}
+          {derniers.length === 0 && <li className="text-xs text-zinc-400">Personne pour l&apos;instant.</li>}
+        </ul>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-extrabold">Les plus jou\u00e9s</h3>
+        <ul className="mt-2 space-y-1">
+          {[...data.games]
+            .sort((a, b) => b.plays - a.plays)
+            .slice(0, 5)
+            .map((g, i) => (
+              <li key={g.id} className="flex items-center gap-2 rounded-lg bg-white/[0.05] px-3 py-1.5 text-[11px]">
+                <span className="w-3 text-zinc-500">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-bold">{g.title}</span>
+                <span className="text-[10px] text-zinc-400">{g.plays.toLocaleString("fr-FR")} parties</span>
+              </li>
+            ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 // ------------------------------------------------------------------ triches
 
@@ -569,6 +679,28 @@ function GiveView({
 
 // --------------------------------------------------------------- messages
 
+/**
+ * Le choix de la creature, pour un screamer.
+ *
+ * « Au hasard » est le premier choix : c'est celui qu'on veut neuf fois sur
+ * dix, et ca evite d'envoyer toujours la meme et de la rendre previsible.
+ */
+function ChoixScreamer({ valeur, onChange }: { valeur: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+      Créature du screamer
+      <select value={valeur} onChange={(e) => onChange(e.target.value)} className={`${field} mt-1`}>
+        <option value="">🎲 Au hasard</option>
+        {SCREAMERS.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** Avertir, ecrire ou faire peur : envoye cote serveur, puis « toc-toc » au joueur. */
 function NoticeButtons({
   target,
@@ -577,8 +709,11 @@ function NoticeButtons({
   act,
   pending,
 }: { target: { userId?: string; guest?: string }; pingKey: string; name: string } & ActProps) {
+  const [creature, setCreature] = useState("");
+
   function send(kind: "avertissement" | "message" | "screamer") {
-    let text = "";
+    // Pour un screamer, le « message » est l'identifiant de la creature.
+    let text = kind === "screamer" ? creature : "";
     if (kind !== "screamer") {
       const typed = window.prompt(kind === "avertissement" ? `Avertissement pour ${name} :` : `Message pour ${name} :`);
       if (!typed || !typed.trim()) return;
@@ -591,16 +726,19 @@ function NoticeButtons({
     });
   }
   return (
-    <div className="grid grid-cols-3 gap-1.5">
-      <button type="button" disabled={pending} onClick={() => send("avertissement")} className={tile}>
-        ⚠️ Avertir
-      </button>
-      <button type="button" disabled={pending} onClick={() => send("message")} className={tile}>
-        📢 Message
-      </button>
-      <button type="button" disabled={pending} onClick={() => send("screamer")} className={tile}>
-        😱 Screamer
-      </button>
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-3 gap-1.5">
+        <button type="button" disabled={pending} onClick={() => send("avertissement")} className={tile}>
+          ⚠️ Avertir
+        </button>
+        <button type="button" disabled={pending} onClick={() => send("message")} className={tile}>
+          📢 Message
+        </button>
+        <button type="button" disabled={pending} onClick={() => send("screamer")} className={tile}>
+          😱 Screamer
+        </button>
+      </div>
+      <ChoixScreamer valeur={creature} onChange={setCreature} />
     </div>
   );
 }
@@ -613,12 +751,13 @@ function NoticeButtons({
  */
 function AnnounceView({ me, act, pending }: { me: string | null } & ActProps) {
   const [texte, setTexte] = useState("");
+  const [creature, setCreature] = useState("");
   const [players, setPlayers] = useState<OnlinePlayer[]>([]);
   useEffect(() => subscribeOnline(setPlayers), []);
   const invites = players.map((p) => p.guestNum).filter((n): n is string => !!n);
 
   function tous(kind: "avertissement" | "message" | "screamer") {
-    const message = texte.trim();
+    const message = kind === "screamer" ? creature : texte.trim();
     if (kind !== "screamer" && !message) return;
     const quoi = kind === "avertissement" ? "un avertissement" : kind === "screamer" ? "un SCREAMER" : "une annonce";
     if (!window.confirm(`Envoyer ${quoi} à TOUS les joueurs du site ?`)) return;
@@ -635,7 +774,7 @@ function AnnounceView({ me, act, pending }: { me: string | null } & ActProps) {
   function surMoi(kind: "avertissement" | "message" | "screamer") {
     if (!me) return;
     act(async () => {
-      const r = await sendNotice({ userId: me }, kind, texte.trim() || "Ceci est un test.");
+      const r = await sendNotice({ userId: me }, kind, kind === "screamer" ? creature : texte.trim() || "Ceci est un test.");
       if (r.ok) pingPlayer(`u:${me}`);
       return r;
     });
@@ -668,6 +807,12 @@ function AnnounceView({ me, act, pending }: { me: string | null } & ActProps) {
           <button type="button" disabled={pending} onClick={() => tous("screamer")} className={`${tile} hover:border-red-400 hover:bg-red-500/20`}>
             😱 Screamer tous
           </button>
+        </div>
+        <div className="mt-2">
+          <ChoixScreamer valeur={creature} onChange={setCreature} />
+          <p className="mt-1 text-[10px] text-zinc-400">
+            {SCREAMERS.length} créatures. « Au hasard » en choisit une différente pour chaque envoi.
+          </p>
         </div>
       </div>
 

@@ -6,6 +6,7 @@ import "./friends.css";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeOnline, type OnlinePlayer } from "@/lib/livePresence";
+import Avatar from "./Avatar";
 import {
   accepterAmi,
   chercherJoueurs,
@@ -22,6 +23,8 @@ export interface Ami {
   userId: string;
   pseudo: string;
   verified: boolean;
+  avatarUrl?: string | null;
+  frame?: string | null;
 }
 export type Demande = Ami;
 
@@ -146,11 +149,11 @@ export default function FriendsClient({
               </ul>
             </section>
 
-            {recues.length > 0 && <section className="friends-card friend-invites"><div className="friends-section-title"><h2>Invitations</h2><span className="friend-count">{recues.length}</span></div><ul>{recues.map(d => <li key={d.id}><div className="friend-invite-name"><FriendAvatar pseudo={d.pseudo}/><strong>{d.pseudo}</strong></div><div className="friend-invite-actions"><button type="button" disabled={pending} onClick={() => agir(() => accepterAmi(d.id))} className="portal-button small">Accepter</button><button type="button" disabled={pending} onClick={() => agir(() => retirerAmi(d.id))} className="portal-button secondary small">Refuser</button></div></li>)}</ul></section>}
+            {recues.length > 0 && <section className="friends-card friend-invites"><div className="friends-section-title"><h2>Invitations</h2><span className="friend-count">{recues.length}</span></div><ul>{recues.map(d => <li key={d.id}><div className="friend-invite-name"><FriendAvatar pseudo={d.pseudo} url={d.avatarUrl} frame={d.frame}/><strong>{d.pseudo}</strong></div><div className="friend-invite-actions"><button type="button" disabled={pending} onClick={() => agir(() => accepterAmi(d.id))} className="portal-button small">Accepter</button><button type="button" disabled={pending} onClick={() => agir(() => retirerAmi(d.id))} className="portal-button secondary small">Refuser</button></div></li>)}</ul></section>}
 
             <section className="friends-card friend-list-card">
               <div className="friends-section-title"><h2>Tes conversations</h2><span className="friend-count">{amis.length}</span></div>
-              {amis.length === 0 ? <div className="friend-list-empty"><span aria-hidden="true">✧</span><p>Ta bande commence ici.</p><span>Ajoute un ami grâce à son pseudo.</span></div> : <ul className="friend-list">{amis.map(a => <li key={a.id}><button type="button" onClick={() => setActif(a)} aria-current={actif?.id === a.id ? "true" : undefined} className="friend-row"><FriendAvatar pseudo={a.pseudo} online={estEnLigne(a.userId)}/><span className="friend-row-copy"><strong>{a.pseudo} {a.verified && <span className="friend-verified" title="Compte vérifié">✓</span>}</strong><span>{estEnLigne(a.userId) ? "En ligne sur Pixolud" : "Hors ligne"}</span></span><span className="friend-row-arrow" aria-hidden="true">›</span></button></li>)}</ul>}
+              {amis.length === 0 ? <div className="friend-list-empty"><span aria-hidden="true">✧</span><p>Ta bande commence ici.</p><span>Ajoute un ami grâce à son pseudo.</span></div> : <ul className="friend-list">{amis.map(a => <li key={a.id}><button type="button" onClick={() => setActif(a)} aria-current={actif?.id === a.id ? "true" : undefined} className="friend-row"><FriendAvatar pseudo={a.pseudo} online={estEnLigne(a.userId)} url={a.avatarUrl} frame={a.frame}/><span className="friend-row-copy"><strong>{a.pseudo} {a.verified && <span className="friend-verified" title="Compte vérifié">✓</span>}</strong><span>{estEnLigne(a.userId) ? "En ligne sur Pixolud" : "Hors ligne"}</span></span><span className="friend-row-arrow" aria-hidden="true">›</span></button></li>)}</ul>}
               {envoyees.length > 0 && <p className="friend-pending">En attente de réponse : <strong>{envoyees.map(e => e.pseudo).join(", ")}</strong></p>}
             </section>
             <p className="friends-presence-note"><i className="friend-dot is-online" />Le point vert indique une présence sur le site.</p>
@@ -159,7 +162,7 @@ export default function FriendsClient({
           <section className="friend-chat" aria-label={actif ? `Discussion avec ${actif.pseudo}` : "Discussion"}>
             {actif ? <>
               <header className="friend-chat-heading">
-                <FriendAvatar pseudo={actif.pseudo} online={estEnLigne(actif.userId)}/>
+                <FriendAvatar pseudo={actif.pseudo} online={estEnLigne(actif.userId)} url={actif.avatarUrl} frame={actif.frame}/>
                 <div className="friend-chat-identity"><h2>{actif.pseudo} {actif.verified && <span className="friend-verified" title="Compte vérifié">✓</span>}</h2><p>{estEnLigne(actif.userId) ? "En ligne sur Pixolud" : "Hors ligne"}</p></div>
                 <div className="friend-chat-actions"><Link href={`/profil/${encodeURIComponent(actif.pseudo)}`}>Son profil <span aria-hidden="true">↗</span></Link><button type="button" onClick={() => { if (window.confirm(`Retirer ${actif.pseudo} de tes amis ?`)) { agir(() => retirerAmi(actif.id)); setActif(null); } }} className="friend-remove">Retirer</button></div>
               </header>
@@ -183,6 +186,13 @@ export default function FriendsClient({
   );
 }
 
-function FriendAvatar({ pseudo, online }: { pseudo: string; online?: boolean }) {
-  return <span className="friend-avatar" aria-hidden="true">{Array.from(pseudo).slice(0,2).join("").toUpperCase()}{online !== undefined && <i className={online ? "friend-dot is-online" : "friend-dot"}/>}</span>;
+function FriendAvatar({ pseudo, online, url, frame }: { pseudo: string; online?: boolean; url?: string | null; frame?: string | null }) {
+  // Avec une photo, on montre la photo dans son cadre ; sinon les initiales,
+  // comme avant. Le point de presence reste pose par-dessus.
+  return (
+    <span className="friend-avatar-wrap" aria-hidden="true">
+      {url ? <Avatar pseudo={pseudo} url={url} frame={frame} taille={40} /> : <span className="friend-avatar">{Array.from(pseudo).slice(0,2).join("").toUpperCase()}</span>}
+      {online !== undefined && <i className={online ? "friend-dot is-online" : "friend-dot"}/>}
+    </span>
+  );
 }

@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHEAT_COOKIE, CHEAT_GAMES, currentAdmin } from "@/lib/admin";
+import { estScreamer, screamerById } from "@/lib/screamers";
 import type { AdminData } from "@/components/AdminPanel";
 import { loadAdminData } from "./data";
 
@@ -289,7 +290,10 @@ export async function sendNotice(
 ): Promise<AdminResult> {
   return run(kind, target.userId ?? `invite ${target.guest}`, async ({ db, admin }) => {
     if (!["avertissement", "message", "screamer"].includes(kind)) throw new AdminError("Type invalide.");
-    const message = messageIn.trim().slice(0, 300);
+    // Pour un screamer, le « message » n'est pas un texte mais le nom de la
+    // creature : on n'accepte que celles qui existent, sinon le joueur
+    //  recevrait une creature inconnue et ne verrait rien.
+    const message = kind === "screamer" ? (estScreamer(messageIn.trim()) ? messageIn.trim() : "") : messageIn.trim().slice(0, 300);
     if (kind !== "screamer" && !message) throw new AdminError("Écris le message.");
     let who: string;
     const row: Record<string, unknown> = { kind, message, created_by: admin.id };
@@ -312,7 +316,12 @@ export async function sendNotice(
           : "Envoi impossible.",
       );
     }
-    const label = kind === "avertissement" ? "⚠️ Avertissement" : kind === "screamer" ? "😱 Screamer" : "📢 Message";
+    const label =
+      kind === "avertissement"
+        ? "⚠️ Avertissement"
+        : kind === "screamer"
+          ? `😱 ${message ? screamerById(message).name : "Screamer (au hasard)"}`
+          : "📢 Message";
     return `${label} envoyé à ${who}.`;
   });
 }
@@ -325,7 +334,7 @@ export async function sendNotice(
 export async function sendNoticeToAll(kind: string, messageIn: string, guestsIn: string[] = []): Promise<AdminResult> {
   return run(`${kind}-tous`, "tout le monde", async ({ db, admin }) => {
     if (!["avertissement", "message", "screamer"].includes(kind)) throw new AdminError("Type invalide.");
-    const message = messageIn.trim().slice(0, 300);
+    const message = kind === "screamer" ? (estScreamer(messageIn.trim()) ? messageIn.trim() : "") : messageIn.trim().slice(0, 300);
     if (kind !== "screamer" && !message) throw new AdminError("Écris le message.");
 
     const { data: profils } = await db.from("profiles").select("id");
@@ -344,7 +353,12 @@ export async function sendNoticeToAll(kind: string, messageIn: string, guestsIn:
           : "Envoi impossible.",
       );
     }
-    const label = kind === "avertissement" ? "⚠️ Avertissement" : kind === "screamer" ? "😱 Screamer" : "📢 Annonce";
+    const label =
+      kind === "avertissement"
+        ? "⚠️ Avertissement"
+        : kind === "screamer"
+          ? `😱 ${message ? screamerById(message).name : "Screamer (au hasard)"}`
+          : "📢 Annonce";
     const invites = guests.length ? ` et ${guests.length} invité${guests.length > 1 ? "s" : ""} en ligne` : "";
     return `${label} envoyé à ${profils?.length ?? 0} compte${(profils?.length ?? 0) > 1 ? "s" : ""}${invites}.`;
   });

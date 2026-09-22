@@ -5,6 +5,9 @@ import Link from "next/link";
 import { deleteMyAccount, updateProfile } from "./actions";
 import ShameBadges from "@/components/ShameBadges";
 import MicTest from "@/components/MicTest";
+import AvatarPicker from "@/components/AvatarPicker";
+import SecretCodes from "@/components/SecretCodes";
+import { TIERS, type Tier } from "@/lib/tiers";
 
 export default async function ParametresPage({
   searchParams,
@@ -22,11 +25,15 @@ export default async function ParametresPage({
     redirect("/connexion");
   }
 
+  // `select("*")` : les colonnes avatar_url/frame n'existent pas tant que le
+  // fichier SQL n'est pas lance, et une selection nommee echouerait.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("pseudo, bio")
+    .select("*")
     .eq("id", user.id)
     .single();
+  const brut = String(profile?.tier ?? "free");
+  const tier = (brut in TIERS ? brut : "free") as Tier;
 
   return (
     <div className="studio-page mx-auto max-w-lg px-4 py-16 sm:px-6">
@@ -45,6 +52,15 @@ export default async function ParametresPage({
           Bio enregistrée !
         </p>
       )}
+
+      <AvatarPicker
+        pseudo={String(profile?.pseudo ?? "?")}
+        urlActuelle={(profile?.avatar_url as string | null) ?? null}
+        frameActuel={String(profile?.frame ?? "aucun")}
+        tier={tier}
+      />
+
+      <SecretCodes />
 
       <dl className="mt-6 space-y-2 text-sm">
         <div className="flex justify-between border-b border-zinc-200 py-2 dark:border-zinc-800">

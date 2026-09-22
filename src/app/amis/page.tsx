@@ -29,7 +29,7 @@ export default async function AmisPage() {
 
   const autres = liens.map((l) => (l.a_id === user.id ? l.b_id : l.a_id));
   const { data: profils } = autres.length
-    ? await supabase.from("profiles").select("id, pseudo, verified").in("id", autres)
+    ? await supabase.from("profiles").select("*").in("id", autres)
     : { data: [] };
   const parId = new Map((profils ?? []).map((p) => [String(p.id), p]));
 
@@ -43,6 +43,8 @@ export default async function AmisPage() {
       pseudo: String(autre?.pseudo ?? "?"),
       userId: String(autre?.id ?? ""),
       verified: autre?.verified === true,
+      avatarUrl: (autre?.avatar_url as string | null) ?? null,
+      frame: String(autre?.frame ?? "aucun"),
     };
     if (l.status === "acceptee") amis.push(base);
     else if (l.requested_by === user.id) envoyees.push(base);

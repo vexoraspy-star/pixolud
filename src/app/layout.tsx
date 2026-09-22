@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import Mascot from "@/components/Mascot";
+import FriendsDock from "@/components/FriendsDock";
 import KonamiCode from "@/components/KonamiCode";
 import MusicRadio from "@/components/MusicRadio";
 import { LANGUAGE_META } from "@/lib/i18n";
@@ -82,6 +83,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <ServiceWorkerRegister />
         <KonamiCode />
         <Mascot />
+        {session?.id && <FriendsDock />}
         <MusicRadio />
         <Header />
         <SiteLive me={session?.pseudo ? { id: session.id, pseudo: session.pseudo } : null} />

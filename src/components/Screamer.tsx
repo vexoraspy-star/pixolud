@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { chooseScreamer, SCREAMERS, type ScreamerId } from "@/lib/screamers";
-import ClassicScare from "./ClassicScare";
+import { chooseScreamer, screamerById, type ScreamerId } from "@/lib/screamers";
+import { ScareArt } from "./ScareArt";
 import "./screamers.css";
 
 export default function Screamer({ onDone, variant }: { onDone: () => void; variant?: ScreamerId }) {
   const [selected] = useState<ScreamerId>(() => variant ?? chooseScreamer());
-  const creature = SCREAMERS.find(s => s.id === selected) ?? SCREAMERS[0];
+  const creature = screamerById(selected);
   const [ready, setReady] = useState(!creature.image);
   const [failed, setFailed] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -50,7 +50,7 @@ export default function Screamer({ onDone, variant }: { onDone: () => void; vari
       master.gain.exponentialRampToValueAtTime(0.24, now + 0.035);
       master.gain.exponentialRampToValueAtTime(0.001, now + 1.35);
       master.connect(limiter); limiter.connect(ctx.destination);
-      const voices = selected === "veilleur" ? [[180,52],[237,71]] : [[720,145],[913,190]];
+      const voices = creature.son.voix;
       for (const [from,to] of voices) {
         const oscillator = ctx.createOscillator();
         oscillator.type = "sawtooth";
@@ -62,13 +62,13 @@ export default function Screamer({ onDone, variant }: { onDone: () => void; vari
       const samples = buffer.getChannelData(0);
       for (let i=0; i<samples.length; i++) samples[i] = (Math.random()*2-1) * (1-i/samples.length);
       const noise = ctx.createBufferSource(); noise.buffer = buffer;
-      const filter = ctx.createBiquadFilter(); filter.type = "bandpass"; filter.frequency.value = selected === "veilleur" ? 800 : 2200;
+      const filter = ctx.createBiquadFilter(); filter.type = "bandpass"; filter.frequency.value = creature.son.bruit;
       noise.connect(filter); filter.connect(master); noise.start(now);
       void ctx.resume().catch(() => {});
     } catch { /* Le visuel reste disponible sans audio. */ }
     const timer = setTimeout(() => setFinished(true), 1900);
     return () => { clearTimeout(timer); void ctx?.close().catch(() => {}); };
-  }, [ready, finished, selected]);
+  }, [ready, finished, creature]);
 
   useEffect(() => {
     if (!finished) return;
@@ -87,7 +87,7 @@ export default function Screamer({ onDone, variant }: { onDone: () => void; vari
           {creature.image && !failed ?
             // Chargement direct du petit fichier local pour un affichage immediat.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={creature.image} width={1024} height={1024} alt="" draggable={false} onLoad={() => setReady(true)} onError={() => { setFailed(true); setReady(true); }} /> : <ClassicScare/>}
+            <img src={creature.image} width={1024} height={1024} alt="" draggable={false} onLoad={() => setReady(true)} onError={() => { setFailed(true); setReady(true); }} /> : <ScareArt id={creature.id}/>}
         </div>
       </button>
     </div>, host);

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import GameCard from "@/components/GameCard";
+import Avatar from "@/components/Avatar";
 import { getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -54,9 +55,12 @@ export default async function ProfilPage({
   return (
     <div className="studio-page mx-auto max-w-5xl px-4 py-10 sm:px-6">
       <div className="profile-banner flex items-center gap-4">
-        <div className="flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-3xl font-bold text-white">
-          {pseudo.slice(0, 2).toUpperCase()}
-        </div>
+        <Avatar
+          pseudo={String(profile?.pseudo ?? pseudo)}
+          url={(profile?.avatar_url as string | null) ?? null}
+          frame={(profile?.frame as string | null) ?? null}
+          taille={84}
+        />
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
             {badge ? `${badge} ` : ""}

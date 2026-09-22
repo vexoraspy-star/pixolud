@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Screamer from "./Screamer";
+import { estScreamer } from "@/lib/screamers";
 export { Screamer };
 import { createClient } from "@/lib/supabase/client";
 import { pollMyNotices, type Notice } from "@/app/messages/actions";
@@ -130,7 +131,11 @@ export default function SiteLive({ me }: { me: { id: string; pseudo: string } | 
   const current = queue[0] ?? null;
   const next = () => { setQueue((q) => q.slice(1)); setNoticeIndex(n => n + 1); };
   if (!current) return null;
-  if (current.kind === "screamer") return <Screamer key={noticeIndex} onDone={next} />;
+  // Pour un screamer, le message porte l'identifiant de la creature choisie
+  // par l'equipe (vide = une au hasard).
+  if (current.kind === "screamer") {
+    return <Screamer key={noticeIndex} onDone={next} variant={estScreamer(current.message) ? current.message : undefined} />;
+  }
   const warn = current.kind === "avertissement";
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true">
