@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { moderer } from "@/lib/moderation";
 
 /**
  * Amis et messages.
@@ -115,18 +117,46 @@ export async function lireMessages(friendshipId: string): Promise<ChatMessage[]>
     .reverse();
 }
 
+/**
+ * Garder une trace d'un message refuse ou signale, pour le panneau admin.
+ *
+ * Ecrit avec la cle secrete : le joueur n'a aucun acces a ce journal, et ne
+ * peut donc pas effacer ce qu'il vient d'ecrire. Si la table n'existe pas
+ * encore, on continue : la moderation doit marcher sans elle.
+ */
+async function journal(authorId: string, verdict: string, motif: string, texte: string) {
+  try {
+    await createAdminClient()
+      .from("moderation_log")
+      .insert({ author_id: authorId, endroit: "chat", verdict, motif, texte: texte.slice(0, 1000) });
+  } catch {
+    // Pas de cle secrete ou pas de table : la moderation a deja fait son
+    // travail, le journal n'est qu'un confort pour l'equipe.
+  }
+}
+
 /** Envoyer un message a un ami. */
 export async function envoyerMessage(friendshipId: string, texte: string): Promise<AmisResult> {
   const { supabase, user } = await moi();
   if (!user) return { ok: false, message: "Connecte-toi d'abord." };
-  const propre = texte.trim().slice(0, 1000);
-  if (!propre) return { ok: false, message: "Écris quelque chose." };
+  const brut = texte.trim().slice(0, 1000);
+  if (!brut) return { ok: false, message: "Écris quelque chose." };
   if (!UUID_RE.test(friendshipId)) return { ok: false, message: "Conversation introuvable." };
+
+  // Moderation : ferme sur ce qui blesse, permissive sur le reste (le detail
+  // est dans src/lib/moderation.ts). Un message bloque ne part pas du tout.
+  const avis = moderer(brut);
+  if (avis.verdict !== "ok") await journal(user.id, avis.verdict, avis.motif, brut);
+  if (avis.verdict === "bloquer") return { ok: false, message: avis.message };
+  const propre = avis.texte;
+
   const { error } = await supabase.from("messages").insert({ friendship_id: friendshipId, sender_id: user.id, text: propre });
   if (error) {
     if (absent(error.message)) return { ok: false, message: MANQUE };
     if (/row-level security/i.test(error.message)) return { ok: false, message: "Vous n'êtes plus amis." };
     return { ok: false, message: "Message non envoyé." };
   }
-  return { ok: true, message: "" };
+  // `avis.message` est vide quand tout va bien, et porte le rappel quand on a
+  // masque des coordonnees ou signale un debordement.
+  return { ok: true, message: avis.message };
 }

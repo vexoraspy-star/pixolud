@@ -65,6 +65,8 @@ export interface AdminData {
     reporter: string;
   }[];
   log: { id: string; action: string; details: string; createdAt: string; admin: string }[];
+  /** Messages du chat refuses ou signales par la moderation. */
+  moderation: { id: string; verdict: string; motif: string; texte: string; createdAt: string; auteur: string }[];
   cheatGames: { slug: string; label: string; hint: string; on: boolean }[];
 }
 

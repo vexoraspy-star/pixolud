@@ -10,7 +10,7 @@ const bool = (v: unknown) => v === true;
 export async function loadAdminData(me: { id: string; pseudo: string }): Promise<AdminData> {
   const db = createAdminClient();
 
-  const [profilesRes, usersRes, gamesRes, commentsRes, reportsRes, logRes, cheats, playsRes] = await Promise.all([
+  const [profilesRes, usersRes, gamesRes, commentsRes, reportsRes, logRes, cheats, playsRes, moderationRes] = await Promise.all([
     db.from("profiles").select("*").order("created_at", { ascending: false }).limit(1000),
     db.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     db
@@ -25,6 +25,9 @@ export async function loadAdminData(me: { id: string; pseudo: string }): Promise
     // Parties jouees par joueur : absent tant que add_historique_parties.sql
     // n'est pas lance, et le panneau s'affiche quand meme.
     db.from("play_stats").select("user_id, parties, derniere, dernier_jeu"),
+    // Moderation du chat : absent tant que add_moderation_chat.sql n'est
+    // pas lance, et le panneau s'affiche quand meme.
+    db.from("moderation_log").select("*").order("created_at", { ascending: false }).limit(100),
   ]);
 
   const profiles = (profilesRes.data ?? []) as Row[];
@@ -116,6 +119,14 @@ export async function loadAdminData(me: { id: string; pseudo: string }): Promise
       details: str(l.details),
       createdAt: str(l.created_at),
       admin: pseudoOf.get(str(l.admin_id)) ?? "?",
+    })),
+    moderation: (moderationRes.error ? [] : ((moderationRes.data ?? []) as Row[])).map((m) => ({
+      id: String(m.id),
+      verdict: str(m.verdict),
+      motif: str(m.motif),
+      texte: str(m.texte),
+      createdAt: str(m.created_at),
+      auteur: pseudoOf.get(str(m.author_id)) ?? "?",
     })),
     cheatGames: CHEAT_GAMES.map((g) => ({ ...g, on: cheats.includes(g.slug) })),
   };

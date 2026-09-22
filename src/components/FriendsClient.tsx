@@ -108,6 +108,9 @@ export default function FriendsClient({
         setTexte(contenu);
         return;
       }
+      // La moderation peut laisser passer le message AVEC un rappel (par
+      // exemple un numero de telephone masque) : il faut le montrer.
+      if (r.message) setToast(r.message);
       await charger(actif.id);
       canal.current?.send({ type: "broadcast", event: "nouveau", payload: {} });
     });

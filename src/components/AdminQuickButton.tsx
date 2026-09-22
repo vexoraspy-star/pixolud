@@ -47,6 +47,7 @@ type View =
   | "bannis"
   | "jeux"
   | "commentaires"
+  | "moderation"
   | "signalements"
   | "journal";
 
@@ -60,6 +61,7 @@ const NAV: { id: View; icon: string; label: string }[] = [
   { id: "bannis", icon: "⛔", label: "Bannis" },
   { id: "jeux", icon: "🕹️", label: "Jeux" },
   { id: "commentaires", icon: "💬", label: "Commentaires" },
+  { id: "moderation", icon: "🛡️", label: "Modération" },
   { id: "signalements", icon: "🚩", label: "Signalements" },
   { id: "journal", icon: "📜", label: "Journal" },
 ];
@@ -352,6 +354,7 @@ export default function AdminQuickButton({
               {data && view === "signalements" && <ReportsView data={data} act={act} pending={pending} />}
               {data && view === "creer" && <CreateView act={act} pending={pending} />}
               {data && view === "commentaires" && <CommentsView data={data} act={act} pending={pending} />}
+              {data && view === "moderation" && <ModerationView data={data} />}
               {data && view === "journal" && <LogView data={data} />}
               {!data && !loadError && !["triches", "give", "annonce", "enligne"].includes(view) && (
                 <p className="text-xs text-zinc-400">Chargement…</p>
@@ -1160,6 +1163,62 @@ function CommentsView({ data, act, pending }: { data: AdminData } & ActProps) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// ------------------------------------------------------------- moderation
+
+const VERDICTS: Record<string, { label: string; couleur: string }> = {
+  bloquer: { label: "bloqué", couleur: "bg-red-500/25 text-red-200" },
+  masquer: { label: "masqué", couleur: "bg-amber-500/25 text-amber-200" },
+  avertir: { label: "averti", couleur: "bg-sky-500/25 text-sky-200" },
+};
+
+/**
+ * Ce que la moderation du chat a arrete. Le texte d'origine est montre tel
+ * quel : sans le lire, impossible de juger si le joueur meritait un
+ * bannissement ou juste un rappel.
+ */
+function ModerationView({ data }: { data: AdminData }) {
+  const [filtre, setFiltre] = useState("bloquer");
+  const liste = data.moderation.filter((m) => filtre === "tous" || m.verdict === filtre);
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-extrabold">Modération du chat</h3>
+      <p className="text-[10px] text-zinc-400">
+        Les insultes ordinaires passent : on ne garde que la haine, les menaces, le sexuel, les coordonnées
+        masquées et le harcèlement.
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {["bloquer", "masquer", "avertir", "tous"].map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFiltre(f)}
+            aria-pressed={filtre === f}
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${filtre === f ? "bg-violet-600" : "bg-white/10 hover:bg-white/20"}`}
+          >
+            {f === "tous" ? "Tout" : (VERDICTS[f]?.label ?? f)}
+          </button>
+        ))}
+      </div>
+      {liste.length === 0 && <p className="text-xs text-zinc-400">Rien à signaler. 🎉</p>}
+      <ul className="space-y-1.5">
+        {liste.map((m) => (
+          <li key={m.id} className="rounded-lg bg-white/[0.05] px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className={`rounded-full px-1.5 text-[9px] font-bold ${VERDICTS[m.verdict]?.couleur ?? "bg-white/10"}`}>
+                {VERDICTS[m.verdict]?.label ?? m.verdict}
+              </span>
+              <span className="text-[10px] font-bold text-zinc-300">{m.motif}</span>
+              <span className="ml-auto text-[10px] text-zinc-500">{heure(m.createdAt)}</span>
+            </div>
+            <p className="mt-1 break-words text-[11px] text-zinc-200">{m.texte}</p>
+            <p className="text-[10px] text-zinc-500">par {m.auteur}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
