@@ -15,8 +15,42 @@ export const RARITY: Record<Rarity, { label: string; color: string; glow: string
   legendaire: { label: "Légendaire", color: "#ffae3b", glow: "rgba(255,174,59,0.5)" },
 };
 
-export type SkinId = "commando" | "desert" | "arctique" | "ombre" | "neon" | "magma" | "or";
-export type CamoId = "standard" | "foret" | "desert" | "urbain" | "carbone" | "dragon" | "or";
+export type SkinId =
+  | "commando"
+  | "desert"
+  | "arctique"
+  | "ombre"
+  | "neon"
+  | "magma"
+  | "or"
+  | "jungle"
+  | "marine"
+  | "pompier"
+  | "cyber"
+  | "vaudou"
+  | "toxique"
+  | "samourai"
+  | "cosmonaute"
+  | "pirate"
+  | "arlequin"
+  | "prisme";
+export type CamoId =
+  | "standard"
+  | "foret"
+  | "desert"
+  | "urbain"
+  | "carbone"
+  | "dragon"
+  | "or"
+  | "tigre"
+  | "neige"
+  | "nuit"
+  | "corail"
+  | "circuit"
+  | "givre"
+  | "pixel"
+  | "orage"
+  | "prisme";
 
 export interface Skin {
   id: SkinId;
@@ -138,6 +172,149 @@ export const SKINS: Record<SkinId, Skin> = {
     sleeve: 0xc9a227,
     glove: 0xe8c34a,
   },
+  jungle: {
+    id: "jungle",
+    name: "Traqueur",
+    rarity: "commun",
+    price: 400,
+    tagline: "Feuilles mouillees et peinture de guerre.",
+    cloth: 0x3f5233,
+    gear: 0x22301c,
+    accent: 0x8fd14f,
+    visor: 0xc7f07a,
+    sleeve: 0x3f5233,
+    glove: 0x2b3a22,
+  },
+  marine: {
+    id: "marine",
+    name: "Abysse",
+    rarity: "commun",
+    price: 400,
+    tagline: "Bleu profond, comme trois cents metres plus bas.",
+    cloth: 0x1f3554,
+    gear: 0x12203a,
+    accent: 0x3ba7ff,
+    visor: 0x9fdcff,
+    sleeve: 0x1f3554,
+    glove: 0x2a4a72,
+  },
+  pompier: {
+    id: "pompier",
+    name: "Brasier",
+    rarity: "rare",
+    price: 900,
+    tagline: "Bandes reflechissantes et casque cabosse.",
+    cloth: 0x8f2f1c,
+    gear: 0x3a1410,
+    accent: 0xffd166,
+    visor: 0xffe9b0,
+    sleeve: 0x8f2f1c,
+    glove: 0x50201a,
+  },
+  cyber: {
+    id: "cyber",
+    name: "Cyber",
+    rarity: "rare",
+    price: 900,
+    tagline: "Plaques noires et circuits qui respirent.",
+    cloth: 0x161a26,
+    gear: 0x0b0d14,
+    accent: 0x00e5c8,
+    visor: 0x6cfff0,
+    sleeve: 0x161a26,
+    glove: 0x00e5c8,
+  },
+  vaudou: {
+    id: "vaudou",
+    name: "Vaudou",
+    rarity: "rare",
+    price: 1000,
+    tagline: "Masque de bois et plumes teintes.",
+    cloth: 0x4a2c1d,
+    gear: 0x2a1710,
+    accent: 0xe4572e,
+    visor: 0xf7c59f,
+    sleeve: 0x4a2c1d,
+    glove: 0x76432a,
+  },
+  toxique: {
+    id: "toxique",
+    name: "Toxique",
+    rarity: "epique",
+    price: 1600,
+    tagline: "Combinaison etanche, verre embue.",
+    cloth: 0x27351a,
+    gear: 0x14200d,
+    accent: 0xb6ff2f,
+    visor: 0xdcff8a,
+    sleeve: 0x27351a,
+    glove: 0xb6ff2f,
+  },
+  samourai: {
+    id: "samourai",
+    name: "Samouraï",
+    rarity: "epique",
+    price: 1700,
+    tagline: "Laque rouge, cordons noirs, masque de fer.",
+    cloth: 0x8c1c2b,
+    gear: 0x1a1013,
+    accent: 0xf2e2c4,
+    visor: 0xffd9a0,
+    sleeve: 0x8c1c2b,
+    glove: 0x33161c,
+  },
+  cosmonaute: {
+    id: "cosmonaute",
+    name: "Cosmonaute",
+    rarity: "epique",
+    price: 1800,
+    tagline: "Blanc spatial, visiere doree.",
+    cloth: 0xe8ecf1,
+    gear: 0x9aa3ad,
+    accent: 0xffc93c,
+    visor: 0xffd86b,
+    sleeve: 0xe8ecf1,
+    glove: 0xb9c2cc,
+  },
+  pirate: {
+    id: "pirate",
+    name: "Corsaire",
+    rarity: "epique",
+    price: 1800,
+    tagline: "Manteau lourd et boucle d'oreille.",
+    cloth: 0x2b2138,
+    gear: 0x140f1c,
+    accent: 0xd94f70,
+    visor: 0xffb3c6,
+    sleeve: 0x2b2138,
+    glove: 0x6b4a2a,
+  },
+  arlequin: {
+    id: "arlequin",
+    name: "Arlequin",
+    rarity: "legendaire",
+    price: 2600,
+    tagline: "Deux couleurs, aucune pitie.",
+    cloth: 0x1b1030,
+    gear: 0x3a0d4a,
+    accent: 0xff3ea5,
+    visor: 0x8cf5ff,
+    sleeve: 0x1b1030,
+    glove: 0xff3ea5,
+  },
+  prisme: {
+    id: "prisme",
+    name: "Prisme",
+    rarity: "legendaire",
+    price: 3000,
+    tagline: "La lumiere se casse dessus.",
+    cloth: 0xdfe9ff,
+    gear: 0x7a8bd0,
+    accent: 0xb06bff,
+    visor: 0x7cf7ff,
+    sleeve: 0xdfe9ff,
+    glove: 0xb06bff,
+  },
 };
 
 export const CAMOS: Record<CamoId, Camo> = {
@@ -191,10 +368,92 @@ export const CAMOS: Record<CamoId, Camo> = {
     colors: ["#ffe07a", "#e0b43a", "#b88a1c", "#8a6512"],
     goldMetal: true,
   },
+  tigre: {
+    id: "tigre",
+    name: "Tigre",
+    rarity: "commun",
+    price: 300,
+    tagline: "Rayures chaudes sur fond fauve.",
+    colors: ["#e09a3c", "#a8641d", "#3a2410", "#141008"],
+  },
+  neige: {
+    id: "neige",
+    name: "Congère",
+    rarity: "commun",
+    price: 300,
+    tagline: "Blanc sale et ombres bleues.",
+    colors: ["#eef3f7", "#c3ced8", "#8d9aa6", "#5b6873"],
+  },
+  nuit: {
+    id: "nuit",
+    name: "Minuit",
+    rarity: "rare",
+    price: 600,
+    tagline: "Bleu nuit et taches d'encre.",
+    colors: ["#2b3550", "#1a2238", "#101526", "#070a12"],
+  },
+  corail: {
+    id: "corail",
+    name: "Corail",
+    rarity: "rare",
+    price: 650,
+    tagline: "Rose vif et bleu lagon.",
+    colors: ["#ff8fab", "#f25c78", "#2ec4b6", "#0f5257"],
+  },
+  circuit: {
+    id: "circuit",
+    name: "Circuit",
+    rarity: "rare",
+    price: 700,
+    tagline: "Pistes vertes sur plaque noire.",
+    colors: ["#1b2a1f", "#0e1512", "#2fe07a", "#0b3a22"],
+  },
+  givre: {
+    id: "givre",
+    name: "Givre",
+    rarity: "epique",
+    price: 1200,
+    tagline: "Cristaux bleus qui montent le long du canon.",
+    colors: ["#dff6ff", "#9ad8f2", "#4a93c4", "#1d3f5c"],
+  },
+  pixel: {
+    id: "pixel",
+    name: "Pixel",
+    rarity: "epique",
+    price: 1300,
+    tagline: "Carres violets, comme un vieil ecran.",
+    colors: ["#c08bff", "#7a3fd6", "#3a1c66", "#150a26"],
+  },
+  orage: {
+    id: "orage",
+    name: "Orage",
+    rarity: "epique",
+    price: 1400,
+    tagline: "Gris lourd traverse d'éclairs.",
+    colors: ["#5a6472", "#39414d", "#f2e35c", "#171b21"],
+  },
+  prisme: {
+    id: "prisme",
+    name: "Prisme",
+    rarity: "legendaire",
+    price: 2200,
+    tagline: "Toutes les couleurs, selon l'angle.",
+    colors: ["#ff6ec7", "#7cf7ff", "#b06bff", "#2a1b4a"],
+  },
 };
 
-export const SKIN_ORDER: SkinId[] = ["commando", "desert", "arctique", "ombre", "neon", "magma", "or"];
-export const CAMO_ORDER: CamoId[] = ["standard", "foret", "desert", "urbain", "carbone", "dragon", "or"];
+export const SKIN_ORDER: SkinId[] = [
+  "commando", "desert", "jungle", "marine",
+  "arctique", "ombre", "pompier", "cyber", "vaudou",
+  "neon", "magma", "toxique", "samourai", "cosmonaute", "pirate",
+  "or", "arlequin", "prisme",
+];
+export const CAMO_ORDER: CamoId[] = [
+  "standard", "foret", "desert", "tigre", "neige",
+  "urbain", "carbone", "nuit", "corail", "circuit",
+  "dragon", "givre", "pixel", "orage",
+  "or", "prisme",
+];
 
 export interface DuelProfile {
   coins: number;
@@ -319,10 +578,18 @@ export function dayKey(date = new Date()): string {
   return `${date.getFullYear()}-${m}-${d}`;
 }
 
+/** Nombre d'offres du jour, en plus des deux objets a la une. */
+export const DAILY_SLOTS = 10;
+
 /**
  * La boutique du jour : deux objets a la une (un epique ou legendaire, et une
- * danse) et six offres, les memes pour tout le monde ce jour-la. Un tirage a
- * graine sur la date, sans serveur.
+ * danse) et dix offres, les memes pour tout le monde ce jour-la. Un tirage a
+ * graine sur la date, sans serveur : deux joueurs voient la meme boutique, et
+ * elle change a minuit sans que personne n'ait rien a faire.
+ *
+ * Avec une quarantaine d'objets au catalogue, douze places par jour laissent
+ * de quoi attendre : on ne voit pas tout d'un coup, et revenir le lendemain a
+ * un interet.
  */
 export function dailyShop(date = new Date()): { featured: string[]; daily: string[] } {
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
@@ -350,7 +617,7 @@ export function dailyShop(date = new Date()): { featured: string[]; daily: strin
     take((k) => k.startsWith("dance:")),
   ].filter((k): k is string => k !== null);
   const daily: string[] = [];
-  while (daily.length < 6 && pool.length > 0) {
+  while (daily.length < DAILY_SLOTS && pool.length > 0) {
     const pick = take(() => true);
     if (pick) daily.push(pick);
   }

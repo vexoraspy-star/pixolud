@@ -201,6 +201,16 @@ export function buildDuelMap(mapId: DuelMapId = "arene"): DuelMap {
 export const DUEL_MOVE_SPEED = 4.2;
 export const DUEL_PLAYER_RADIUS = 0.3;
 export const DUEL_EYE_HEIGHT = 1.55;
+/**
+ * Saut : vitesse au decollage et gravite.
+ *
+ * 5.2 m/s contre 18 m/s² donnent un saut d'environ 75 cm qui retombe en
+ * 0,6 seconde. Une gravite plus faible ferait flotter le personnage comme sur
+ * la Lune, et un saut plus haut permettrait de passer par-dessus les murs
+ * bas de certaines cartes.
+ */
+export const DUEL_JUMP_SPEED = 5.2;
+export const DUEL_GRAVITY = 18;
 export const DUEL_MAX_HP = 100;
 export const DUEL_DAMAGE = 25;
 export const DUEL_HEADSHOT_DAMAGE = 55;

@@ -16,7 +16,19 @@ import type { Rarity } from "./duelProfile";
  * sur le cote » devient : UpperArm.R, -90 degres autour de Z.
  */
 
-export type DanceId = "salut" | "robot" | "disco" | "floss" | "fiesta" | "champion";
+export type DanceId =
+  | "salut"
+  | "robot"
+  | "disco"
+  | "floss"
+  | "fiesta"
+  | "champion"
+  | "ressort"
+  | "pantin"
+  | "vague"
+  | "moonwalk"
+  | "tourbillon"
+  | "carton";
 
 export interface Dance {
   id: DanceId;
@@ -178,9 +190,149 @@ export const DANCES: Record<DanceId, Dance> = {
       rig.spin(S(phase * 0.5) * 0.6);
     },
   },
+  ressort: {
+    id: "ressort",
+    name: "Ressort",
+    rarity: "commun",
+    price: 400,
+    tagline: "Des petits bonds, les genoux souples. Impossible a arreter.",
+    loop: 1.2,
+    pose(rig, t) {
+      const phase = (t / 1.2) * TAU;
+      const hop = Math.abs(S(phase));
+      const cote = S(phase / 2);
+      rig.turn("UpperLeg.R", -hop * 0.5, 0, 0);
+      rig.turn("UpperLeg.L", -hop * 0.5, 0, 0);
+      rig.turn("LowerLeg.R", hop * 0.9, 0, 0);
+      rig.turn("LowerLeg.L", hop * 0.9, 0, 0);
+      rig.turn("UpperArm.R", -hop * 0.7, 0, -0.5);
+      rig.turn("UpperArm.L", -hop * 0.7, 0, 0.5);
+      rig.turn("Head", hop * 0.2 - 0.1, cote * 0.2, 0);
+      rig.shift(0, hop * 0.22, 0);
+    },
+  },
+  pantin: {
+    id: "pantin",
+    name: "Pantin",
+    rarity: "commun",
+    price: 450,
+    tagline: "Les bras retombent comme s'ils etaient tenus par des fils.",
+    loop: 2,
+    pose(rig, t) {
+      const p = (t % 2) / 2;
+      // Un fil tire, l'autre lache : les deux cotes sont toujours decales.
+      const tire = Math.max(0, S(p * TAU));
+      const lache = Math.max(0, -S(p * TAU));
+      rig.turn("UpperArm.R", 0, 0, -0.3 - tire * 2.2);
+      rig.turn("UpperArm.L", 0, 0, 0.3 + lache * 2.2);
+      rig.turn("LowerArm.R", -tire * 1.2, 0, 0);
+      rig.turn("LowerArm.L", -lache * 1.2, 0, 0);
+      rig.turn("Head", 0.15 - tire * 0.4, (tire - lache) * 0.35, 0);
+      rig.turn("Chest", 0, (lache - tire) * 0.2, 0);
+      rig.turn("UpperLeg.R", 0, 0, -tire * 0.25);
+      rig.turn("UpperLeg.L", 0, 0, lache * 0.25);
+      rig.shift(0, (tire + lache) * 0.05, 0);
+    },
+  },
+  vague: {
+    id: "vague",
+    name: "Vague",
+    rarity: "rare",
+    price: 700,
+    tagline: "L'onde part d'une main, traverse le corps, ressort par l'autre.",
+    loop: 2.4,
+    pose(rig, t) {
+      const phase = (t / 2.4) * TAU;
+      // Chaque os reprend la meme onde, avec un retard : c'est ce decalage
+      // qui donne l'illusion que quelque chose traverse le corps.
+      const onde = (retard: number) => S(phase - retard);
+      rig.turn("UpperArm.R", 0, 0, -1.5 - onde(0) * 0.6);
+      rig.turn("LowerArm.R", 0, 0, -onde(0.5) * 0.8);
+      rig.turn("Chest", 0, 0, onde(1) * 0.3);
+      rig.turn("Head", onde(1.3) * 0.2, 0, onde(1.3) * 0.25);
+      rig.turn("UpperArm.L", 0, 0, 1.5 + onde(2) * 0.6);
+      rig.turn("LowerArm.L", 0, 0, onde(2.4) * 0.8);
+      rig.turn("Hips", 0, 0, -onde(1) * 0.12);
+      rig.shift(onde(1) * 0.05, 0, 0);
+    },
+  },
+  moonwalk: {
+    id: "moonwalk",
+    name: "Glisse arrière",
+    rarity: "epique",
+    price: 1400,
+    tagline: "Les pieds glissent en arriere, le corps reste devant.",
+    loop: 1.6,
+    pose(rig, t) {
+      const phase = (t / 1.6) * TAU;
+      const pied = S(phase);
+      // Un pied racle le sol pendant que l'autre se souleve sur la pointe.
+      rig.turn("UpperLeg.R", -pied * 0.55, 0, 0);
+      rig.turn("LowerLeg.R", Math.max(0, pied) * 0.9, 0, 0);
+      rig.turn("UpperLeg.L", pied * 0.55, 0, 0);
+      rig.turn("LowerLeg.L", Math.max(0, -pied) * 0.9, 0, 0);
+      rig.turn("UpperArm.R", -0.2, 0, -0.75 + pied * 0.2);
+      rig.turn("UpperArm.L", -0.2, 0, 0.75 - pied * 0.2);
+      rig.turn("Chest", 0.1, 0, 0);
+      rig.turn("Head", -0.12, pied * 0.15, 0);
+      rig.shift(0, Math.abs(pied) * 0.03, pied * 0.08);
+    },
+  },
+  tourbillon: {
+    id: "tourbillon",
+    name: "Tourbillon",
+    rarity: "epique",
+    price: 1600,
+    tagline: "Bras tendus, un tour complet, et on repart.",
+    loop: 2.8,
+    pose(rig, t) {
+      const p = (t % 2.8) / 2.8;
+      const tour = p < 0.6 ? (p / 0.6) * TAU : TAU;
+      const ouvert = p < 0.6 ? 1 : 0.35;
+      rig.turn("UpperArm.R", 0, 0, -1.55 * ouvert);
+      rig.turn("UpperArm.L", 0, 0, 1.55 * ouvert);
+      rig.turn("LowerArm.R", 0, 0, -0.2);
+      rig.turn("LowerArm.L", 0, 0, 0.2);
+      rig.turn("Head", -0.1, S(p * TAU) * 0.3, 0);
+      rig.turn("Chest", 0, 0, S(p * TAU * 2) * 0.12);
+      rig.turn("UpperLeg.R", 0, 0, -0.1 * ouvert);
+      rig.turn("UpperLeg.L", 0, 0, 0.1 * ouvert);
+      rig.spin(tour);
+      rig.shift(0, p < 0.6 ? 0.03 : 0, 0);
+    },
+  },
+  carton: {
+    id: "carton",
+    name: "Carton rouge",
+    rarity: "legendaire",
+    price: 2400,
+    tagline: "Il sort le carton, le leve bien haut, et se detourne.",
+    loop: 3.2,
+    pose(rig, t) {
+      const p = (t % 3.2) / 3.2;
+      // Trois temps : on sort le carton, on le brandit, on tourne le dos.
+      const sortie = Math.min(1, p / 0.25);
+      const brandi = p > 0.25 ? Math.min(1, (p - 0.25) / 0.2) : 0;
+      const dos = p > 0.7 ? Math.min(1, (p - 0.7) / 0.25) : 0;
+      rig.turn("UpperArm.R", -0.4 * sortie - brandi * 1.1, 0, -0.3 - brandi * 1.5);
+      rig.turn("LowerArm.R", -1.3 * sortie + brandi * 0.9, 0, 0);
+      rig.turn("Wrist.R", 0, 0, -0.4 * brandi);
+      rig.turn("UpperArm.L", 0, 0, 0.35);
+      rig.turn("LowerArm.L", -0.5, 0, 0);
+      rig.turn("Head", -0.25 * brandi, 0.3 * dos, 0);
+      rig.turn("Chest", -0.1 * brandi, 0.35 * dos, 0);
+      rig.spin(dos * Math.PI * 0.9);
+      rig.shift(0, brandi * 0.04, 0);
+    },
+  },
 };
 
-export const DANCE_ORDER: DanceId[] = ["salut", "robot", "disco", "floss", "fiesta", "champion"];
+export const DANCE_ORDER: DanceId[] = [
+  "salut", "ressort", "pantin",
+  "robot", "disco", "vague",
+  "floss", "fiesta", "moonwalk", "tourbillon",
+  "champion", "carton",
+];
 
 /** Os que les choregraphies touchent : on les remet au repos a chaque image. */
 const DANCE_BONES = [

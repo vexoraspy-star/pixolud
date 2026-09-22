@@ -145,6 +145,12 @@ const DANCE_EMOJI: Record<DanceId, string> = {
   floss: "💃",
   fiesta: "🎉",
   champion: "🏆",
+  ressort: "🦘",
+  pantin: "🎭",
+  vague: "🌊",
+  moonwalk: "🌙",
+  tourbillon: "🌀",
+  carton: "🟥",
 };
 
 function ItemIcon({ itemKey }: { itemKey: string }) {

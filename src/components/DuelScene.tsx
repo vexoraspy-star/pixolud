@@ -9,6 +9,8 @@ import {
   DUEL_MOVE_SPEED,
   DUEL_PLAYER_RADIUS,
   DUEL_EYE_HEIGHT,
+  DUEL_GRAVITY,
+  DUEL_JUMP_SPEED,
   DUEL_MAX_HP,
   DUEL_RESPAWN_SECONDS,
   DUEL_BODY_RADIUS,
@@ -110,6 +112,10 @@ export interface DuelLink {
     weapon?: WeaponId;
     /** Tenue de l'adversaire : on le voit tel qu'il s'est habille. */
     skin?: SkinId;
+    /** Hauteur du saut, en metres : l'adversaire decolle vraiment du sol. */
+    jump?: number;
+    /** Danse en cours, pour que l'autre la VOIE (avant, elle restait chez soi). */
+    dance?: DanceId | null;
   } | null;
   inbox: { event: string; payload: Record<string, unknown> }[];
   send: (event: string, payload: Record<string, unknown>) => void;
@@ -1637,6 +1643,11 @@ export default function DuelScene({
     /** Accroupi (C tenu) : plus bas, plus lent, plus precis. */
     let crouching = false;
     let crouchBlend = 0;
+    // Saut : hauteur au-dessus du sol et vitesse verticale. Tout est en
+    // metres, comme le reste de la scene.
+    let jumpY = 0;
+    let jumpV = 0;
+    let jumpWasDown = false;
     /** Hauteur des yeux : elle baisse quand on s'accroupit. */
     let eyeY = DUEL_EYE_HEIGHT;
     /** Ping radar : d'ou sont partis les derniers coups de feu. */
@@ -2479,6 +2490,9 @@ export default function DuelScene({
     const SHOP_KEYS: WeaponId[] = SHOP_ORDER;
     function onKeyDown(e: KeyboardEvent) {
       keys.add(e.key.toLowerCase());
+      // Espace : sans ca, le navigateur fait defiler la page sous le jeu a
+      // chaque saut.
+      if (e.code === "Space") e.preventDefault();
       if (e.key.toLowerCase() === "r") startReload();
       // L : allumer ou eteindre le laser sans ouvrir aucun menu.
       if (e.key.toLowerCase() === "l" && !e.repeat) {
@@ -2724,6 +2738,18 @@ export default function DuelScene({
         remote.tyaw = r.yaw;
         remote.tpitch = r.pitch ?? 0;
         remote.moving = r.moving;
+        // Le saut de l'autre : sa hauteur arrive telle quelle, l'animation
+        // « en l'air » se declenche toute seule (voir f.air plus bas).
+        remote.air = Math.max(0, Number(r.jump) || 0);
+        // Sa danse : sans ca, chacun dansait dans son coin et l'autre ne
+        // voyait qu'un soldat immobile.
+        if (r.dance && DANCES[r.dance]) {
+          remote.dance = r.dance;
+          remote.danceUntil = elapsed + 1.5;
+        } else if (remote.dance) {
+          remote.dance = null;
+          remote.danceUntil = 0;
+        }
         if (r.weapon && WEAPONS[r.weapon]) remote.weapon = r.weapon;
         if (r.skin && r.skin in SKINS && r.skin !== remoteSkin) {
           remoteSkin = r.skin;
@@ -3295,9 +3321,28 @@ export default function DuelScene({
       const moving = Math.abs(fwd) > 0.03 || Math.abs(strafe) > 0.03;
       movingNow = moving;
       // C tenu : accroupi. Plus lent, plus precis, et plus dur a toucher.
-      crouching = canAct && keys.has("c");
+      crouching = canAct && keys.has("c") && jumpY <= 0.001;
       crouchBlend += ((crouching ? 1 : 0) - crouchBlend) * Math.min(1, delta * 12);
-      eyeY = DUEL_EYE_HEIGHT - crouchBlend * 0.5;
+
+      // Espace : saut. On ne saute que depuis le sol — pas d'escalier en
+      // l'air — et jamais accroupi ni en mode construction.
+      const jumpDown = canAct && (keys.has(" ") || keys.has("space"));
+      if (jumpDown && !jumpWasDown && jumpY <= 0.001 && !crouching && !buildMode) {
+        jumpV = DUEL_JUMP_SPEED;
+        playDuelStep(audio.ctx, audio.master, { gain: 0.45 });
+      }
+      jumpWasDown = jumpDown;
+      if (jumpV !== 0 || jumpY > 0) {
+        jumpV -= DUEL_GRAVITY * delta;
+        jumpY += jumpV * delta;
+        if (jumpY <= 0) {
+          // Retombee : un pas au sol, et tout repart de zero.
+          if (jumpV < -1) playDuelStep(audio.ctx, audio.master, { gain: 0.6 });
+          jumpY = 0;
+          jumpV = 0;
+        }
+      }
+      eyeY = DUEL_EYE_HEIGHT - crouchBlend * 0.5 + jumpY;
       const sprinting =
         moving && fwd > 0 && keys.has("shift") && !isZoomed && !crouching && elapsed > me.nextShotAt - 0.05;
       if (moving) {
@@ -3681,6 +3726,8 @@ export default function DuelScene({
           moving,
           weapon: me.weapon,
           skin,
+          jump: jumpY,
+          dance: myEmote,
         });
       }
 
