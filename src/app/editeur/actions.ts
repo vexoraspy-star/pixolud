@@ -17,6 +17,7 @@ import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/peti
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
 import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/education";
 import { emptyPython, isPythonPlayable, type PythonData } from "@/lib/python";
+import { emptyScript, isScriptPlayable, type ScriptData } from "@/lib/script";
 import { TIERS, type Tier } from "@/lib/tiers";
 
 type AnyGameData =
@@ -33,7 +34,8 @@ type AnyGameData =
   | PetitBacData
   | DevinettesData
   | EducationData
-  | PythonData;
+  | PythonData
+  | ScriptData;
 
 const GAME_TYPES = {
   Labyrinthe: {
@@ -120,6 +122,12 @@ const GAME_TYPES = {
     emoji: "🐍",
     emptyData: emptyPython,
   },
+  "Game Script": {
+    defaultTitle: "Nouveau jeu programmé",
+    gradient: "from-zinc-700 to-violet-900",
+    emoji: "⌨️",
+    emptyData: emptyScript,
+  },
 } as const;
 
 type GameType = keyof typeof GAME_TYPES;
@@ -139,6 +147,7 @@ function isPublishable(category: string, data: unknown): boolean {
   if (category === "Devinettes") return isDevinettesPlayable(data as DevinettesData);
   if (category === "Éducation") return isEducationPlayable(data as EducationData);
   if (category === "Python") return isPythonPlayable(data as PythonData);
+  if (category === "Game Script") return isScriptPlayable(data as ScriptData);
   return false;
 }
 
@@ -159,6 +168,8 @@ const PUBLISH_ERROR_MESSAGES: Record<string, string> = {
   Devinettes: "Ajoute au moins une devinette complète (réponse + indices) avant de publier.",
   Éducation: "Ajoute au moins une question complète avant de publier.",
   Python: "Ajoute au moins un exercice complet (consigne + sortie attendue) avant de publier.",
+  "Game Script":
+    "Il faut une fonction dessiner() et au moins quelques lignes de code avant de publier.",
 };
 
 function slugify(title: string): string {

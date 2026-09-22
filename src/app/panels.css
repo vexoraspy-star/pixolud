@@ -299,3 +299,35 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 /* Le raccourci vocal, dans l'en-tete d'une party. */
 .friends-dock-call { padding: 5px 10px; border-radius: 9px; background: var(--portal-accent-soft); color: var(--portal-accent); font-size: 10px; font-weight: 700; white-space: nowrap; }
 .friends-dock-call:hover { background: var(--portal-accent); color: #fff; }
+
+/* --------------------------------------------------- Game Script ------- */
+.script-panel { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--portal-line); border-radius: 16px; background: var(--portal-surface); }
+.script-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.script-panel-head h2 { font-size: 13px; font-weight: 700; }
+.script-panel-head > span { font-size: 10px; color: var(--portal-muted); font-variant-numeric: tabular-nums; }
+.script-code { min-height: 380px; resize: vertical; padding: 12px; border: 1px solid var(--portal-line); border-radius: 12px; background: #0c1020; color: #dfe6f5; font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.script-code:focus-visible { outline: none; border-color: var(--portal-accent); }
+.script-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.script-raccourci { margin-inline-start: 6px; opacity: .6; font-size: 10px; font-weight: 500; }
+.script-souci { padding: 8px 10px; border-radius: 10px; background: #d9534f22; color: #d9534f; font-size: 11px; line-height: 1.6; }
+.script-select { min-height: 32px; padding: 0 8px; border: 1px solid var(--portal-line); border-radius: 9px; background: var(--portal-bg); color: var(--portal-ink); font-size: 11px; }
+.script-stage { position: relative; }
+.script-frame { display: block; width: 100%; border: 0; border-radius: 12px; background: #05060a; }
+.script-bloque { margin-top: 8px; padding: 9px 11px; border-radius: 10px; background: #e0a41722; color: #e0a417; font-size: 11px; line-height: 1.6; }
+.script-console { min-height: 72px; max-height: 150px; overflow-y: auto; padding: 10px; border-radius: 10px; background: #0c1020; color: #9fd8c0; font: 11px/1.7 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.script-console-vide { color: #6b7a90; }
+.script-aide { display: block; font-size: 11px; font-weight: 600; color: var(--portal-muted); }
+.script-aide input { display: block; width: 100%; min-height: 36px; margin-top: 5px; padding: 0 10px; border: 1px solid var(--portal-line); border-radius: 10px; background: var(--portal-bg); color: var(--portal-ink); font-size: 12px; font-weight: 400; }
+.script-tabs { display: flex; gap: 8px; }
+.script-tabs button { min-height: 32px; padding: 0 12px; border-radius: 10px; background: var(--portal-soft); color: var(--portal-muted); font-size: 11px; font-weight: 700; }
+.script-tabs button[aria-pressed=true] { background: var(--portal-accent-soft); color: var(--portal-accent); }
+.script-api { display: grid; gap: 6px; }
+.script-api li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; background: var(--portal-soft); font-size: 11px; }
+.script-api code { font: 11px ui-monospace, monospace; color: var(--portal-accent); }
+.script-api span { color: var(--portal-muted); }
+.script-exemples { display: grid; gap: 8px; }
+.script-exemples li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--portal-line); border-radius: 11px; }
+.script-exemples strong { display: block; font-size: 12px; }
+.script-exemples span { font-size: 10px; color: var(--portal-muted); }
+.script-exemples li > div { flex: 1; min-width: 0; }
+@media (max-width: 720px) { .script-code { min-height: 260px; } }

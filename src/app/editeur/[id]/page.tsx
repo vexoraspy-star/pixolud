@@ -14,6 +14,7 @@ import { emptyPetitBac, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, type DevinettesData } from "@/lib/devinettes";
 import { emptyEducation, type EducationData } from "@/lib/education";
 import { emptyPython, type PythonData } from "@/lib/python";
+import { emptyScript, type ScriptData } from "@/lib/script";
 import MazeEditor from "@/components/MazeEditor";
 import QuizEditor from "@/components/QuizEditor";
 import PuzzleEditor from "@/components/PuzzleEditor";
@@ -28,6 +29,7 @@ import PetitBacEditor from "@/components/PetitBacEditor";
 import DevinettesEditor from "@/components/DevinettesEditor";
 import EducationEditor from "@/components/EducationEditor";
 import PythonEditor from "@/components/PythonEditor";
+import ScriptEditor from "@/components/ScriptEditor";
 import { type Tier } from "@/lib/tiers";
 
 type AnyData =
@@ -44,7 +46,8 @@ type AnyData =
   | PetitBacData
   | DevinettesData
   | EducationData
-  | PythonData;
+  | PythonData
+  | ScriptData;
 
 export default async function EditeurJeuPage({
   params,
@@ -204,6 +207,14 @@ export default async function EditeurJeuPage({
         ? (game.data as PythonData)
         : emptyPython();
     return <PythonEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Game Script") {
+    const data =
+      game.data && typeof game.data === "object" && "code" in game.data
+        ? (game.data as ScriptData)
+        : emptyScript();
+    return <ScriptEditor {...common} initialData={data} />;
   }
 
   const data =

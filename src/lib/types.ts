@@ -13,6 +13,7 @@ export const CATEGORIES = [
   "Devinettes",
   "Éducation",
   "Python",
+  "Game Script",
 ] as const;
 
 export type GameCategory = (typeof CATEGORIES)[number];
