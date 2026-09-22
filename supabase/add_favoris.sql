@@ -28,12 +28,8 @@ drop policy if exists "Favoris : j'enleve les miens" on public.favorites;
 create policy "Favoris : j'enleve les miens" on public.favorites
 for delete using (auth.uid() = user_id);
 
--- Le nombre de favoris par jeu, visible par tout le monde, sans dire par qui.
--- security_invoker reste desactive ici volontairement : c'est justement ce qui
--- permet de compter des lignes qu'on n'a pas le droit de lire une par une.
-create or replace view public.favorite_counts as
-select game_id, count(*)::int as favoris
-from public.favorites
-group by game_id;
-
-grant select on public.favorite_counts to anon, authenticated;
+-- Le compteur public (combien de personnes ont mis ce jeu de cote, jamais
+-- qui) vit dans une colonne de `games`, tenue a jour par un declencheur :
+-- voir supabase/compteur_favoris.sql. Une vue en SECURITY DEFINER faisait le
+-- meme travail au depart, mais elle lisait les favoris de tout le monde pour
+-- y arriver — un compteur deja calcule ne lit rien du tout.

@@ -72,7 +72,10 @@ export default async function GamePage({
     monFavori = Boolean(data);
   }
   {
-    const { data } = await supabase.from("favorite_counts").select("favoris").eq("game_id", game.id).maybeSingle();
+    // Le compteur est une colonne du jeu, tenue a jour par un declencheur
+    // (supabase/compteur_favoris.sql) : personne n'a besoin de lire les
+    // favoris des autres pour l'afficher.
+    const { data } = await supabase.from("games").select("favoris").eq("id", game.id).maybeSingle();
     favoris = Number(data?.favoris ?? 0);
   }
 
