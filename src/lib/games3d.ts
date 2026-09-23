@@ -53,6 +53,18 @@ export const GAMES_3D: Game3D[] = [
     highlights: ["3 difficultés", "Labyrinthe différent à chaque partie", "Mini-carte"],
   },
   {
+    slug: "colosses",
+    title: "Colosses",
+    description:
+      "Combat 1 contre 1 : quatre combattants, trois rounds, des directs, des coups de pied et un coup sp\u00e9cial qui retourne un match. Contre l'ordinateur ou \u00e0 deux sur le m\u00eame clavier.",
+    emoji: "\u2694\ufe0f",
+    gradient: "from-rose-900 to-slate-950",
+    genre: "Combat",
+    players: "Solo ou 2 joueurs",
+    duration: "3 \u00e0 6 min",
+    highlights: ["4 combattants, 4 coups sp\u00e9ciaux", "\u00c0 deux sur un seul clavier", "Garde, esquive et combos"],
+  },
+  {
     slug: "duel-1v1",
     title: "Duel — Arène de tir",
     description:

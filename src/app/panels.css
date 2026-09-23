@@ -356,3 +356,81 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 .script-demo-note { font-size: 11px; color: var(--portal-muted); }
 .script-demo-code { max-height: 320px; overflow: auto; padding: 14px; border-radius: 12px; background: #0c1020; color: #dfe6f5; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
 @media (max-width: 720px) { .script-bar { position: static; } .script-mine { margin-inline-start: 0; } }
+
+/* ============================================ Colosses (jeu de combat) === */
+/* Le jeu occupe tout l'ecran : ces styles ne dependent d'aucune variable du
+   portail, sinon le theme clair rendrait l'arene illisible. */
+.colosses-menu { position: absolute; inset: 0; overflow-y: auto; background: radial-gradient(circle at 50% 0%, #2a1030 0%, #0a0a14 60%); color: #f3eef8; }
+.colosses-menu-inner { max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
+.colosses-retour { display: inline-block; margin-bottom: 18px; color: #b9a8d8; font-size: 13px; }
+.colosses-retour:hover { color: #fff; }
+.colosses-titre { font-size: clamp(32px, 6vw, 54px); font-weight: 800; letter-spacing: -1.5px; line-height: 1.05; }
+.colosses-sous-titre { max-width: 620px; margin-top: 10px; color: #b7aec7; font-size: 14px; line-height: 1.8; }
+.colosses-bloc { margin-top: 28px; }
+.colosses-bloc h2 { font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #9d8fc0; margin-bottom: 12px; }
+.colosses-choix { display: flex; flex-wrap: wrap; gap: 10px; }
+.colosses-choix button { min-height: 46px; padding: 0 20px; border-radius: 12px; border: 1px solid #3c3352; background: #191330; color: #d9d1ea; font-size: 14px; font-weight: 650; }
+.colosses-choix button[aria-pressed=true] { background: linear-gradient(135deg, #7b2bd6, #d6316a); border-color: #ff8fb0; color: #fff; }
+.colosses-choix-petit { margin-top: 10px; }
+.colosses-choix-petit button { min-height: 38px; padding: 0 14px; font-size: 12.5px; }
+.colosses-note { margin-top: 10px; color: #9d93b4; font-size: 12px; line-height: 1.8; }
+.colosses-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 12px; }
+.colosses-carte { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid #38304e; border-radius: 16px; background: #14101f; }
+.colosses-carte.est-a { border-color: #5ad1ff; box-shadow: 0 0 0 1px #5ad1ff55, 0 12px 30px #5ad1ff22; }
+.colosses-carte.est-b { border-color: #ff7a9c; box-shadow: 0 0 0 1px #ff7a9c55, 0 12px 30px #ff7a9c22; }
+.colosses-carte.est-a.est-b { border-color: #c084fc; }
+.colosses-emoji { font-size: 34px; line-height: 1; }
+.colosses-carte strong { font-size: 17px; }
+.colosses-phrase { color: #a89dc0; font-size: 11.5px; line-height: 1.6; min-height: 34px; }
+.colosses-stats { display: grid; gap: 5px; margin: 4px 0; }
+.colosses-stats li { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 8px; font-size: 10px; color: #9a90b5; }
+.colosses-stats i { display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #7b2bd6, #ff7a9c); }
+.colosses-special { color: #d9c9ff; font-size: 10.5px; line-height: 1.6; min-height: 32px; }
+.colosses-prendre { display: flex; gap: 6px; margin-top: 4px; }
+.colosses-prendre button { flex: 1; min-height: 34px; border-radius: 9px; border: 1px solid #3c3352; background: #1d1733; color: #cfc6e4; font-size: 11px; font-weight: 650; }
+.colosses-prendre button:disabled { background: #2f2350; color: #fff; border-color: #7b5fd0; }
+.colosses-touches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.colosses-touches > div { padding: 14px 16px; border: 1px solid #332b48; border-radius: 14px; background: #130f20; }
+.colosses-touches h3 { font-size: 12px; font-weight: 700; color: #b9a8d8; margin-bottom: 8px; }
+.colosses-touches p { font-size: 12px; line-height: 1.9; color: #a79dc0; }
+.colosses-touches b { display: inline-block; min-width: 22px; padding: 1px 6px; margin: 0 1px; border-radius: 5px; background: #2a2142; color: #fff; text-align: center; font-size: 11px; }
+.colosses-bas { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 32px; }
+.colosses-volume { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #a79dc0; }
+.colosses-volume input { width: 130px; accent-color: #b06bff; }
+.colosses-jouer { margin-inline-start: auto; min-height: 54px; padding: 0 38px; border-radius: 14px; background: linear-gradient(135deg, #7b2bd6, #d6316a); color: #fff; font-size: 17px; font-weight: 800; letter-spacing: .5px; box-shadow: 0 10px 34px #d6316a44; }
+.colosses-jouer:hover { filter: brightness(1.1); }
+
+/* --- L'arene --- */
+.colosses-arene { position: absolute; inset: 0; background: #05060c; }
+.colosses-hud { position: absolute; inset: 14px 16px auto; display: flex; align-items: flex-start; gap: 14px; pointer-events: none; }
+.colosses-jauge { flex: 1; min-width: 0; }
+.colosses-jauge.est-droite { text-align: end; }
+.colosses-jauge-nom { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: #fff; font-size: 13px; text-shadow: 0 2px 6px #000; }
+.colosses-jauge.est-droite .colosses-jauge-nom { flex-direction: row-reverse; }
+.colosses-rounds { color: #ffd166; font-size: 11px; letter-spacing: 2px; }
+.colosses-vie { height: 16px; border: 2px solid #ffffff33; border-radius: 4px; background: #2a0d14; overflow: hidden; }
+.colosses-vie i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #46d17a); transition: width .12s linear; }
+.colosses-jauge.est-droite .colosses-vie { display: flex; justify-content: flex-end; }
+.colosses-energie { position: relative; height: 7px; margin-top: 4px; border-radius: 4px; background: #ffffff1a; overflow: hidden; }
+.colosses-energie i { display: block; height: 100%; transition: width .12s linear; }
+.colosses-jauge.est-droite .colosses-energie { display: flex; justify-content: flex-end; }
+.colosses-energie span { position: absolute; inset-inline-end: 0; top: -17px; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: #ffe066; text-shadow: 0 1px 4px #000; }
+.colosses-chrono { flex-shrink: 0; text-align: center; color: #fff; text-shadow: 0 2px 8px #000; }
+.colosses-chrono b { display: block; font-size: 34px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.colosses-chrono span { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #cbbfe0; }
+.colosses-annonce { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font-size: clamp(30px, 7vw, 68px); font-weight: 800; letter-spacing: -1px; color: #fff; text-shadow: 0 6px 30px #000, 0 0 60px #d6316a; animation: colosses-pop .35s ease-out; }
+@keyframes colosses-pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.colosses-fin { position: absolute; inset: 0; display: grid; place-items: center; background: #05060cd9; color: #fff; text-align: center; }
+.colosses-fin-titre { font-size: clamp(24px, 5vw, 44px); font-weight: 800; }
+.colosses-fin-score { margin-top: 6px; font-size: 20px; color: #cbbfe0; font-variant-numeric: tabular-nums; }
+.colosses-fin-boutons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }
+.colosses-fin-boutons button, .colosses-fin-boutons a { min-height: 46px; display: inline-flex; align-items: center; padding: 0 22px; border-radius: 12px; background: #1d1733; border: 1px solid #3c3352; color: #e7e0f4; font-size: 14px; font-weight: 650; }
+.colosses-fin-boutons button:first-child { background: linear-gradient(135deg, #7b2bd6, #d6316a); border-color: transparent; }
+.colosses-quitter { position: absolute; bottom: 14px; inset-inline-end: 16px; padding: 7px 12px; border-radius: 9px; background: #00000066; color: #cbbfe0; font-size: 11px; }
+.colosses-quitter:hover { background: #000000aa; color: #fff; }
+@media (max-width: 620px) {
+  .colosses-hud { inset: 8px 10px auto; gap: 8px; }
+  .colosses-chrono b { font-size: 24px; }
+  .colosses-vie { height: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .colosses-annonce { animation: none; } }

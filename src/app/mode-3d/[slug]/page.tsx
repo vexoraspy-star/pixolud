@@ -5,6 +5,7 @@ import HorrorGame from "@/components/HorrorGame";
 import DuelGame from "@/components/DuelGame";
 import BackroomsGame from "@/components/BackroomsGame";
 import CubesGame from "@/components/CubesGame";
+import ColossesGame from "@/components/ColossesGame";
 import Game3DFrame from "@/components/Game3DFrame";
 import { createClient } from "@/lib/supabase/server";
 import { enabledCheatGames } from "@/lib/admin";
@@ -79,6 +80,7 @@ export default async function Play3DPage({
         image={game.cover}
       />
       {slug === "cubes" && <CubesGame title={title} />}
+      {slug === "colosses" && <ColossesGame title={title} />}
       {slug === "labyrinthe-legendaire" && <LabyrintheGame title={title} />}
       {slug === "manoir-maudit" && <HorrorGame title={title} devAllowed={devAllowed} />}
       {slug === "duel-1v1" && <DuelGame title={title} devAllowed={devAllowed} />}
