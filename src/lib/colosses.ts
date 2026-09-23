@@ -95,6 +95,24 @@ export interface Colosse {
   /** Ce que fait son coup special. */
   special: "onde" | "charge" | "uppercut" | "tourbillon";
   specialTexte: string;
+  /**
+   * La silhouette. Un jeu de combat se lit de loin : on doit reconnaitre
+   * chaque personnage a sa forme, avant meme sa couleur.
+   */
+  allure: {
+    /** Carrure : multiplie la largeur des epaules et du torse. */
+    carrure: number;
+    /** Taille generale. */
+    taille: number;
+    /** Ce qu'il porte sur la tete. */
+    tete: "masque" | "capuche" | "crane" | "casque";
+    /** Cape dans le dos. */
+    cape: boolean;
+    /** Epaulieres massives. */
+    epaulieres: boolean;
+    /** Couleur du tissu (masque, capuche, ceinture, cape). */
+    tissu: number;
+  };
 }
 
 export const COLOSSES: Record<ColosseId, Colosse> = {
@@ -111,6 +129,7 @@ export const COLOSSES: Record<ColosseId, Colosse> = {
     vie: 190,
     special: "charge",
     specialTexte: "Charge d'épaule : il traverse l'arène et emporte tout.",
+    allure: { carrure: 1.28, taille: 1.08, tete: "crane", cape: false, epaulieres: true, tissu: 0x7a3b12 },
   },
   lame: {
     id: "lame",
@@ -125,6 +144,7 @@ export const COLOSSES: Record<ColosseId, Colosse> = {
     vie: 160,
     special: "uppercut",
     specialTexte: "Uppercut ascendant : il envoie l'adversaire en l'air.",
+    allure: { carrure: 1, taille: 1, tete: "casque", cape: true, epaulieres: false, tissu: 0x1d4e7a },
   },
   eclair: {
     id: "eclair",
@@ -139,6 +159,7 @@ export const COLOSSES: Record<ColosseId, Colosse> = {
     vie: 134,
     special: "onde",
     specialTexte: "Onde de choc : une décharge qui part de loin.",
+    allure: { carrure: 0.9, taille: 0.97, tete: "masque", cape: false, epaulieres: false, tissu: 0x2b2b2b },
   },
   brume: {
     id: "brume",
@@ -153,10 +174,53 @@ export const COLOSSES: Record<ColosseId, Colosse> = {
     vie: 148,
     special: "tourbillon",
     specialTexte: "Tourbillon : elle frappe des deux côtés en tournant.",
+    allure: { carrure: 0.94, taille: 1.02, tete: "capuche", cape: true, epaulieres: false, tissu: 0x3b2a5e },
   },
 };
 
 export const COLOSSE_ORDER: ColosseId[] = ["lame", "roc", "eclair", "brume"];
+
+/**
+ * Le dernier adversaire du tournoi : le double sombre du personnage choisi.
+ * Meme style de combat, mais plus grand et plus resistant — on finit contre
+ * son propre reflet, ce qui oblige a connaitre son personnage par coeur.
+ */
+export function colosseOmbre(id: ColosseId): Colosse {
+  const c = COLOSSES[id];
+  return {
+    ...c,
+    nom: `${c.nom} d'Ombre`,
+    phrase: "Ton reflet. Il connaît tous tes coups.",
+    emoji: "👤",
+    peau: 0x2a2632,
+    armure: 0x0d0c12,
+    accent: 0xff3b4a,
+    vie: Math.round(c.vie * 1.3),
+    force: c.force * 1.08,
+    allure: { ...c.allure, taille: c.allure.taille * 1.12, tissu: 0x3a0c14 },
+  };
+}
+
+/** Un combat du tournoi : qui, a quel niveau, et s'il s'agit du boss. */
+export interface EtapeTournoi {
+  adversaire: ColosseId;
+  difficulte: Difficulte;
+  boss: boolean;
+}
+
+/**
+ * Le tournoi : les trois autres combattants, du plus facile au plus dur,
+ * puis le reflet. La marche monte doucement — un joueur qui perd au premier
+ * combat ne revient pas.
+ */
+export function echelleTournoi(joueur: ColosseId): EtapeTournoi[] {
+  const niveaux: Difficulte[] = ["tranquille", "normal", "normal"];
+  const autres = COLOSSE_ORDER.filter((id) => id !== joueur);
+  return [
+    ...autres.map((adversaire, i) => ({ adversaire, difficulte: niveaux[i] ?? "normal", boss: false })),
+    { adversaire: joueur, difficulte: "brutal", boss: true },
+  ];
+}
 
 // --------------------------------------------------------------- reglages
 
@@ -187,6 +251,8 @@ export const REPIT = 0.3;
 export const BLOCAGE = 0.15;
 /** Energie maximale ; le special en coute 100. */
 export const ENERGIE_MAX = 100;
+/** Vitesse de l'onde de choc d'Eclair, en unites par seconde. */
+export const VITESSE_ONDE = 11;
 
 export type Difficulte = "tranquille" | "normal" | "brutal";
 

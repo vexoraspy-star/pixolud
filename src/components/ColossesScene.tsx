@@ -15,12 +15,16 @@ import {
   REPIT,
   SAUT,
   VITESSE,
+  VITESSE_ONDE,
+  colosseOmbre,
   degatsDe,
   type Colosse,
   type ColosseId,
   type CoupId,
   type Difficulte,
 } from "@/lib/colosses";
+import { construireColosse, type ModeleColosse } from "@/lib/colossesModeles";
+import { appliquerPose, poseCible, vitessePose, type EtatAnim } from "@/lib/colossesPoses";
 import {
   creerAudio,
   sonBloc,
@@ -44,6 +48,10 @@ import {
  * C'est ce qui permet de bloquer, d'esquiver et de punir ; sans ca, le jeu se
  * resume a marteler un bouton.
  *
+ * Les corps sont construits dans colossesModeles.ts et les gestes decrits dans
+ * colossesPoses.ts. Ce fichier s'occupe des regles, du decor et du deroulement
+ * d'un round : annonce, combat, K.O., pose de victoire.
+ *
  * Conventions de la maison (CLAUDE.md) : boucle a setInterval(16 ms), delta
  * plafonne, MeshLambertMaterial uniquement, peu de lumieres, et tout est
  * libere a la sortie.
@@ -56,8 +64,9 @@ export interface ColossesEtat {
   energieB: number;
   roundsA: number;
   roundsB: number;
+  round: number;
   temps: number;
-  /** Message affiche en grand au centre ("Round 1", "K.O.", "Égalité"...). */
+  /** Message affiche en grand au centre ("Round 1", "K.O. !", "Égalité"...). */
   annonce: string;
   /** Rempli quand le match est fini : "A" ou "B". */
   vainqueur: "A" | "B" | null;
@@ -68,14 +77,22 @@ export interface ColossesOptions {
   contreOrdinateur: boolean;
   difficulte: Difficulte;
   volume: number;
+  /** Le joueur B est le reflet sombre de son personnage (fin du tournoi). */
+  boss?: boolean;
 }
 
-type Phase = "annonce" | "combat" | "fini";
+/**
+ * Le deroulement d'un round. « finRound » dure trois secondes : le perdant
+ * tombe, le gagnant leve le poing, puis on enchaine. Couper directement au
+ * round suivant privait le joueur du seul moment ou il savoure.
+ */
+type Phase = "annonce" | "combat" | "finRound" | "fini";
 
 /** Un combattant, cote moteur. */
 interface Lutteur {
   cote: "A" | "B";
   perso: Colosse;
+  modele: ModeleColosse;
   x: number;
   y: number;
   vy: number;
@@ -85,17 +102,35 @@ interface Lutteur {
   energie: number;
   accroupi: boolean;
   bloque: boolean;
+  /** Direction de marche de l'image en cours : choisit marche ou recul. */
+  marche: number;
   /** Coup en cours, avec le temps ecoule depuis son debut. */
   coup: { id: CoupId; t: number; touche: boolean } | null;
   /** Temps restant sonne : on ne peut rien faire. */
   sonne: number;
   /** Temps pendant lequel on ne peut plus etre touche (voir REPIT). */
   repit: number;
-  /** Groupe 3D et ses membres, pour les animations. */
-  groupe: THREE.Group;
-  os: Record<string, THREE.Object3D>;
+  /** Temps restant dans la pose « touche » (la tete part en arriere). */
+  encaisse: number;
+  ko: boolean;
+  victoire: boolean;
   /** Clignotement quand on est touche. */
   flash: number;
+  /** Orientation lissee du corps (le tourbillon s'y ajoute). */
+  tourne: number;
+}
+
+/** L'onde de choc d'Eclair : un projectile qui traverse l'arene. */
+interface Onde {
+  x: number;
+  y: number;
+  sens: 1 | -1;
+  auteur: Lutteur;
+  groupe: THREE.Group;
+  materiaux: THREE.Material[];
+  vie: number;
+  /** L'ordinateur a deja decide quoi faire face a cette onde. */
+  jugee: boolean;
 }
 
 interface Touches {
@@ -177,22 +212,23 @@ export default function ColossesScene({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1020);
-    scene.fog = new THREE.Fog(0x0b1020, 22, 48);
+    scene.background = new THREE.Color(0x0c0a1c);
+    scene.fog = new THREE.Fog(0x0c0a1c, 18, 44);
 
-    const camera = new THREE.PerspectiveCamera(46, container.clientWidth / container.clientHeight, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 100);
+    camera.position.set(0, 2.4, 11);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // --- Lumieres : quatre, pas plus (regle de la maison) ---
-    scene.add(new THREE.HemisphereLight(0x9fb8ff, 0x1a1024, 2.2));
-    const cle = new THREE.DirectionalLight(0xfff0d0, 1.5);
-    cle.position.set(4, 9, 8);
+    // --- Lumieres : cinq en tout (la regle de la maison en tolere huit) ---
+    scene.add(new THREE.HemisphereLight(0xb4c4ff, 0x1c1226, 2.0));
+    const cle = new THREE.DirectionalLight(0xffe8c8, 1.6);
+    cle.position.set(3, 8, 9);
     scene.add(cle);
-    const contre = new THREE.DirectionalLight(0x6ad8ff, 0.8);
-    contre.position.set(-6, 5, -6);
+    const contre = new THREE.DirectionalLight(0x7ab8ff, 1.0);
+    contre.position.set(-5, 6, -7);
     scene.add(contre);
 
     const aJeter: { dispose(): void }[] = [];
@@ -201,165 +237,160 @@ export default function ColossesScene({
       return x;
     }
 
-    // --- L'arene ---
-    const solGeo = garder(new THREE.BoxGeometry(ARENE * 2 + 6, 1, 10));
-    const solMat = garder(new THREE.MeshLambertMaterial({ color: 0x2b2438 }));
-    const sol = new THREE.Mesh(solGeo, solMat);
-    sol.position.y = -0.5;
-    scene.add(sol);
+    // ================================================================ decor
+    // Un temple de pierre au clair de lune : dalles, colonnes, deux gardiens
+    // de pierre et des braseros. Des volumes simples, tous poses ici.
+    const pierre = garder(new THREE.MeshLambertMaterial({ color: 0x5b5566 }));
+    const pierreSombre = garder(new THREE.MeshLambertMaterial({ color: 0x3a3544 }));
+    const pierreClaire = garder(new THREE.MeshLambertMaterial({ color: 0x7a7488 }));
 
-    // Un damier discret pour donner une echelle : sans reperes au sol, on ne
-    // voit plus a quelle distance on se trouve.
-    const damierMat = garder(new THREE.MeshLambertMaterial({ color: 0x3a3150 }));
-    const damierGeo = garder(new THREE.BoxGeometry(1.6, 1.02, 9.6));
-    for (let i = -6; i <= 6; i += 2) {
-      const dalle = new THREE.Mesh(damierGeo, damierMat);
-      dalle.position.set(i * 1.6, -0.5, 0);
-      scene.add(dalle);
+    // Le sol : une grande dalle sombre, et un damier la ou l'on se bat. Le
+    // damier sert de regle — sans reperes, on ne juge plus les distances.
+    const socle = new THREE.Mesh(garder(new THREE.BoxGeometry(60, 1, 34)), pierreSombre);
+    socle.position.y = -0.52;
+    scene.add(socle);
+    const dalleGeo = garder(new THREE.BoxGeometry(1.86, 0.4, 1.86));
+    for (let i = -8; i <= 8; i++) {
+      for (let j = -2; j <= 1; j++) {
+        const dalle = new THREE.Mesh(dalleGeo, (i + j) % 2 === 0 ? pierre : pierreClaire);
+        dalle.position.set(i * 1.9, -0.2, j * 1.9 + 0.4);
+        scene.add(dalle);
+      }
     }
 
-    // Fond : deux murs et des piliers, juste pour l'ambiance.
-    const murMat = garder(new THREE.MeshLambertMaterial({ color: 0x1b1730 }));
-    const mur = new THREE.Mesh(garder(new THREE.BoxGeometry(ARENE * 2 + 8, 12, 1)), murMat);
-    mur.position.set(0, 5, -5);
+    // Le mur du fond, ses creneaux, et un embleme lumineux au centre.
+    const mur = new THREE.Mesh(garder(new THREE.BoxGeometry(60, 6.2, 1)), pierreSombre);
+    mur.position.set(0, 3.1, -6.5);
     scene.add(mur);
-    const pilierGeo = garder(new THREE.CylinderGeometry(0.6, 0.7, 12, 8));
-    const pilierMat = garder(new THREE.MeshLambertMaterial({ color: 0x2a2444 }));
-    for (const x of [-9, -4.5, 4.5, 9]) {
-      const p = new THREE.Mesh(pilierGeo, pilierMat);
-      p.position.set(x, 5.5, -4.2);
-      scene.add(p);
+    const creneauGeo = garder(new THREE.BoxGeometry(1.2, 0.9, 1.1));
+    for (let x = -28; x <= 28; x += 2.4) {
+      const c = new THREE.Mesh(creneauGeo, pierre);
+      c.position.set(x, 6.65, -6.5);
+      scene.add(c);
     }
-    // Deux braseros : les seules sources chaudes de l'image.
+    // L'embleme du temple : un anneau et une flamme en losange. (Une croix
+    // dans un cercle avait ete essayee : on aurait dit un bouton « fermer ».)
+    const embleme = new THREE.Mesh(
+      garder(new THREE.TorusGeometry(1.1, 0.1, 8, 36)),
+      garder(new THREE.MeshBasicMaterial({ color: 0x9a1f3a })),
+    );
+    embleme.position.set(0, 4.1, -5.95);
+    scene.add(embleme);
+    const flamme = new THREE.Mesh(
+      garder(new THREE.OctahedronGeometry(0.5, 0)),
+      garder(new THREE.MeshBasicMaterial({ color: 0xffb454 })),
+    );
+    flamme.scale.set(0.8, 1.35, 0.15);
+    flamme.position.set(0, 4.1, -5.9);
+    scene.add(flamme);
+
+    const colonneGeo = garder(new THREE.CylinderGeometry(0.42, 0.52, 5.6, 10));
+    const chapiteauGeo = garder(new THREE.BoxGeometry(1.25, 0.4, 1.25));
+    for (const x of [-13, -6.5, 6.5, 13]) {
+      const c = new THREE.Mesh(colonneGeo, pierre);
+      c.position.set(x, 3, -5.6);
+      scene.add(c);
+      const haut = new THREE.Mesh(chapiteauGeo, pierreClaire);
+      haut.position.set(x, 5.9, -5.6);
+      scene.add(haut);
+      const bas = new THREE.Mesh(chapiteauGeo, pierreClaire);
+      bas.position.set(x, 0.2, -5.6);
+      scene.add(bas);
+    }
+
+    // Deux gardiens de pierre, bras croises sur leurs socles : ils regardent
+    // le combat depuis le fond, comme des juges.
+    const gardienYeux = garder(new THREE.MeshBasicMaterial({ color: 0xff7a3c }));
+    const boite = (l: number, h: number, p: number, m: THREE.Material) =>
+      new THREE.Mesh(garder(new THREE.BoxGeometry(l, h, p)), m);
+    for (const x of [-9.8, 9.8]) {
+      const g = new THREE.Group();
+      const piedestal = boite(2.1, 1.2, 1.6, pierreClaire);
+      piedestal.position.y = 0.6;
+      g.add(piedestal);
+      const jambes = boite(1.1, 1.7, 0.7, pierre);
+      jambes.position.y = 2.05;
+      g.add(jambes);
+      const buste = boite(1.7, 1.5, 0.9, pierre);
+      buste.position.y = 3.6;
+      g.add(buste);
+      const bras = boite(1.8, 0.45, 1.15, pierreClaire);
+      bras.position.set(0, 3.55, 0.2);
+      g.add(bras);
+      const tete = boite(0.72, 0.82, 0.72, pierre);
+      tete.position.y = 4.78;
+      g.add(tete);
+      const yeux = boite(0.5, 0.08, 0.05, gardienYeux);
+      yeux.position.set(0, 4.85, 0.37);
+      g.add(yeux);
+      g.position.set(x, 0, -5.1);
+      // Ils se tournent legerement vers le centre de l'arene.
+      g.rotation.y = x < 0 ? 0.35 : -0.35;
+      scene.add(g);
+    }
+
+    // La lune, loin derriere le mur : c'est elle qui donne l'heure du combat.
+    const lune = new THREE.Mesh(
+      garder(new THREE.SphereGeometry(1.9, 24, 16)),
+      garder(new THREE.MeshBasicMaterial({ color: 0xece8ff, fog: false })),
+    );
+    lune.position.set(-4, 9.4, -16);
+    scene.add(lune);
+    const halo = new THREE.Mesh(
+      garder(new THREE.CircleGeometry(3.2, 32)),
+      garder(new THREE.MeshBasicMaterial({ color: 0x4b3f8a, transparent: true, opacity: 0.35, fog: false })),
+    );
+    halo.position.set(-4, 9.4, -16.5);
+    scene.add(halo);
+
+    // Braseros : la seule lumiere chaude de l'image.
     const feuMat = garder(new THREE.MeshBasicMaterial({ color: 0xffa23c }));
+    const vasqueMat = garder(new THREE.MeshLambertMaterial({ color: 0x2a2530 }));
     const feux: THREE.Mesh[] = [];
-    for (const x of [-7.5, 7.5]) {
+    for (const x of [-4.4, 4.4]) {
+      const pied = new THREE.Mesh(garder(new THREE.CylinderGeometry(0.12, 0.22, 1.6, 8)), vasqueMat);
+      pied.position.set(x, 0.8, -3.8);
+      scene.add(pied);
+      const vasque = new THREE.Mesh(garder(new THREE.CylinderGeometry(0.58, 0.3, 0.42, 10)), vasqueMat);
+      vasque.position.set(x, 1.7, -3.8);
+      scene.add(vasque);
       const f = new THREE.Mesh(garder(new THREE.SphereGeometry(0.42, 8, 6)), feuMat);
-      f.position.set(x, 1.6, -3.6);
+      f.position.set(x, 2.06, -3.8);
       scene.add(f);
       feux.push(f);
-      const l = new THREE.PointLight(0xff9a3c, 12, 14);
-      l.position.copy(f.position);
+      const l = new THREE.PointLight(0xff9a3c, 14, 12);
+      l.position.set(x, 2.4, -3.3);
       scene.add(l);
     }
 
-    // --- Construction d'un combattant, en boites ---
-    function construire(perso: Colosse): { groupe: THREE.Group; os: Record<string, THREE.Object3D> } {
-      const groupe = new THREE.Group();
-      const os: Record<string, THREE.Object3D> = {};
-
-      const peau = garder(new THREE.MeshLambertMaterial({ color: perso.peau }));
-      const armure = garder(new THREE.MeshLambertMaterial({ color: perso.armure }));
-      const accent = garder(new THREE.MeshBasicMaterial({ color: perso.accent }));
-
-      const boite = (l: number, h: number, p: number, m: THREE.Material) =>
-        new THREE.Mesh(garder(new THREE.BoxGeometry(l, h, p)), m);
-
-      // Le bassin porte tout : c'est lui qu'on deplace pour l'accroupissement.
-      const bassin = new THREE.Group();
-      bassin.position.y = 1.05;
-      groupe.add(bassin);
-      os.bassin = bassin;
-
-      const torse = boite(0.78, 0.95, 0.46, armure);
-      torse.position.y = 0.48;
-      bassin.add(torse);
-      os.torse = torse;
-
-      const ceinture = boite(0.8, 0.16, 0.48, accent);
-      ceinture.position.y = 0.02;
-      bassin.add(ceinture);
-
-      const tete = boite(0.46, 0.46, 0.44, peau);
-      tete.position.y = 1.22;
-      bassin.add(tete);
-      os.tete = tete;
-      // Le regard : deux points lumineux, qui suffisent a donner un visage.
-      for (const dx of [-0.12, 0.12]) {
-        const oeil = boite(0.07, 0.07, 0.04, accent);
-        oeil.position.set(dx, 0.04, 0.23);
-        tete.add(oeil);
-      }
-
-      // Bras : epaule -> avant-bras -> poing. Chaque articulation est un
-      // groupe, pour pouvoir plier le bras pendant les coups.
-      for (const cote of ["G", "D"] as const) {
-        const signe = cote === "D" ? 1 : -1;
-        const epaule = new THREE.Group();
-        epaule.position.set(signe * 0.47, 0.82, 0);
-        bassin.add(epaule);
-        os[`epaule${cote}`] = epaule;
-
-        const bras = boite(0.22, 0.44, 0.22, peau);
-        bras.position.y = -0.22;
-        epaule.add(bras);
-
-        const coude = new THREE.Group();
-        coude.position.y = -0.44;
-        epaule.add(coude);
-        os[`coude${cote}`] = coude;
-
-        const avantBras = boite(0.2, 0.4, 0.2, peau);
-        avantBras.position.y = -0.2;
-        coude.add(avantBras);
-
-        const poing = boite(0.26, 0.26, 0.26, armure);
-        poing.position.y = -0.46;
-        coude.add(poing);
-        os[`poing${cote}`] = poing;
-      }
-
-      // Jambes : hanche -> genou -> pied.
-      for (const cote of ["G", "D"] as const) {
-        const signe = cote === "D" ? 1 : -1;
-        const hanche = new THREE.Group();
-        hanche.position.set(signe * 0.22, 0, 0);
-        bassin.add(hanche);
-        os[`hanche${cote}`] = hanche;
-
-        const cuisse = boite(0.28, 0.5, 0.28, armure);
-        cuisse.position.y = -0.25;
-        hanche.add(cuisse);
-
-        const genou = new THREE.Group();
-        genou.position.y = -0.5;
-        hanche.add(genou);
-        os[`genou${cote}`] = genou;
-
-        const mollet = boite(0.24, 0.46, 0.24, peau);
-        mollet.position.y = -0.23;
-        genou.add(mollet);
-
-        const pied = boite(0.3, 0.16, 0.42, armure);
-        pied.position.set(0, -0.5, 0.06);
-        genou.add(pied);
-        os[`pied${cote}`] = pied;
-      }
-
-      scene.add(groupe);
-      return { groupe, os };
-    }
-
+    // ========================================================= combattants
     function nouveauLutteur(cote: "A" | "B", id: ColosseId): Lutteur {
-      const perso = COLOSSES[id];
-      const { groupe, os } = construire(perso);
+      const perso = cote === "B" && optionsRef.current.boss ? colosseOmbre(id) : COLOSSES[id];
+      const modele = construireColosse(perso, garder);
+      scene.add(modele.racine);
+      scene.add(modele.ombre);
+      const sens = cote === "A" ? 1 : -1;
       return {
         cote,
         perso,
-        x: cote === "A" ? -3 : 3,
+        modele,
+        x: cote === "A" ? -2.6 : 2.6,
         y: 0,
         vy: 0,
-        sens: cote === "A" ? 1 : -1,
+        sens,
         vie: perso.vie,
         energie: 0,
         accroupi: false,
         bloque: false,
+        marche: 0,
         coup: null,
         sonne: 0,
         repit: 0,
-        groupe,
-        os,
+        encaisse: 0,
+        ko: false,
+        victoire: false,
         flash: 0,
+        tourne: (sens * Math.PI) / 2,
       };
     }
 
@@ -367,26 +398,50 @@ export default function ColossesScene({
     const b = nouveauLutteur("B", persoB);
     const lutteurs = [a, b];
 
-    // --- Effets : etincelles a l'impact ---
-    const etincelleMat = garder(new THREE.MeshBasicMaterial({ color: 0xffd98a }));
-    const etincelleGeo = garder(new THREE.SphereGeometry(0.09, 5, 4));
+    // ============================================================= effets
+    const etincelleGeo = garder(new THREE.SphereGeometry(0.08, 5, 4));
     const etincelles: { mesh: THREE.Mesh; vie: number; vx: number; vy: number }[] = [];
     function eclats(x: number, y: number, couleur: number, combien: number) {
       for (let i = 0; i < combien; i++) {
-        const m = new THREE.Mesh(etincelleGeo, etincelleMat.clone());
-        (m.material as THREE.MeshBasicMaterial).color.setHex(couleur);
-        m.position.set(x + (Math.random() - 0.5) * 0.4, y + (Math.random() - 0.5) * 0.4, 0.3);
+        const mat = new THREE.MeshBasicMaterial({ color: couleur, transparent: true });
+        const m = new THREE.Mesh(etincelleGeo, mat);
+        m.position.set(x + (Math.random() - 0.5) * 0.4, y + (Math.random() - 0.5) * 0.4, 0.4);
         scene.add(m);
-        etincelles.push({
-          mesh: m,
-          vie: 0.35,
-          vx: (Math.random() - 0.5) * 6,
-          vy: Math.random() * 5 + 1,
-        });
+        etincelles.push({ mesh: m, vie: 0.38, vx: (Math.random() - 0.5) * 7, vy: Math.random() * 5 + 1 });
       }
     }
 
-    // --- Entrees clavier ---
+    const ondeGeo = garder(new THREE.SphereGeometry(0.3, 14, 10));
+    const ondeHaloGeo = garder(new THREE.SphereGeometry(0.52, 14, 10));
+    const ondes: Onde[] = [];
+    function lancerOnde(l: Lutteur) {
+      const coeur = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const aura = new THREE.MeshBasicMaterial({ color: l.perso.accent, transparent: true, opacity: 0.5 });
+      const groupe = new THREE.Group();
+      groupe.add(new THREE.Mesh(ondeGeo, coeur));
+      groupe.add(new THREE.Mesh(ondeHaloGeo, aura));
+      const onde: Onde = {
+        x: l.x + l.sens * 0.9,
+        y: l.y + 1.4,
+        sens: l.sens,
+        auteur: l,
+        groupe,
+        materiaux: [coeur, aura],
+        vie: 2.2,
+        jugee: false,
+      };
+      groupe.position.set(onde.x, onde.y, 0.2);
+      scene.add(groupe);
+      ondes.push(onde);
+    }
+    function retirerOnde(i: number) {
+      const o = ondes[i];
+      scene.remove(o.groupe);
+      for (const m of o.materiaux) m.dispose();
+      ondes.splice(i, 1);
+    }
+
+    // ============================================================ clavier
     const touches = new Set<string>();
     const fraiches = new Set<string>();
     function onKeyDown(e: KeyboardEvent) {
@@ -409,20 +464,33 @@ export default function ColossesScene({
     const enfoncee = (liste: string[]) => liste.some((k) => touches.has(k));
     const pressee = (liste: string[]) => liste.some((k) => fraiches.has(k));
 
-    // --- Etat de la partie ---
+    // =========================================================== la partie
     const audio: ColossesAudio = creerAudio(optionsRef.current.volume);
     let phase: Phase = "annonce";
-    let annonce = "Round 1";
-    let annonceJusqua = 1.6;
+    let annonce = "";
     let temps = DUREE_ROUND;
     let roundsA = 0;
     let roundsB = 0;
     let round = 1;
     let horloge = 0;
+    /** Temps passe dans la phase courante. */
+    let chrono = 0;
     let derniere = performance.now();
     let cerveau = 0; // minuteur de reflexion de l'ordinateur
+    let intentionOrdi = 0;
+    /** Temps avant que l'ordinateur ne se permette une nouvelle attaque. */
+    let attenteCoup = 0;
+    let gagnantRound: "A" | "B" | null = null;
+    let vainqueurMatch: "A" | "B" | null = null;
+    let tremblement = 0;
+    /**
+     * Arret sur image a l'impact : quelques centiemes de seconde ou tout se
+     * fige. Invisible a l'oeil, mais c'est ce qui donne du POIDS a un coup —
+     * sans lui, les poings traversent les corps comme du vent.
+     */
+    let gel = 0;
 
-    function publier(vainqueur: "A" | "B" | null = null) {
+    function publier() {
       etatRef.current({
         vieA: Math.max(0, a.vie),
         vieB: Math.max(0, b.vie),
@@ -430,9 +498,10 @@ export default function ColossesScene({
         energieB: b.energie,
         roundsA,
         roundsB,
+        round,
         temps: Math.max(0, Math.ceil(temps)),
-        annonce: horloge < annonceJusqua ? annonce : "",
-        vainqueur,
+        annonce,
+        vainqueur: vainqueurMatch,
       });
     }
 
@@ -440,43 +509,46 @@ export default function ColossesScene({
       for (const l of lutteurs) {
         l.vie = l.perso.vie;
         l.energie = 0;
-        l.x = l.cote === "A" ? -3 : 3;
+        l.x = l.cote === "A" ? -2.6 : 2.6;
         l.y = 0;
         l.vy = 0;
         l.coup = null;
         l.sonne = 0;
         l.repit = 0;
+        l.encaisse = 0;
+        l.ko = false;
+        l.victoire = false;
         l.flash = 0;
+        l.accroupi = false;
+        l.bloque = false;
       }
+      for (let i = ondes.length - 1; i >= 0; i--) retirerOnde(i);
       temps = DUREE_ROUND;
       phase = "annonce";
+      chrono = 0;
       annonce = `Round ${round}`;
-      horloge = 0;
-      annonceJusqua = 1.6;
       sonGong(audio);
-      publier();
     }
 
-    function finDeRound(gagnant: "A" | "B" | null) {
+    /** Un round se termine : le perdant tombe, puis le gagnant savoure. */
+    function finDeRound(gagnant: "A" | "B" | null, parKo: boolean) {
+      gagnantRound = gagnant;
       if (gagnant === "A") roundsA++;
       if (gagnant === "B") roundsB++;
-      annonce = gagnant === null ? "Égalité" : gagnant === "A" ? `${a.perso.nom} gagne le round` : `${b.perso.nom} gagne le round`;
-      horloge = 0;
-      annonceJusqua = 2.2;
-      phase = "annonce";
-      sonKo(audio);
-
-      if (roundsA >= 2 || roundsB >= 2) {
-        const vainqueur: "A" | "B" = roundsA >= 2 ? "A" : "B";
-        phase = "fini";
-        annonce = vainqueur === "A" ? `${a.perso.nom} l'emporte !` : `${b.perso.nom} l'emporte !`;
-        annonceJusqua = 99;
-        publier(vainqueur);
-        finRef.current(vainqueur);
-        return;
+      phase = "finRound";
+      chrono = 0;
+      annonce = parKo ? "K.O. !" : gagnant === null ? "Égalité" : "Temps écoulé";
+      for (const l of lutteurs) {
+        l.coup = null;
+        l.bloque = false;
+        l.accroupi = false;
+        l.sonne = 0;
+        if (parKo && l.vie <= 0) l.ko = true;
+        else l.encaisse = 0;
       }
-      round++;
-      publier();
+      tremblement = parKo ? 0.45 : 0;
+      gel = parKo ? 0.35 : 0;
+      sonKo(audio);
     }
 
     /** Lance un coup si le combattant est libre de le faire. */
@@ -486,70 +558,94 @@ export default function ColossesScene({
       if (id === "special") {
         l.energie = 0;
         sonSpecial(audio);
+        // Le corps s'illumine au depart : l'adversaire doit le voir venir.
+        eclats(l.x, l.y + 1.3, l.perso.accent, 12);
       }
       l.coup = { id, t: 0, touche: false };
     }
 
-    /** Le coup touche-t-il ? Distance, hauteur, et garde de l'adversaire. */
-    function resoudre(attaquant: Lutteur, cible: Lutteur) {
-      const c = attaquant.coup;
-      if (!c || c.touche) return;
-      const coup = COUPS[c.id];
-      const portee = coup.portee * (c.id === "special" && attaquant.perso.special === "charge" ? 1.6 : 1);
-      const distance = Math.abs(cible.x - attaquant.x);
-      const devant = Math.sign(cible.x - attaquant.x) === attaquant.sens;
-      if (!devant || distance > portee + 0.35) return;
-
-      // Un coup haut passe au-dessus d'un adversaire accroupi ; un coup bas
-      // ne touche pas quelqu'un en l'air. C'est ce qui rend l'esquive utile.
-      if (coup.hauteur === "haut" && cible.accroupi) return;
-      if (coup.hauteur === "bas" && cible.y > 0.6) return;
-      if (cible.y > 1.6 && c.id !== "special") return;
-
+    /**
+     * Un coup arrive sur la cible : degats, recul, effets.
+     * `sens` est la direction de la poussee (celle de l'onde, pour un projectile).
+     */
+    function encaisser(attaquant: Lutteur, cible: Lutteur, id: CoupId, sens: 1 | -1, projectile = false) {
       // Respiration : on ne remet pas un coup a quelqu'un qui vient d'en
       // prendre un. Le coup part quand meme (on le voit), il ne compte pas.
-      if (cible.repit > 0) {
-        c.touche = true;
-        return;
-      }
-
-      c.touche = true;
+      if (cible.repit > 0 || cible.ko) return;
+      const coup = COUPS[id];
       // On bloque en tenant la direction OPPOSEE a l'adversaire, sans attaquer.
       const bloque = cible.bloque && !cible.coup && cible.y <= 0.05;
       const degats = degatsDe(coup, attaquant.perso, bloque);
       cible.vie -= degats;
       cible.sonne = bloque ? 0.12 : degats * ETOURDISSEMENT;
       cible.repit = bloque ? 0.12 : REPIT;
+      cible.encaisse = bloque ? 0 : 0.3;
+      cible.flash = bloque ? 0.05 : 0.14;
       // Les deux reculent : l'attaquant doit revenir, donc il ne peut pas
       // rester colle a marteler le meme bouton.
-      attaquant.x -= coup.poussee * 0.12 * attaquant.sens;
-      cible.flash = bloque ? 0.06 : 0.16;
-      cible.x += coup.poussee * (bloque ? 0.4 : 1) * attaquant.sens * 0.55;
-      attaquant.energie = Math.min(ENERGIE_MAX, attaquant.energie + coup.energie);
-      if (!bloque) cible.energie = Math.min(ENERGIE_MAX, cible.energie + coup.energie * 0.5);
+      cible.x = THREE.MathUtils.clamp(cible.x + coup.poussee * (bloque ? 0.4 : 1) * sens * 0.55, -ARENE, ARENE);
+      if (!projectile) attaquant.x -= coup.poussee * 0.12 * sens;
+      attaquant.energie = Math.min(ENERGIE_MAX, attaquant.energie + Math.max(0, coup.energie));
+      if (!bloque) cible.energie = Math.min(ENERGIE_MAX, cible.energie + Math.max(0, coup.energie) * 0.5);
+      gel = bloque ? 0.03 : id === "special" ? 0.12 : 0.06;
 
-      const hauteurImpact = cible.y + (cible.accroupi ? 0.8 : 1.4);
+      const hauteurImpact = cible.y + (cible.accroupi ? 0.9 : 1.5);
+      const xImpact = cible.x - sens * 0.3;
       if (bloque) {
         sonBloc(audio);
-        eclats(cible.x, hauteurImpact, 0x9fd8ff, 5);
+        eclats(xImpact, hauteurImpact, 0x9fd8ff, 6);
       } else {
-        if (c.id === "poing") sonPoing(audio);
-        else if (c.id === "pied") sonPied(audio);
-        eclats(cible.x, hauteurImpact, c.id === "special" ? attaquant.perso.accent : 0xffd98a, c.id === "special" ? 22 : 9);
+        if (id === "poing") sonPoing(audio);
+        else if (id === "pied") sonPied(audio);
+        const special = id === "special";
+        eclats(xImpact, hauteurImpact, special ? attaquant.perso.accent : 0xffd98a, special ? 26 : 10);
+        if (special) tremblement = 0.28;
       }
 
       // L'uppercut envoie en l'air : c'est ce qui le rend spectaculaire.
-      if (c.id === "special" && attaquant.perso.special === "uppercut" && !bloque) {
-        cible.vy = 8;
+      if (id === "special" && attaquant.perso.special === "uppercut" && !bloque) {
+        cible.vy = 8.5;
       }
+    }
+
+    /** Le coup touche-t-il ? Distance, hauteur, et garde de l'adversaire. */
+    function resoudre(attaquant: Lutteur, cible: Lutteur) {
+      const c = attaquant.coup;
+      if (!c || c.touche) return;
+
+      // L'onde part au lieu de frapper au corps a corps.
+      if (c.id === "special" && attaquant.perso.special === "onde") {
+        c.touche = true;
+        lancerOnde(attaquant);
+        return;
+      }
+
+      const coup = COUPS[c.id];
+      const special = c.id === "special";
+      const portee = coup.portee * (special && attaquant.perso.special === "charge" ? 1.6 : 1);
+      const distance = Math.abs(cible.x - attaquant.x);
+      // Le tourbillon frappe des deux cotes : il n'a pas besoin d'etre face.
+      const devant =
+        (special && attaquant.perso.special === "tourbillon") ||
+        Math.sign(cible.x - attaquant.x) === attaquant.sens;
+      if (!devant || distance > portee + 0.35) return;
+
+      // Un coup haut passe au-dessus d'un adversaire accroupi ; un coup bas
+      // ne touche pas quelqu'un en l'air. C'est ce qui rend l'esquive utile.
+      if (coup.hauteur === "haut" && cible.accroupi) return;
+      if (coup.hauteur === "bas" && cible.y > 0.6) return;
+      if (cible.y > 1.6 && !special) return;
+
+      c.touche = true;
+      encaisser(attaquant, cible, c.id, cible.x >= attaquant.x ? 1 : -1);
     }
 
     /**
      * L'ordinateur.
      *
      * Il ne lit pas l'avenir : il regarde la distance et decide, avec un
-     * temps de reaction. Un adversaire qui reagit instantanement n'est pas
-     * difficile, il est injuste.
+     * temps de reaction et une cadence minimale entre deux attaques. Un
+     * adversaire qui reagit instantanement n'est pas difficile, il est injuste.
      */
     function jouerOrdinateur(moi: Lutteur, autre: Lutteur, dt: number) {
       const reglage = DIFFICULTES[optionsRef.current.difficulte];
@@ -558,8 +654,23 @@ export default function ColossesScene({
       const distance = Math.abs(autre.x - moi.x);
       const versLui = Math.sign(autre.x - moi.x);
 
+      // Une onde arrive : il decide UNE fois s'il saute, sinon il tente la
+      // garde. Redecider a chaque image lui donnerait des reflexes surhumains.
+      for (const o of ondes) {
+        if (o.auteur !== autre || o.jugee) continue;
+        const approche = Math.sign(moi.x - o.x) === o.sens;
+        if (!approche || Math.abs(o.x - moi.x) > 3.4) continue;
+        o.jugee = true;
+        if (moi.y <= 0.02 && moi.sonne <= 0 && Math.random() < reglage.garde) {
+          moi.vy = SAUT;
+          sonSaut(audio);
+        }
+      }
+
       // Garde : quand l'autre prepare un coup et qu'on est a portee.
-      const menace = autre.coup && !autre.coup.touche && distance < 2.2;
+      const menace =
+        (autre.coup && !autre.coup.touche && distance < 2.4) ||
+        ondes.some((o) => o.auteur === autre && Math.abs(o.x - moi.x) < 2.5);
       moi.bloque = Boolean(menace) && Math.random() < reglage.garde;
       if (moi.bloque) return;
 
@@ -569,15 +680,16 @@ export default function ColossesScene({
       if (moi.sonne > 0 || moi.coup) return;
 
       // Il ne frappe pas quelqu'un qui est encore sonne : sans cette regle,
-      // il enchaine et on regarde son personnage mourir sans rien pouvoir
+      // il enchaine et on regarde son personnage tomber sans rien pouvoir
       // faire. Un adversaire dur doit etre dur, pas injouable.
       const libre = autre.sonne <= 0 && autre.repit <= 0;
       const peutFrapper = libre && attenteCoup <= 0;
+      // L'onde d'Eclair se lance de loin : c'est tout son interet.
+      const aDistance = moi.perso.special === "onde";
 
       if (distance > 2.4) {
-        // Trop loin : on approche, ou on lance le special s'il est pret.
         intentionOrdi = versLui;
-        if (peutFrapper && moi.energie >= ENERGIE_MAX && Math.random() < 0.4) {
+        if (peutFrapper && moi.energie >= ENERGIE_MAX && Math.random() < (aDistance ? 0.7 : 0.4)) {
           frapper(moi, "special");
           attenteCoup = reglage.cadence;
         }
@@ -595,17 +707,21 @@ export default function ColossesScene({
           attenteCoup = reglage.cadence;
         }
       }
+      // De temps en temps, un saut pour surprendre.
+      if (moi.y <= 0.02 && !moi.coup && Math.random() < 0.05) {
+        moi.vy = SAUT;
+        sonSaut(audio);
+      }
     }
-    let intentionOrdi = 0;
-    /** Temps avant que l'ordinateur ne se permette une nouvelle attaque. */
-    let attenteCoup = 0;
 
     /** Deplacements et actions d'un combattant, a partir de ses touches. */
     function commander(l: Lutteur, t: Touches, dt: number, ordinateur: boolean) {
       const autre = l === a ? b : a;
       l.sens = autre.x >= l.x ? 1 : -1;
+      l.marche = 0;
 
       if (l.repit > 0) l.repit -= dt;
+      if (l.encaisse > 0) l.encaisse -= dt;
 
       if (l.sonne > 0) {
         l.sonne -= dt;
@@ -636,11 +752,12 @@ export default function ColossesScene({
       if (!l.coup && !l.accroupi) {
         const vitesse = VITESSE * l.perso.vitesse * (l.bloque ? 0.45 : 1);
         l.x += direction * vitesse * dt;
+        l.marche = direction;
       }
 
       // Charge : le special de Roc propulse vers l'avant.
-      if (l.coup?.id === "special" && l.perso.special === "charge" && l.coup.t < 0.3) {
-        l.x += l.sens * 11 * dt;
+      if (l.coup?.id === "special" && l.perso.special === "charge" && l.coup.t < 0.34) {
+        l.x += l.sens * 12 * dt;
       }
 
       l.x = THREE.MathUtils.clamp(l.x, -ARENE, ARENE);
@@ -652,122 +769,79 @@ export default function ColossesScene({
       const facteur = 1 / (0.75 + l.perso.vitesse * 0.25);
       l.coup.t += dt / facteur;
       const total = coup.preparation + coup.actif + coup.recuperation;
-      const debutActif = coup.preparation;
-      const finActif = coup.preparation + coup.actif;
-      if (l.coup.t >= debutActif && l.coup.t <= finActif) {
+      if (l.coup.t >= coup.preparation && l.coup.t <= coup.preparation + coup.actif) {
         resoudre(l, l === a ? b : a);
       }
-      if (l.coup.t >= total) l.coup = null;
+      if (l.coup && l.coup.t >= total) l.coup = null;
     }
 
-    /** Pose le squelette selon ce que fait le combattant. */
+    /** L'animation a jouer, selon ce que fait le combattant. */
+    function etatAnim(l: Lutteur): EtatAnim {
+      if (l.ko) return "ko";
+      if (l.victoire) return "victoire";
+      if (l.coup) return "coup";
+      if (l.encaisse > 0) return "touche";
+      if (l.y > 0.05) return "saut";
+      if (l.accroupi) return "accroupi";
+      if (l.bloque) return "bloc";
+      if (l.marche !== 0) return Math.sign(l.marche) === l.sens ? "marche" : "recul";
+      return "garde";
+    }
+
+    /** Pose le squelette et place le personnage dans l'arene. */
     function animer(l: Lutteur, dt: number) {
-      const { os } = l;
-      const bassin = os.bassin;
-      const marche = horloge * 9;
-
-      // Repos : une garde haute, le corps legerement de biais.
-      let epauleD = -0.5;
-      let coudeD = -1.5;
-      let epauleG = -0.35;
-      let coudeG = -1.2;
-      let hancheD = 0.1;
-      let hancheG = -0.1;
-      let genouD = 0;
-      let genouG = 0;
-      let torseInclinaison = 0.04;
-
+      const etat = etatAnim(l);
+      let progression = 0;
+      let finPreparation = 0.3;
+      let finActif = 0.55;
       if (l.coup) {
-        const coup = COUPS[l.coup.id];
-        const total = coup.preparation + coup.actif + coup.recuperation;
-        const p = Math.min(1, l.coup.t / total);
-        // Une cloche : le coup part, touche au sommet, puis revient.
-        const sortie = Math.sin(Math.min(1, l.coup.t / (coup.preparation + coup.actif)) * Math.PI);
-        if (l.coup.id === "poing") {
-          epauleD = -1.6 * sortie - 0.5 * (1 - sortie);
-          coudeD = -0.1 * sortie - 1.5 * (1 - sortie);
-          torseInclinaison = 0.04 + sortie * 0.25;
-        } else if (l.coup.id === "pied") {
-          hancheD = -1.5 * sortie + 0.1;
-          genouD = 0.3 * (1 - sortie);
-          epauleG = -1.1 * sortie - 0.35;
-          torseInclinaison = 0.04 - sortie * 0.3;
-        } else {
-          // Le special : les deux bras, et une pose qui se voit de loin.
-          epauleD = -2.2 * sortie - 0.5;
-          epauleG = -2.2 * sortie - 0.35;
-          coudeD = -0.2;
-          coudeG = -0.2;
-          torseInclinaison = 0.04 - sortie * 0.2;
-          if (l.perso.special === "tourbillon") l.groupe.rotation.y += dt * 18 * sortie;
-        }
-        if (p > 0.98 && l.perso.special === "tourbillon") l.groupe.rotation.y = 0;
-      } else if (l.sonne > 0) {
-        // Sonne : la tete part en arriere, les bras retombent.
-        epauleD = 0.4;
-        epauleG = 0.4;
-        coudeD = -0.3;
-        coudeG = -0.3;
-        torseInclinaison = -0.4;
-      } else if (Math.abs(l.y) > 0.05) {
-        hancheD = -0.8;
-        hancheG = -0.4;
-        genouD = 1.1;
-        genouG = 0.6;
-      } else if (l.bloque) {
-        epauleD = -1.9;
-        epauleG = -1.9;
-        coudeD = -1.9;
-        coudeG = -1.9;
-        torseInclinaison = 0.2;
+        const c = COUPS[l.coup.id];
+        const total = c.preparation + c.actif + c.recuperation;
+        progression = Math.min(1, l.coup.t / total);
+        finPreparation = c.preparation / total;
+        finActif = (c.preparation + c.actif) / total;
       }
+      const cible = poseCible({
+        etat,
+        temps: horloge + (l.cote === "B" ? 1.3 : 0), // les deux ne respirent pas en meme temps
+        coup: l.coup?.id,
+        progression,
+        finPreparation,
+        finActif,
+        perso: l.perso,
+      });
+      appliquerPose(l.modele.os, cible, dt, vitessePose(etat), l.modele.hauteurBassin);
 
-      // Marche : les jambes balancent quand on bouge au sol.
-      const bouge = !l.coup && l.sonne <= 0 && Math.abs(l.y) < 0.05;
-      if (bouge) {
-        hancheD += Math.sin(marche) * 0.25;
-        hancheG += Math.sin(marche + Math.PI) * 0.25;
-      }
+      const { racine, ombre, os } = l.modele;
 
-      os.epauleD.rotation.x = epauleD;
-      os.coudeD.rotation.x = coudeD;
-      os.epauleG.rotation.x = epauleG;
-      os.coudeG.rotation.x = coudeG;
-      os.hancheD.rotation.x = hancheD;
-      os.hancheG.rotation.x = hancheG;
-      os.genouD.rotation.x = genouD;
-      os.genouG.rotation.x = genouG;
-      os.torse.rotation.x = torseInclinaison;
-      os.tete.rotation.x = l.sonne > 0 ? -0.5 : 0;
+      // Orientation : de profil face a l'adversaire ; de face pour saluer la
+      // victoire. Le tourbillon ajoute deux tours complets pendant le coup,
+      // qui retombent pile sur l'orientation de depart.
+      const orientation = l.victoire ? 0 : (l.sens * Math.PI) / 2;
+      l.tourne += (orientation - l.tourne) * (1 - Math.exp(-14 * dt));
+      const vrille =
+        l.coup?.id === "special" && l.perso.special === "tourbillon" ? progression * Math.PI * 4 : 0;
+      racine.rotation.y = l.tourne + vrille;
 
-      // Accroupi : le bassin descend, les genoux plient.
-      const cible = l.accroupi ? 0.62 : 1.05;
-      bassin.position.y += (cible - bassin.position.y) * Math.min(1, dt * 14);
-      if (l.accroupi) {
-        os.hancheD.rotation.x = -0.9;
-        os.hancheG.rotation.x = -0.9;
-        os.genouD.rotation.x = 1.6;
-        os.genouG.rotation.x = 1.6;
-      }
+      // Au sol, le corps couche deborde sous les dalles : on le remonte
+      // d'autant qu'il a bascule.
+      const bascule = os.corps ? Math.max(0, -Math.sin(os.corps.rotation.x)) : 0;
+      racine.position.set(l.x, l.y + bascule * 0.24, 0);
 
-      l.groupe.position.set(l.x, l.y, 0);
-      // Le personnage regarde toujours son adversaire.
-      const cibleRot = l.sens === 1 ? Math.PI / 2 : -Math.PI / 2;
-      if (l.perso.special !== "tourbillon" || !l.coup || l.coup.id !== "special") {
-        l.groupe.rotation.y += (cibleRot - l.groupe.rotation.y) * Math.min(1, dt * 12);
-      }
+      // L'ombre reste au sol et retrecit quand on saute.
+      ombre.position.set(l.x, 0.01, 0);
+      ombre.scale.setScalar(Math.max(0.45, 1 - l.y * 0.18));
 
-      // Clignotement rouge quand on encaisse.
+      // Clignotement quand on encaisse.
       if (l.flash > 0) {
         l.flash -= dt;
-        const visible = Math.floor(l.flash * 40) % 2 === 0;
-        l.groupe.visible = visible || l.flash <= 0;
+        racine.visible = Math.floor(l.flash * 45) % 2 === 0 || l.flash <= 0;
       } else {
-        l.groupe.visible = true;
+        racine.visible = true;
       }
     }
 
-    // --- La boucle ---
+    // ============================================================ la boucle
     function tick() {
       const maintenant = performance.now();
       // Plafonne : apres un changement d'onglet, un delta enorme ferait
@@ -776,9 +850,42 @@ export default function ColossesScene({
       derniere = maintenant;
       horloge += dt;
 
-      if (phase === "annonce" && horloge >= annonceJusqua) {
-        phase = "combat";
-        publier();
+      // Arret sur image : on dessine, mais le temps du combat ne s'ecoule
+      // pas. Les touches pressees pendant ce temps restent en attente.
+      if (gel > 0) {
+        gel -= dt;
+        renderer.render(scene, camera);
+        return;
+      }
+      chrono += dt;
+
+      // --- Le deroulement du round ---
+      if (phase === "annonce") {
+        annonce = chrono < 1.2 ? `Round ${round}` : "Combattez !";
+        if (chrono >= 2) {
+          phase = "combat";
+          annonce = "";
+        }
+      } else if (phase === "finRound") {
+        if (chrono > 1.2 && gagnantRound) {
+          const g = gagnantRound === "A" ? a : b;
+          g.victoire = true;
+          annonce = `${g.perso.nom} gagne le round`;
+        }
+        if (chrono >= 3.2) {
+          if (roundsA >= 2 || roundsB >= 2) {
+            vainqueurMatch = roundsA >= 2 ? "A" : "B";
+            phase = "fini";
+            const v = vainqueurMatch === "A" ? a : b;
+            v.victoire = true;
+            annonce = `${v.perso.nom} l'emporte !`;
+            publier();
+            finRef.current(vainqueurMatch);
+          } else {
+            round++;
+            nouveauRound();
+          }
+        }
       }
 
       if (phase === "combat") {
@@ -793,35 +900,54 @@ export default function ColossesScene({
           commander(b, TOUCHES_B, dt, false);
         }
 
-        for (const l of lutteurs) {
-          // Gravite.
-          if (l.y > 0 || l.vy !== 0) {
-            l.vy -= GRAVITE * dt;
-            l.y += l.vy * dt;
-            if (l.y <= 0) {
-              if (l.vy < -2) sonSol(audio);
-              l.y = 0;
-              l.vy = 0;
-            }
-          }
-          avancerCoup(l, dt);
-        }
+        for (const l of lutteurs) avancerCoup(l, dt);
 
-        // Les deux corps ne se traversent pas.
+        // Les deux corps ne se traversent pas (sauf par-dessus, en sautant).
         const ecart = b.x - a.x;
-        if (Math.abs(ecart) < ECART_MIN) {
+        if (Math.abs(ecart) < ECART_MIN && a.y < 1.2 && b.y < 1.2) {
           const correction = (ECART_MIN - Math.abs(ecart)) / 2;
           const signe = ecart >= 0 ? 1 : -1;
-          a.x -= correction * signe;
-          b.x += correction * signe;
-          a.x = THREE.MathUtils.clamp(a.x, -ARENE, ARENE);
-          b.x = THREE.MathUtils.clamp(b.x, -ARENE, ARENE);
+          a.x = THREE.MathUtils.clamp(a.x - correction * signe, -ARENE, ARENE);
+          b.x = THREE.MathUtils.clamp(b.x + correction * signe, -ARENE, ARENE);
         }
+      }
 
+      // Gravite : elle continue apres le K.O., pour que le corps retombe.
+      for (const l of lutteurs) {
+        if (l.y > 0 || l.vy !== 0) {
+          l.vy -= GRAVITE * dt;
+          l.y += l.vy * dt;
+          if (l.y <= 0) {
+            if (l.vy < -2) sonSol(audio);
+            l.y = 0;
+            l.vy = 0;
+          }
+        }
+      }
+
+      // Les ondes voyagent, et touchent ce qu'elles rencontrent.
+      for (let i = ondes.length - 1; i >= 0; i--) {
+        const o = ondes[i];
+        o.x += o.sens * VITESSE_ONDE * dt;
+        o.vie -= dt;
+        o.groupe.position.set(o.x, o.y + Math.sin(horloge * 20) * 0.05, 0.2);
+        o.groupe.scale.setScalar(1 + Math.sin(horloge * 30) * 0.12);
+        const cible = o.auteur === a ? b : a;
+        // On l'evite en sautant par-dessus, ou en se baissant dessous.
+        const touche =
+          phase === "combat" && Math.abs(cible.x - o.x) < 0.7 && cible.y < 1.3 && !cible.accroupi;
+        if (touche) {
+          encaisser(o.auteur, cible, "special", o.sens, true);
+          eclats(o.x, o.y, o.auteur.perso.accent, 18);
+        }
+        if (touche || o.vie <= 0 || Math.abs(o.x) > ARENE + 3) retirerOnde(i);
+      }
+
+      if (phase === "combat") {
         if (a.vie <= 0 || b.vie <= 0) {
-          finDeRound(a.vie <= 0 && b.vie <= 0 ? null : a.vie <= 0 ? "B" : "A");
+          finDeRound(a.vie <= 0 && b.vie <= 0 ? null : a.vie <= 0 ? "B" : "A", true);
         } else if (temps <= 0) {
-          finDeRound(a.vie === b.vie ? null : a.vie > b.vie ? "A" : "B");
+          finDeRound(a.vie === b.vie ? null : a.vie > b.vie ? "A" : "B", false);
         }
       }
 
@@ -834,8 +960,7 @@ export default function ColossesScene({
         e.mesh.position.x += e.vx * dt;
         e.mesh.position.y += e.vy * dt;
         e.vy -= 14 * dt;
-        (e.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, e.vie / 0.35);
-        (e.mesh.material as THREE.MeshBasicMaterial).transparent = true;
+        (e.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, e.vie / 0.38);
         if (e.vie <= 0) {
           scene.remove(e.mesh);
           (e.mesh.material as THREE.Material).dispose();
@@ -843,28 +968,37 @@ export default function ColossesScene({
         }
       }
 
-      // Les braseros respirent.
-      const pulse = 1 + Math.sin(horloge * 6) * 0.12;
+      // Les braseros respirent, l'embleme aussi.
+      const pulse = 1 + Math.sin(horloge * 7) * 0.12;
       for (const f of feux) f.scale.setScalar(pulse);
+      flamme.scale.y = 1.35 + Math.sin(horloge * 5) * 0.1;
 
-      // La camera suit le milieu des deux, et recule quand ils s'eloignent :
-      // on doit toujours voir les deux combattants, c'est la regle d'or.
+      // La camera suit le milieu des deux, basse et de cote, et recule quand
+      // ils s'eloignent : on doit toujours voir les deux combattants.
       const milieu = (a.x + b.x) / 2;
       const distance = Math.abs(a.x - b.x);
-      const recul = THREE.MathUtils.clamp(8.5 + distance * 0.55, 9, 16);
-      camera.position.x += (milieu * 0.6 - camera.position.x) * Math.min(1, dt * 4);
-      camera.position.y += (2.9 - camera.position.y) * Math.min(1, dt * 4);
-      camera.position.z += (recul - camera.position.z) * Math.min(1, dt * 3);
-      camera.lookAt(milieu * 0.6, 1.5, 0);
+      const recul = THREE.MathUtils.clamp(8 + distance * 0.55, 9, 15.5);
+      const suivi = 1 - Math.exp(-4 * dt);
+      const visee = milieu * 0.85;
+      camera.position.x += (visee - camera.position.x) * suivi;
+      camera.position.y += (2.4 - camera.position.y) * suivi;
+      camera.position.z += (recul - camera.position.z) * (1 - Math.exp(-3 * dt));
+      // Petit tremblement sur les gros impacts : on SENT le coup.
+      if (tremblement > 0) {
+        tremblement -= dt;
+        camera.position.x += (Math.random() - 0.5) * tremblement * 0.5;
+        camera.position.y += (Math.random() - 0.5) * tremblement * 0.5;
+      }
+      camera.lookAt(visee, 1.3, 0);
 
-      publier(phase === "fini" ? (roundsA >= 2 ? "A" : "B") : null);
+      publier();
       fraiches.clear();
       renderer.render(scene, camera);
     }
 
     // Cadence fixe (regle de la maison) : 16 ms, delta calcule a la main.
-    const minuteur = window.setInterval(tick, 16);
     nouveauRound();
+    const minuteur = window.setInterval(tick, 16);
 
     function onResize() {
       if (!container) return;
@@ -881,6 +1015,7 @@ export default function ColossesScene({
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onResize);
       for (const e of etincelles) (e.mesh.material as THREE.Material).dispose();
+      for (const o of ondes) for (const m of o.materiaux) m.dispose();
       for (const x of aJeter) x.dispose();
       audio.ctx?.close().catch(() => {});
       renderer.forceContextLoss();

@@ -419,7 +419,32 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
 .colosses-chrono b { display: block; font-size: 34px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 .colosses-chrono span { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #cbbfe0; }
 .colosses-annonce { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font-size: clamp(30px, 7vw, 68px); font-weight: 800; letter-spacing: -1px; color: #fff; text-shadow: 0 6px 30px #000, 0 0 60px #d6316a; animation: colosses-pop .35s ease-out; }
+.colosses-annonce.est-go { color: #ffe066; text-shadow: 0 6px 30px #000, 0 0 60px #ff9a3c; }
+.colosses-annonce.est-ko { font-size: clamp(56px, 14vw, 140px); letter-spacing: 4px; color: #ff4b4b; text-shadow: 0 8px 36px #000, 0 0 80px #ff1f1f; animation-duration: .22s; }
 @keyframes colosses-pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+/* Les touches restent sous les yeux : discretes, en bas a gauche. */
+.colosses-aide { position: absolute; bottom: 12px; inset-inline-start: 14px; max-width: calc(100% - 150px); display: flex; flex-wrap: wrap; align-items: center; gap: 5px; pointer-events: none; opacity: .85; }
+.colosses-aide-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 9px; padding: 4px 9px; border-radius: 9px; background: #05060cb3; color: #cbbfe0; font-size: 10.5px; }
+.colosses-aide-ligne strong { color: #fff; font-size: 11px; }
+.colosses-aide-ligne b { display: inline-block; padding: 1px 6px; margin-inline-end: 3px; border-radius: 5px; background: #2a2142; color: #fff; font-size: 10.5px; }
+.colosses-aide-astuce { width: fit-content; padding: 3px 9px; border-radius: 8px; background: #05060cb3; color: #ffe066; font-size: 10.5px; font-weight: 700; }
+.colosses-fin-texte { max-width: 440px; margin: 12px auto 0; color: #cbbfe0; font-size: 13px; line-height: 1.7; }
+/* --- Le tournoi : une tour, du premier combat (en bas) au reflet (en haut) --- */
+.colosses-echelle { max-width: 560px; }
+.colosses-echelle .colosses-retour { background: none; }
+.colosses-tour { display: grid; gap: 8px; margin-top: 22px; }
+.colosses-tour li { display: grid; grid-template-columns: 28px 40px 1fr auto; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid #332b48; border-radius: 14px; background: #130f20; }
+.colosses-tour .colosses-emoji { font-size: 26px; }
+.colosses-tour-num { color: #6f6590; font-size: 13px; font-weight: 800; text-align: center; }
+.colosses-tour-nom { display: grid; }
+.colosses-tour-nom small { color: #9d93b4; font-size: 11px; }
+.colosses-tour-statut { color: #9d93b4; font-size: 11.5px; font-weight: 700; }
+.colosses-tour li.est-battu { opacity: .55; }
+.colosses-tour li.est-battu .colosses-tour-statut { color: #46d17a; }
+.colosses-tour li.est-actuel { border-color: #ff8fb0; background: linear-gradient(135deg, #2a1240, #3a1026); box-shadow: 0 10px 30px #d6316a33; }
+.colosses-tour li.est-actuel .colosses-tour-statut { color: #ffe066; }
+.colosses-tour li.est-boss { border-color: #ff3b4a66; }
+.colosses-tour li.est-boss .colosses-tour-statut { color: #ff6b76; }
 .colosses-fin { position: absolute; inset: 0; display: grid; place-items: center; background: #05060cd9; color: #fff; text-align: center; }
 .colosses-fin-titre { font-size: clamp(24px, 5vw, 44px); font-weight: 800; }
 .colosses-fin-score { margin-top: 6px; font-size: 20px; color: #cbbfe0; font-variant-numeric: tabular-nums; }
@@ -432,5 +457,6 @@ html[data-codes~="pixo"] .pixo-avatar { position: relative; }
   .colosses-hud { inset: 8px 10px auto; gap: 8px; }
   .colosses-chrono b { font-size: 24px; }
   .colosses-vie { height: 12px; }
+  .colosses-aide { max-width: calc(100% - 28px); bottom: 50px; }
 }
 @media (prefers-reduced-motion: reduce) { .colosses-annonce { animation: none; } }
