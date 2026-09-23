@@ -125,6 +125,36 @@ export function preloadModel(id: ModelId): Promise<GLTF> {
   return p;
 }
 
+export interface PlayOptions {
+  fade?: number;
+  loop?: boolean;
+  speed?: number;
+  /** Relance l'animation meme si elle tourne deja. */
+  restart?: boolean;
+  /** Demarre a un instant au hasard (boucles d'attente de plusieurs personnages). */
+  randomStart?: boolean;
+  /** Reprend la phase de l'animation precedente (entre deux foulees de course). */
+  syncPhase?: boolean;
+}
+
+/** Os a ne jamais bouger dans un geste additif : les jambes portent le corps. */
+const JAMBES = /(upperleg|lowerleg|foot|toe|thigh|calf|ball|leg)/i;
+
+/** Clips additifs, calcules une fois par fichier et partages entre instances. */
+const additifs = new Map<THREE.AnimationClip, THREE.AnimationClip>();
+
+function clipAdditif(clip: THREE.AnimationClip): THREE.AnimationClip {
+  let c = additifs.get(clip);
+  if (!c) {
+    c = clip.clone();
+    // Rotations du haut du corps seulement : ni jambes, ni deplacement.
+    c.tracks = c.tracks.filter((t) => t.name.endsWith(".quaternion") && !JAMBES.test(t.name.split(".")[0]));
+    THREE.AnimationUtils.makeClipAdditive(c);
+    additifs.set(clip, c);
+  }
+  return c;
+}
+
 export interface AnimatedModel {
   /** A placer dans la scene : origine aux pieds, regard vers +Z. */
   root: THREE.Group;
@@ -137,7 +167,15 @@ export interface AnimatedModel {
    * deja, sauf avec `restart` : deux coups de poing de suite doivent repartir
    * du debut.
    */
-  play(name: string, opts?: { fade?: number; loop?: boolean; speed?: number; restart?: boolean }): void;
+  play(name: string, opts?: PlayOptions): void;
+  /**
+   * Joue par-dessus l'animation en cours un geste bref, en mode additif :
+   * tressaillement a l'impact, recul de l'arme au tir. Les jambes ne sont pas
+   * touchees, donc on peut tressaillir en pleine course.
+   */
+  pulse(name: string, weight?: number): void;
+  /** Fait briller le personnage un court instant (impact). */
+  flash(color: number): void;
   /** Duree d'une animation, en secondes (0 si elle n'existe pas). */
   duration(name: string): number;
   /** Vitesse de l'animation en cours (pour caler la foulee sur la vitesse reelle). */
@@ -226,6 +264,9 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
   mixer.stopAllAction();
 
   let currentAction: THREE.AnimationAction | null = null;
+  const dernierGeste = new Map<string, number>();
+  /** Intensite de l'eclat d'impact en cours (0 = aucun). */
+  let eclat = 0;
   const model: AnimatedModel = {
     root,
     mixer,
@@ -250,15 +291,40 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
         next.play();
         return;
       }
+      // Phase de l'animation precedente (0..1), a reprendre si demande.
+      const phase =
+        opts.syncPhase && currentAction && currentAction.getClip().duration > 0
+          ? (currentAction.time % currentAction.getClip().duration) / currentAction.getClip().duration
+          : null;
       next.reset();
       next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
       next.clampWhenFinished = !loop;
       next.timeScale = speed;
       next.enabled = true;
+      if (phase !== null) next.time = phase * clip.duration;
+      else if (opts.randomStart && loop) next.time = Math.random() * clip.duration;
       if (currentAction && currentAction !== next) next.crossFadeFrom(currentAction, opts.fade ?? 0.2, false);
       next.play();
       currentAction = next;
       model.current = name;
+    },
+    pulse(name, weight = 1) {
+      const clip = clips.get(name);
+      if (!clip) return;
+      // Pas deux gestes identiques a moins de 0,12 s (mitraillettes).
+      const now = performance.now();
+      if (now - (dernierGeste.get(name) ?? 0) < 120) return;
+      dernierGeste.set(name, now);
+      const action = mixer.clipAction(clipAdditif(clip), undefined, THREE.AdditiveAnimationBlendMode);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = false;
+      action.reset();
+      action.setEffectiveWeight(Math.min(1, Math.max(0, weight)));
+      action.play();
+    },
+    flash(color) {
+      for (const m of materials) m.emissive.setHex(color);
+      eclat = 1;
     },
     duration(name) {
       return clips.get(name)?.duration ?? 0;
@@ -268,6 +334,10 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
     },
     update(delta) {
       mixer.update(delta);
+      if (eclat > 0) {
+        eclat = Math.max(0, eclat - delta * 12);
+        for (const m of materials) m.emissiveIntensity = eclat * 0.9;
+      }
     },
     tint(match, color) {
       for (const m of materials) if (match(m.name)) m.color.setHex(color);

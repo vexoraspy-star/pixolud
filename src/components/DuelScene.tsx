@@ -1123,6 +1123,19 @@ export default function DuelScene({
       animGun: THREE.Group | null;
       lastAnimX: number;
       lastAnimZ: number;
+      /** Instant de la mort : le corps tombe, puis reste un moment au sol. */
+      diedAt: number;
+      /** Jusqu'a quand le corps reste visible avant de s'enfoncer dans le sol. */
+      corpseUntil: number;
+      /** Vitesse de marche lissee (cases/s) : evite les a-coups course/arret. */
+      animSpeed: number;
+      /** Direction de deplacement lissee, pour choisir course, pas de cote ou recul. */
+      velX: number;
+      velZ: number;
+      /** Orientation affichee : rattrape f.yaw sans pivoter d'un coup. */
+      drawYaw: number;
+      /** Animation de deplacement tenue au moins un instant (evite les clignotements). */
+      clipLockUntil: number;
     }
 
     const fighters: Fighter[] = [];
@@ -1203,6 +1216,13 @@ export default function DuelScene({
         animFlash: null,
         lastAnimX: spawn[0] + 0.5,
         lastAnimZ: spawn[1] + 0.5,
+        diedAt: -1,
+        corpseUntil: 0,
+        animSpeed: 0,
+        velX: 0,
+        velZ: 0,
+        drawYaw: 0,
+        clipLockUntil: 0,
       });
     }
 
@@ -1958,6 +1978,12 @@ export default function DuelScene({
       f.deathT = 0;
       f.respawnAt = elapsed + DUEL_RESPAWN_SECONDS;
       f.dance = null;
+      // Le corps tombe a la renverse, a l'oppose du tireur (l'animation Death
+      // part vers l'arriere), puis reste au sol un moment a cote de son butin.
+      f.diedAt = elapsed;
+      const tireur = byMe ? { x: me.x, z: me.z } : killer;
+      if (tireur) f.yaw = Math.atan2(tireur.x - f.x, tireur.z - f.z);
+      f.drawYaw = f.yaw;
       effects.blood(f.x * DUEL_CELL, 1.1, f.z * DUEL_CELL, 26);
       playDeath(audio.ctx, audio.master, panFor(f.x, f.z));
       if (training) {
@@ -1965,10 +1991,14 @@ export default function DuelScene({
         trainStats.kills += 1;
         trainStats.reactions.push(elapsed - f.spawnedAt);
         f.respawnAt = elapsed + 0.25;
+        f.corpseUntil = f.respawnAt - 0.05;
         me.score += 1;
         setMyScore(me.score);
         return;
       }
+      // Avec reapparition, le corps doit avoir disparu avant que le bot ne
+      // reapparaisse ailleurs ; en battle royale, il reste 8 s.
+      f.corpseUntil = mode.respawn ? f.respawnAt - 0.05 : elapsed + 8;
       maybeTaunt(killer);
       if (byMe) {
         me.score += 1;
@@ -2019,6 +2049,12 @@ export default function DuelScene({
       if (f.dead || !f.alive || ended) return;
       if (elapsed < f.safeUntil) return;
       f.hp = Math.max(0, f.hp - amount);
+      // Chaque balle se voit : le buste recule et le soldat s'eclaire un
+      // instant, sans casser sa course (geste additif, jambes epargnees).
+      if (f.hp > 0) {
+        f.anim?.pulse("HitRecieve", Math.min(1, 0.45 + amount / 60));
+        f.anim?.flash(0xffffff);
+      }
       // Touche : il se retourne contre son agresseur, ou qu'il soit.
       if (f.isBot && (byMe || attacker)) {
         f.targetIsMe = byMe;
@@ -2728,7 +2764,10 @@ export default function DuelScene({
           effects.tracer(s, e, spec.tracer);
           effects.sparks(e.x, e.y, e.z, 8);
           pingRadar(Number(p.x), Number(p.z));
-          if (remote) remote.flashUntil = elapsed + 0.05;
+          if (remote) {
+            remote.flashUntil = elapsed + 0.05;
+            remote.anim?.pulse("Gun_Shoot", 0.7);
+          }
         }
       }
       const r = link.current.remote;
@@ -3101,6 +3140,7 @@ export default function DuelScene({
             f.mag -= 1;
             f.nextShotAt = elapsed + spec.fireInterval * (1.3 + Math.random() * 0.5) * botCfg.fireDelay;
             f.flashUntil = elapsed + 0.05;
+            f.anim?.pulse("Gun_Shoot", 0.7);
             f.yaw = Math.atan2(wall.x + 0.5 - f.x, wall.y + 0.5 - f.z);
             playShot(audio.ctx, audio.master, panFor(f.x, f.z));
             effects.tracer(
@@ -3142,6 +3182,7 @@ export default function DuelScene({
       f.mag = Math.max(0, f.mag - (spec.burst ?? 1));
       f.nextShotAt = elapsed + spec.fireInterval * (1.7 + Math.random() * 0.8) * botCfg.fireDelay;
       f.flashUntil = elapsed + 0.05;
+      f.anim?.pulse("Gun_Shoot", 0.7);
       if (spec.silent) playCrossbow(audio.ctx, audio.master, panFor(f.x, f.z));
       else playShot(audio.ctx, audio.master, panFor(f.x, f.z));
       if (!spec.silent) pingRadar(f.x, f.z);
@@ -3623,15 +3664,28 @@ export default function DuelScene({
         // Sur l'ile, au-dela du brouillard on ne voit personne : inutile de
         // dessiner ou d'animer trente soldats.
         const inFog = island !== null && Math.hypot(f.x - me.x, f.z - me.z) > 66;
-        const visible = f.alive && (!f.dead || f.deathT < 1) && !inFog;
+        // Un mort reste au sol un moment (corpseUntil) au lieu de s'evaporer.
+        const corps = f.dead && elapsed < f.corpseUntil;
+        const visible = ((f.alive && !f.dead) || corps) && !inFog;
         f.model.group.visible = visible && !f.anim;
         if (f.anim) f.anim.root.visible = visible;
         if (!visible) continue;
         const bare = WEAPONS[f.weapon].melee === true;
         if (f.animGun) f.animGun.visible = !bare;
+        // Orientation affichee : rattrape le regard a 11 rad/s au plus, pour
+        // qu'un bot ne pivote pas de 180 degres en une image.
+        if (f.dead) f.drawYaw = f.yaw;
+        else {
+          let dy = f.yaw - f.drawYaw;
+          dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+          const pas = 11 * delta;
+          f.drawYaw += Math.abs(dy) <= pas ? dy : Math.sign(dy) * pas;
+        }
         if (f.anim) {
-          f.anim.root.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
-          f.anim.root.rotation.y = f.yaw;
+          // Les dernieres secondes, le corps s'enfonce doucement dans le sol.
+          const enfonce = f.dead ? THREE.MathUtils.clamp(1 - (f.corpseUntil - elapsed), 0, 1) * 0.6 : 0;
+          f.anim.root.position.set(f.x * DUEL_CELL, f.air - enfonce, f.z * DUEL_CELL);
+          f.anim.root.rotation.y = f.drawYaw;
           // Danse de victoire : la choregraphie remplace les animations.
           if (f.dance && elapsed < f.danceUntil && !f.dead) {
             if (!f.dancer) f.dancer = createDancer(f.anim);
@@ -3642,37 +3696,65 @@ export default function DuelScene({
             continue;
           }
           if (f.dancer?.current) f.dancer.start(null);
-          // Sens du deplacement par rapport au regard : course, pas de cote, recul.
+          // Vitesse et direction reelles, lissees : le deplacement d'une seule
+          // image est trop bruite (un bot contre un mur clignotait entre
+          // course et arret, et ses pieds sautaient d'une animation a l'autre).
           const mdx = f.x - f.lastAnimX;
           const mdz = f.z - f.lastAnimZ;
           f.lastAnimX = f.x;
           f.lastAnimZ = f.z;
+          const lisse = Math.min(1, delta * 10);
+          const inst = delta > 0 ? 1 / delta : 0;
+          // Au-dela d'un saut de 2 cases (reapparition, teleportation), on repart de zero.
+          const teleporte = Math.hypot(mdx, mdz) > 2;
+          f.velX = teleporte ? 0 : f.velX + (mdx * inst - f.velX) * lisse;
+          f.velZ = teleporte ? 0 : f.velZ + (mdz * inst - f.velZ) * lisse;
+          f.animSpeed = Math.hypot(f.velX, f.velZ);
           const shooting = elapsed < f.flashUntil + 0.35;
+          const enDeplacement = f.anim.current?.startsWith("Run") || f.anim.current === "Walk";
+          // Hysteresis : on part au-dessus de 0,8 case/s, on s'arrete sous 0,4.
+          const bouge = f.animSpeed > (enDeplacement ? 0.4 : 0.8);
           let clip: string;
           if (f.dead) clip = "Death";
-          else if (f.air > 0.5) clip = "Idle_Gun_Pointing";
-          else if (f.speed > 0.6) {
-            const forward = mdx * Math.sin(f.yaw) + mdz * Math.cos(f.yaw);
-            const right = -mdx * Math.cos(f.yaw) + mdz * Math.sin(f.yaw);
-            if (Math.abs(right) > Math.abs(forward) * 1.2) clip = right > 0 ? "Run_Right" : "Run_Left";
+          else if (f.air > 0.12) clip = "Idle_Gun_Pointing";
+          else if (elapsed < f.clipLockUntil && enDeplacement && f.anim.current) clip = f.anim.current;
+          else if (bouge) {
+            const forward = f.velX * Math.sin(f.drawYaw) + f.velZ * Math.cos(f.drawYaw);
+            const right = -f.velX * Math.cos(f.drawYaw) + f.velZ * Math.sin(f.drawYaw);
+            if (f.animSpeed < 2.2 && forward > 0 && f.anim.has("Walk")) clip = "Walk";
+            else if (Math.abs(right) > Math.abs(forward) * 1.2) clip = right > 0 ? "Run_Right" : "Run_Left";
             else if (forward < 0) clip = "Run_Back";
             else clip = shooting && !bare ? "Run_Shoot" : "Run";
+            if (clip !== f.anim.current) f.clipLockUntil = elapsed + 0.2;
           } else if (bare) {
             // Mains nues : pas de pose d'arme.
             clip = "Idle_Neutral";
           } else {
-            clip = shooting ? "Idle_Gun_Shoot" : f.seenFor > 0 ? "Idle_Gun_Pointing" : "Idle_Gun";
+            clip = shooting ? "Idle_Gun_Pointing" : f.seenFor > 0 ? "Idle_Gun_Pointing" : "Idle_Gun";
           }
-          f.anim.play(clip, { loop: clip !== "Death", fade: clip === "Death" ? 0.08 : 0.18 });
-          if (clip.startsWith("Run")) f.anim.setSpeed(THREE.MathUtils.clamp(f.speed / 4, 0.7, 1.5));
-          f.anim.update(delta);
+          const deplacement = clip.startsWith("Run") || clip === "Walk";
+          f.anim.play(clip, {
+            loop: clip !== "Death",
+            fade: clip === "Death" ? 0.08 : 0.18,
+            // Les boucles d'attente demarrent a un instant au hasard : trente
+            // bots ne respirent plus tous en meme temps.
+            randomStart: !deplacement && clip !== "Death",
+            // Entre deux courses, la foulee continue au lieu de repartir du debut.
+            syncPhase: deplacement,
+          });
+          if (clip === "Walk") f.anim.setSpeed(THREE.MathUtils.clamp(f.animSpeed / 1.6, 0.6, 1.3));
+          else if (clip.startsWith("Run")) f.anim.setSpeed(THREE.MathUtils.clamp(f.animSpeed / 4, 0.7, 1.5));
+          // Une fois la chute terminee, le corps garde sa pose : plus besoin
+          // de faire tourner le squelette.
+          const chuteFinie = f.dead && f.diedAt >= 0 && elapsed - f.diedAt > f.anim.duration("Death") + 0.15;
+          if (!chuteFinie) f.anim.update(delta);
           if (f.animFlash) {
             f.animFlash.visible = elapsed < f.flashUntil;
             f.animFlash.rotation.z = Math.random() * Math.PI;
           }
         } else {
           f.model.group.position.set(f.x * DUEL_CELL, f.air, f.z * DUEL_CELL);
-          f.model.group.rotation.y = f.yaw;
+          f.model.group.rotation.y = f.drawYaw;
           poseSoldier(f.model, {
             walk: f.walkPhase,
             speed: f.dead ? 0 : f.speed,
