@@ -3,7 +3,8 @@ import { useRouter } from "next/navigation";
 import { LANG_COOKIE, LANGUAGE_META, LOCALES, translate, type Locale } from "@/lib/i18n";
 import useHeaderPopover from "./useHeaderPopover";
 function saveLanguage(loc: Locale) {
-  document.cookie = LANG_COOKIE + "=" + loc + "; path=/; max-age=31536000; SameSite=Lax";
+  // Secure : le cookie ne voyage que sur HTTPS (localhost reste accepte par les navigateurs).
+  document.cookie = LANG_COOKIE + "=" + loc + "; path=/; max-age=31536000; SameSite=Lax; Secure";
 }
 export default function LanguageSwitcher({ current }: { current: Locale }) {
   const { open, setOpen, root, trigger } = useHeaderPopover();
