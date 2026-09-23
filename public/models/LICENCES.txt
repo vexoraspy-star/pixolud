@@ -11,3 +11,14 @@ reechantillonnage et quantification avec gltf-transform).
 - zombie-a.glb    « Zombie »      https://poly.pizza/m/VlXjG0N8Eg
 - zombie-b.glb    « Zombie »      https://poly.pizza/m/JoBvxIUpZP
 - soldat-swat.glb « SWAT »        https://poly.pizza/m/Btfn3G5Xv4
+
+colosse.glb — les combattants de Colosses
+-----------------------------------------
+Mannequin, squelette et animations : Mesh2Motion (licence CC0 1.0),
+https://github.com/Mesh2Motion/mesh2motion-app (fichiers human-addon-animations.glb
+et human-base-animations.glb, dont les animations « base » correspondent a la
+Universal Animation Library de Quaternius, elle aussi CC0).
+Assemble le 23/09/2026 dans Blender : 21 animations choisies et renommees, un
+coup de pied cree pour le jeu, corps decoupe en zones de couleur, deplacement
+de la racine retire. Aucune capture de mouvement de Carnegie Mellon (licence
+non libre) n'a ete utilisee.

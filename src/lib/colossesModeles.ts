@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Colosse } from "./colosses";
+import type { AnimatedModel } from "./models3d";
 
 /**
  * Les combattants de Colosses, construits en volumes simples.
@@ -286,4 +287,126 @@ export function construireColosse(perso: Colosse, garder: Garder): ModeleColosse
   ombre.position.y = 0.01;
 
   return { racine, os, ombre, hauteurBassin };
+}
+
+// ------------------------------------------------------------------------
+// Le combattant anime (public/models/colosse.glb).
+//
+// Un seul mannequin CC0 (Mesh2Motion) et ses animations pour les quatre
+// combattants : ce qui les distingue, ce sont les couleurs de chaque zone du
+// corps (le fichier est decoupe en Peau, Haut, Bras, Gants, Bas, Bottes) et
+// les pieces accrochees aux os — casque, capuche, masque, cape, epaulieres.
+// Une piece suit son os : un casque bouge avec la tete dans toutes les
+// animations, sans rien calculer de plus.
+// ------------------------------------------------------------------------
+
+type Zone = "Peau" | "Haut" | "Bras" | "Gants" | "Bas" | "Bottes";
+
+/** Les couleurs de chaque zone du corps, selon le personnage. */
+function couleursZones(perso: Colosse): Record<Zone, number> {
+  const { peau, armure } = perso;
+  const tissu = perso.allure.tissu;
+  switch (perso.allure.tete) {
+    case "crane": // Roc : bras nus, gilet de cuir, pantalon sombre
+      return { Peau: peau, Bras: peau, Haut: tissu, Gants: armure, Bas: armure, Bottes: 0x2a2320 };
+    case "casque": // Lame : armure complete sur une tunique
+      return { Peau: peau, Bras: armure, Haut: armure, Gants: 0x1a1f26, Bas: tissu, Bottes: armure };
+    case "masque": // Eclair : tenue sombre, bras nus
+      return { Peau: peau, Bras: peau, Haut: tissu, Gants: armure, Bas: tissu, Bottes: 0x151515 };
+    case "capuche": // Brume : robe et capuche
+    default:
+      return { Peau: peau, Bras: tissu, Haut: tissu, Gants: armure, Bas: armure, Bottes: 0x1b1626 };
+  }
+}
+
+/**
+ * Habille le mannequin anime aux couleurs du personnage et lui accroche ses
+ * pieces distinctives. Tout ce qui est cree passe par `garder` pour etre
+ * libere avec la scene.
+ */
+export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: Garder): void {
+  const zones = couleursZones(perso);
+  for (const [zone, couleur] of Object.entries(zones)) {
+    modele.tint((nom) => nom === zone, couleur);
+  }
+
+  const { allure } = perso;
+  const armure = garder(new THREE.MeshLambertMaterial({ color: perso.armure }));
+  const tissu = garder(new THREE.MeshLambertMaterial({ color: allure.tissu }));
+  const lueur = garder(new THREE.MeshBasicMaterial({ color: perso.accent }));
+  const sombre = garder(new THREE.MeshLambertMaterial({ color: 0x07070b }));
+  const boite = (l: number, h: number, p: number, m: THREE.Material, x = 0, y = 0, z = 0) => {
+    const b = new THREE.Mesh(garder(new THREE.BoxGeometry(l, h, p)), m);
+    b.position.set(x, y, z);
+    return b;
+  };
+  /** Un groupe accroche a un os, oriente comme le personnage (+Z devant). */
+  const piece = (os: string, ...enfants: THREE.Object3D[]) => {
+    const g = new THREE.Group();
+    for (const e of enfants) g.add(e);
+    modele.attach(os, g, "Idle");
+  };
+
+  switch (allure.tete) {
+    case "crane": {
+      // Roc : barbe carree, epaulieres cloutees, large ceinture.
+      piece("head", boite(0.17, 0.11, 0.07, tissu, 0, 0.06, 0.1));
+      // Accrochees a l'epaule elle-meme : la clavicule part du sternum.
+      for (const [os, cote] of [["upperarm_l", 1], ["upperarm_r", -1]] as const) {
+        const plaque = boite(0.2, 0.09, 0.22, armure, cote * 0.02, 0.07, 0);
+        plaque.rotation.z = cote * -0.35;
+        piece(os, plaque, boite(0.05, 0.05, 0.05, lueur, cote * 0.06, 0.13, 0));
+      }
+      piece("pelvis", boite(0.42, 0.1, 0.3, armure, 0, 0.1, 0), boite(0.1, 0.08, 0.02, lueur, 0, 0.1, 0.16));
+      break;
+    }
+    case "casque": {
+      // Lame : casque ferme a visiere lumineuse, cimier, cape, embleme.
+      piece(
+        "head",
+        boite(0.28, 0.34, 0.31, armure, 0, 0.09, 0.015),
+        boite(0.2, 0.035, 0.02, lueur, 0, 0.12, 0.175),
+        boite(0.05, 0.13, 0.3, tissu, 0, 0.3, -0.005),
+      );
+      const cape = boite(0.46, 0.95, 0.03, tissu, 0, -0.42, -0.14);
+      cape.rotation.x = 0.12;
+      piece("spine_03", cape, boite(0.12, 0.12, 0.03, lueur, 0, 0.1, 0.13));
+      break;
+    }
+    case "masque": {
+      // Eclair : masque sur le bas du visage, bandeau et ses deux pans,
+      // bracelets qui brillent.
+      piece(
+        "head",
+        boite(0.24, 0.12, 0.25, tissu, 0, 0.04, 0.02),
+        boite(0.25, 0.05, 0.26, tissu, 0, 0.19, 0),
+        boite(0.04, 0.2, 0.02, tissu, 0.04, 0.12, -0.14),
+        boite(0.04, 0.16, 0.02, tissu, -0.02, 0.1, -0.15),
+        boite(0.05, 0.02, 0.01, lueur, 0.05, 0.13, 0.13),
+        boite(0.05, 0.02, 0.01, lueur, -0.05, 0.13, 0.13),
+      );
+      // Au poignet : l'os de la main part exactement de la.
+      for (const os of ["hand_l", "hand_r"]) {
+        piece(os, boite(0.08, 0.07, 0.08, lueur));
+      }
+      break;
+    }
+    case "capuche":
+    default: {
+      // Brume : capuche profonde, visage dans l'ombre, deux yeux qui
+      // brillent, longue cape.
+      piece(
+        "head",
+        boite(0.32, 0.34, 0.32, tissu, 0, 0.13, -0.02),
+        boite(0.2, 0.18, 0.02, sombre, 0, 0.1, 0.14),
+        boite(0.05, 0.022, 0.01, lueur, 0.05, 0.12, 0.155),
+        boite(0.05, 0.022, 0.01, lueur, -0.05, 0.12, 0.155),
+        boite(0.16, 0.16, 0.16, tissu, 0, 0.3, -0.12),
+      );
+      const cape = boite(0.5, 1.05, 0.03, tissu, 0, -0.46, -0.14);
+      cape.rotation.x = 0.1;
+      piece("spine_03", cape);
+      break;
+    }
+  }
 }

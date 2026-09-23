@@ -21,12 +21,13 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * jeux gardent alors leur modele dessine en code.
  */
 
-export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat";
+export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat" | "colosse";
 
 const MODEL_URL: Record<ModelId, string> = {
   "zombie-a": "/models/zombie-a.glb",
   "zombie-b": "/models/zombie-b.glb",
   "soldat-swat": "/models/soldat-swat.glb",
+  colosse: "/models/colosse.glb",
 };
 
 const cache = new Map<ModelId, Promise<GLTF>>();
@@ -131,8 +132,14 @@ export interface AnimatedModel {
   /** Nom de l'animation en cours. */
   current: string | null;
   has(name: string): boolean;
-  /** Joue une animation (fondu depuis la precedente). Sans effet si elle tourne deja. */
-  play(name: string, opts?: { fade?: number; loop?: boolean; speed?: number }): void;
+  /**
+   * Joue une animation (fondu depuis la precedente). Sans effet si elle tourne
+   * deja, sauf avec `restart` : deux coups de poing de suite doivent repartir
+   * du debut.
+   */
+  play(name: string, opts?: { fade?: number; loop?: boolean; speed?: number; restart?: boolean }): void;
+  /** Duree d'une animation, en secondes (0 si elle n'existe pas). */
+  duration(name: string): number;
   /** Vitesse de l'animation en cours (pour caler la foulee sur la vitesse reelle). */
   setSpeed(speed: number): void;
   update(delta: number): void;
@@ -228,12 +235,21 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
       const clip = clips.get(name);
       if (!clip) return;
       const speed = opts.speed ?? 1;
-      if (model.current === name && currentAction) {
+      if (model.current === name && currentAction && !opts.restart) {
         currentAction.timeScale = speed;
         return;
       }
       const loop = opts.loop ?? true;
       const next = mixer.clipAction(clip);
+      if (next === currentAction) {
+        // Meme animation relancee : on repart du debut, sans fondu sur soi-meme.
+        next.reset();
+        next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+        next.clampWhenFinished = !loop;
+        next.timeScale = speed;
+        next.play();
+        return;
+      }
       next.reset();
       next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
       next.clampWhenFinished = !loop;
@@ -243,6 +259,9 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
       next.play();
       currentAction = next;
       model.current = name;
+    },
+    duration(name) {
+      return clips.get(name)?.duration ?? 0;
     },
     setSpeed(speed) {
       if (currentAction) currentAction.timeScale = speed;

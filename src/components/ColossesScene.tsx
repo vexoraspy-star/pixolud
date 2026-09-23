@@ -23,7 +23,8 @@ import {
   type CoupId,
   type Difficulte,
 } from "@/lib/colosses";
-import { construireColosse, type ModeleColosse } from "@/lib/colossesModeles";
+import { construireColosse, habillerColosse, type ModeleColosse } from "@/lib/colossesModeles";
+import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import { appliquerPose, poseCible, vitessePose, type EtatAnim } from "@/lib/colossesPoses";
 import {
   creerAudio,
@@ -118,6 +119,22 @@ interface Lutteur {
   flash: number;
   /** Orientation lissee du corps (le tourbillon s'y ajoute). */
   tourne: number;
+  /**
+   * Le combattant anime (mannequin CC0 et vraies animations). Nul tant que le
+   * fichier charge, ou si le reseau echoue : le modele dessine en code prend
+   * alors le relais, sans que la partie s'arrete.
+   */
+  anime: AnimatedModel | null;
+  /** Animations choisies au moment de l'action (variantes tirees au sort). */
+  clipCoup: string;
+  clipTouche: string;
+  clipKo: string;
+  /** Le coup (ou l'impact) dont l'animation a deja ete lancee : un nouveau la relance. */
+  coupJoue: unknown;
+  /** Nombre de coups encaisses : chaque nouvel impact relance l'animation « touche ». */
+  impacts: number;
+  /** Alterne direct et cross, pour que deux coups de poing ne se ressemblent pas. */
+  poingSuivant: number;
 }
 
 /** L'onde de choc d'Eclair : un projectile qui traverse l'arene. */
@@ -391,12 +408,37 @@ export default function ColossesScene({
         victoire: false,
         flash: 0,
         tourne: (sens * Math.PI) / 2,
+        anime: null,
+        clipCoup: "Direct",
+        clipTouche: "Touche",
+        clipKo: "KO_A",
+        coupJoue: null,
+        impacts: 0,
+        poingSuivant: 0,
       };
     }
 
     const a = nouveauLutteur("A", persoA);
     const b = nouveauLutteur("B", persoB);
     const lutteurs = [a, b];
+
+    // Les vrais combattants animes arrivent des que le fichier est la. En
+    // attendant (ou si le reseau echoue), le modele dessine en code se bat.
+    let detruit = false;
+    for (const l of lutteurs) {
+      createAnimatedModel("colosse", 2.05)
+        .then((m) => {
+          if (detruit) {
+            m.dispose();
+            return;
+          }
+          habillerColosse(m, l.perso, garder);
+          l.anime = m;
+          l.modele.os.corps!.visible = false;
+          l.modele.racine.add(m.root);
+        })
+        .catch(() => {});
+    }
 
     // ============================================================= effets
     const etincelleGeo = garder(new THREE.SphereGeometry(0.08, 5, 4));
@@ -489,6 +531,8 @@ export default function ColossesScene({
      * sans lui, les poings traversent les corps comme du vent.
      */
     let gel = 0;
+    /** Temps reel restant au ralenti (le K.O.). */
+    let ralenti = 0;
 
     function publier() {
       etatRef.current({
@@ -543,11 +587,16 @@ export default function ColossesScene({
         l.bloque = false;
         l.accroupi = false;
         l.sonne = 0;
-        if (parKo && l.vie <= 0) l.ko = true;
-        else l.encaisse = 0;
+        if (parKo && l.vie <= 0) {
+          l.ko = true;
+          l.clipKo = ["KO_A", "KO_B", "KO_C"][Math.floor(Math.random() * 3)];
+        } else l.encaisse = 0;
       }
       tremblement = parKo ? 0.45 : 0;
       gel = parKo ? 0.35 : 0;
+      // Le K.O. se regarde au ralenti, camera au plus pres : c'est le moment
+      // que le joueur racontera.
+      ralenti = parKo ? 1.6 : 0;
       sonKo(audio);
     }
 
@@ -562,6 +611,16 @@ export default function ColossesScene({
         eclats(l.x, l.y + 1.3, l.perso.accent, 12);
       }
       l.coup = { id, t: 0, touche: false };
+      if (id === "poing") {
+        l.clipCoup = l.poingSuivant % 2 === 0 ? "Direct" : "Cross";
+        l.poingSuivant++;
+      } else if (id === "pied") {
+        l.clipCoup = "Pied";
+      } else {
+        const special = l.perso.special;
+        l.clipCoup =
+          special === "uppercut" ? "Crochet" : special === "charge" ? "Charge" : special === "onde" ? "Blast" : "Pied";
+      }
     }
 
     /**
@@ -580,6 +639,11 @@ export default function ColossesScene({
       cible.sonne = bloque ? 0.12 : degats * ETOURDISSEMENT;
       cible.repit = bloque ? 0.12 : REPIT;
       cible.encaisse = bloque ? 0 : 0.3;
+      // Les gros coups projettent, les autres font reculer la tete ou le buste.
+      cible.clipTouche =
+        id === "special" ? "Projete" : coup.hauteur === "haut" || Math.random() < 0.5 ? "ToucheTete" : "Touche";
+      if (id === "special" && !bloque) cible.encaisse = 0.55;
+      if (!bloque) cible.impacts++;
       cible.flash = bloque ? 0.05 : 0.14;
       // Les deux reculent : l'attaquant doit revenir, donc il ne peut pas
       // rester colle a marteler le meme bouton.
@@ -788,6 +852,61 @@ export default function ColossesScene({
       return "garde";
     }
 
+    /**
+     * Le combattant anime : quelle animation jouer, et a quelle vitesse.
+     *
+     * Un coup est cale sur la duree reelle du coup dans le moteur : le poing
+     * part, touche et revient exactement quand les regles le disent, quelle
+     * que soit la longueur de l'animation d'origine.
+     */
+    function animerModele(l: Lutteur, m: AnimatedModel, etat: EtatAnim, dt: number) {
+      switch (etat) {
+        case "ko":
+          m.play(l.clipKo, { loop: false, fade: 0.12 });
+          break;
+        case "victoire":
+          m.play(phase === "fini" ? "Victoire" : "VictoirePoing", { fade: 0.3 });
+          break;
+        case "coup": {
+          const coup = l.coup!;
+          const c = COUPS[coup.id];
+          const facteur = 1 / (0.75 + l.perso.vitesse * 0.25);
+          const reel = (c.preparation + c.actif + c.recuperation) * facteur;
+          const vitesse = THREE.MathUtils.clamp(m.duration(l.clipCoup) / reel, 0.6, 3.2);
+          const nouveau = l.coupJoue !== coup;
+          l.coupJoue = coup;
+          m.play(l.clipCoup, { loop: false, fade: 0.06, speed: vitesse, restart: nouveau });
+          break;
+        }
+        case "touche": {
+          const nouveau = l.coupJoue !== l.clipTouche + l.impacts;
+          l.coupJoue = l.clipTouche + l.impacts;
+          m.play(l.clipTouche, { loop: false, fade: 0.05, speed: 1.35, restart: nouveau });
+          break;
+        }
+        case "saut":
+          m.play("Saut", { fade: 0.15 });
+          break;
+        case "accroupi":
+          m.play("Accroupi", { fade: 0.12 });
+          break;
+        case "bloc":
+          m.play("Bloc", { fade: 0.08 });
+          break;
+        case "marche":
+          m.play("Marche", { fade: 0.2, speed: 1.15 * l.perso.vitesse });
+          break;
+        case "recul":
+          m.play("Recul", { fade: 0.2, speed: l.perso.vitesse });
+          break;
+        default:
+          if (phase === "annonce" && chrono < 1.5) m.play("PowerUp", { loop: false, fade: 0.25 });
+          else if (l.sonne > 0.25) m.play("Etourdi", { fade: 0.2 });
+          else m.play("Idle", { fade: 0.18 });
+      }
+      m.update(dt);
+    }
+
     /** Pose le squelette et place le personnage dans l'arene. */
     function animer(l: Lutteur, dt: number) {
       const etat = etatAnim(l);
@@ -810,7 +929,8 @@ export default function ColossesScene({
         finActif,
         perso: l.perso,
       });
-      appliquerPose(l.modele.os, cible, dt, vitessePose(etat), l.modele.hauteurBassin);
+      if (l.anime) animerModele(l, l.anime, etat, dt);
+      else appliquerPose(l.modele.os, cible, dt, vitessePose(etat), l.modele.hauteurBassin);
 
       const { racine, ombre, os } = l.modele;
 
@@ -825,7 +945,7 @@ export default function ColossesScene({
 
       // Au sol, le corps couche deborde sous les dalles : on le remonte
       // d'autant qu'il a bascule.
-      const bascule = os.corps ? Math.max(0, -Math.sin(os.corps.rotation.x)) : 0;
+      const bascule = !l.anime && os.corps ? Math.max(0, -Math.sin(os.corps.rotation.x)) : 0;
       racine.position.set(l.x, l.y + bascule * 0.24, 0);
 
       // L'ombre reste au sol et retrecit quand on saute.
@@ -846,17 +966,24 @@ export default function ColossesScene({
       const maintenant = performance.now();
       // Plafonne : apres un changement d'onglet, un delta enorme ferait
       // traverser l'arene d'un coup.
-      const dt = Math.min((maintenant - derniere) / 1000, 0.1);
+      const dtReel = Math.min((maintenant - derniere) / 1000, 0.1);
       derniere = maintenant;
-      horloge += dt;
 
       // Arret sur image : on dessine, mais le temps du combat ne s'ecoule
       // pas. Les touches pressees pendant ce temps restent en attente.
       if (gel > 0) {
-        gel -= dt;
+        gel -= dtReel;
         renderer.render(scene, camera);
         return;
       }
+      // Ralenti du K.O. : tout le monde (regles, animations, particules)
+      // vit au tiers de sa vitesse pendant un instant.
+      let dt = dtReel;
+      if (ralenti > 0) {
+        ralenti -= dtReel;
+        dt = dtReel * 0.35;
+      }
+      horloge += dt;
       chrono += dt;
 
       // --- Le deroulement du round ---
@@ -977,19 +1104,21 @@ export default function ColossesScene({
       // ils s'eloignent : on doit toujours voir les deux combattants.
       const milieu = (a.x + b.x) / 2;
       const distance = Math.abs(a.x - b.x);
-      const recul = THREE.MathUtils.clamp(8 + distance * 0.55, 9, 15.5);
-      const suivi = 1 - Math.exp(-4 * dt);
-      const visee = milieu * 0.85;
+      // Au ralenti du K.O., la camera plonge vers celui qui tombe.
+      const tombe = ralenti > 0 ? lutteurs.find((l) => l.ko) : undefined;
+      const recul = tombe ? 5.2 : THREE.MathUtils.clamp(8 + distance * 0.55, 9, 15.5);
+      const suivi = 1 - Math.exp(-(tombe ? 6 : 4) * dtReel);
+      const visee = tombe ? tombe.x : milieu * 0.85;
       camera.position.x += (visee - camera.position.x) * suivi;
-      camera.position.y += (2.4 - camera.position.y) * suivi;
-      camera.position.z += (recul - camera.position.z) * (1 - Math.exp(-3 * dt));
+      camera.position.y += ((tombe ? 1.6 : 2.4) - camera.position.y) * suivi;
+      camera.position.z += (recul - camera.position.z) * (1 - Math.exp(-(tombe ? 5 : 3) * dtReel));
       // Petit tremblement sur les gros impacts : on SENT le coup.
       if (tremblement > 0) {
         tremblement -= dt;
         camera.position.x += (Math.random() - 0.5) * tremblement * 0.5;
         camera.position.y += (Math.random() - 0.5) * tremblement * 0.5;
       }
-      camera.lookAt(visee, 1.3, 0);
+      camera.lookAt(visee, tombe ? 0.9 : 1.3, 0);
 
       publier();
       fraiches.clear();
@@ -1009,7 +1138,9 @@ export default function ColossesScene({
     window.addEventListener("resize", onResize);
 
     return () => {
+      detruit = true;
       window.clearInterval(minuteur);
+      for (const l of lutteurs) l.anime?.dispose();
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
