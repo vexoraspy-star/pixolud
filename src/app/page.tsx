@@ -4,7 +4,7 @@ import GameCard from "@/components/GameCard";
 import { getMemberCount, getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORIES, type Game } from "@/lib/types";
-import { translate, type Locale } from "@/lib/i18n";
+import { categoryLabel, translate, type Locale } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 
 function pickGameOfTheDay(games: Game[]): Game | null {
@@ -28,6 +28,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Devinettes: "🔍",
   Éducation: "🎓",
   Python: "🐍",
+  "Game Script": "⌨️",
 };
 
 export default async function Home() {
@@ -63,7 +64,7 @@ export default async function Home() {
     <div className="flex flex-col">
       <section className="home-hero portal-container">
         <div className="home-hero-copy">
-          <p className="eyebrow"><span />JOUE. IMAGINE. RECOMMENCE.</p>
+          <p className="eyebrow"><span />{t("home.eyebrow")}</p>
           <h1>{t("home.title")}</h1>
           <p className="portal-description">{t("home.subtitle")}</p>
           <div className="hero-actions">
@@ -80,16 +81,16 @@ export default async function Home() {
         <div className="hero-showcase">
           <Link href="/mode-3d/cubes" className="showcase-main">
             <GameArtwork kind="cubes" priority />
-            <span className="showcase-tag">À DÉCOUVRIR · MODE 3D</span>
-            <div className="showcase-caption"><div><span>Un monde à façonner</span><h2>Cubes</h2></div><span className="showcase-arrow" aria-hidden="true">↗</span></div>
+            <span className="showcase-tag">{t("home.showcaseTag")}</span>
+            <div className="showcase-caption"><div><span>{t("home.cubesCaption")}</span><h2>Cubes</h2></div><span className="showcase-arrow" aria-hidden="true">↗</span></div>
           </Link>
-          <Link href="/mode-3d/backrooms" className="showcase-small"><GameArtwork kind="backrooms" /><span>Une autre dimension<strong>Backrooms <span aria-hidden="true">↗</span></strong></span></Link>
-          <span className="showcase-note">DIRECTEMENT DANS TON NAVIGATEUR</span>
+          <Link href="/mode-3d/backrooms" className="showcase-small"><GameArtwork kind="backrooms" /><span>{t("home.backroomsCaption")}<strong>Backrooms <span aria-hidden="true">↗</span></strong></span></Link>
+          <span className="showcase-note">{t("home.showcaseNote")}</span>
         </div>
       </section>
       <div className="portal-container">
         <div className="community-strip">
-          <span className="community-label"><span className="live-dot" /> La communauté Pixolud</span>
+          <span className="community-label"><span className="live-dot" /> {t("home.community")}</span>
           <span><strong>{games.length}</strong> {t(games.length !== 1 ? "home.statsGames" : "home.statsGame")}</span>
           <span><strong>{memberCount}</strong> {t(memberCount !== 1 ? "home.statsMembers" : "home.statsMember")}</span>
           <span><strong>{totalPlays.toLocaleString(locale)}</strong> {t(totalPlays !== 1 ? "home.statsPlays" : "home.statsPlay")}</span>
@@ -106,7 +107,7 @@ export default async function Home() {
               className="category-chip"
             >
               <span>{CATEGORY_EMOJI[cat]}</span>
-              {cat}
+              {categoryLabel(locale, cat)}
             </Link>
           ))}
         </div>
@@ -162,7 +163,7 @@ function GameOfTheDay({
         <div className="daily-art"><GameArtwork kind={game.category} cover={game.coverUrl} /></div>
         <div className="flex flex-1 flex-col justify-center gap-2 p-6">
           <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-            {game.category}
+            {categoryLabel(locale, game.category)}
           </span>
           <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
             {game.title}

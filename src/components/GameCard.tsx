@@ -1,7 +1,7 @@
 import GameArtwork from "./GameArtwork";
 import Link from "next/link";
 import type { Game } from "@/lib/types";
-import { translate, type Locale } from "@/lib/i18n";
+import { categoryLabel, translate, type Locale } from "@/lib/i18n";
 
 export default function GameCard({ game, locale = "fr" }: { game: Game; locale?: Locale }) {
   const t = (key: string) => translate(locale, key);
@@ -12,11 +12,11 @@ export default function GameCard({ game, locale = "fr" }: { game: Game; locale?:
     >
       <div className={"card-cover bg-gradient-to-br " + game.gradient}><GameArtwork kind={game.category} cover={game.coverUrl} />
         <span className="card-play" aria-hidden="true">↗</span>
-        <span className="cover-label">{game.emoji} {game.category}</span>
+        <span className="cover-label">{game.emoji} {categoryLabel(locale, game.category)}</span>
       </div>
       <div className="card-body flex flex-1 flex-col gap-2 p-5">
         <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-          {game.category}
+          {categoryLabel(locale, game.category)}
         </span>
         <h3 className="font-semibold text-zinc-900 group-hover:text-violet-600 dark:text-white">
           {game.title}

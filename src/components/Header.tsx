@@ -20,9 +20,9 @@ export default async function Header() {
 
   return (
     <header data-site-chrome className="site-header">
-      <a href="#contenu" className="skip-link">Aller au contenu</a>
+      <a href="#contenu" className="skip-link">{t("a11y.skip")}</a>
       <div className="header-inner">
-        <Link href="/" className="brand" aria-label="Pixolud, accueil">
+        <Link href="/" className="brand" aria-label={t("a11y.home")}>
           <span className="brand-mark" aria-hidden="true">✣</span>
           <span>Pixolud<span className="brand-caption">Made by Tarendra</span></span>
         </Link>
@@ -33,15 +33,15 @@ export default async function Header() {
               <summary>{badge} {pseudo}<span aria-hidden="true">⌄</span></summary>
               <div className="account-dropdown">
                 <Link href={"/profil/" + pseudo}>{pseudo}</Link>
-                <Link href="/favoris">★ Mes favoris</Link>
-                <Link href="/amis">👥 Mes amis</Link>
-                {isAdmin && <Link href="/admin">🛡 Panneau admin</Link>}
+                <Link href="/favoris">★ {t("nav.favorites")}</Link>
+                <Link href="/amis">👥 {t("nav.friends")}</Link>
+                {isAdmin && <Link href="/admin">🛡 {t("nav.admin")}</Link>}
                 <Link href="/parametres">{t("nav.settings")}</Link>
                 <form action={logout}><button type="submit">{t("nav.logout")}</button></form>
               </div>
             </details> : <Link href="/connexion" className="portal-button small">{t("nav.login")}</Link>}
           </div>
-          <TrophyPanel />
+          <TrophyPanel locale={locale} />
           <LanguageSwitcher current={locale} />
           <MobileMenu pseudo={pseudo} locale={locale} isAdmin={isAdmin} />
         </div>

@@ -8,7 +8,7 @@ const links = [["/catalogue", "nav.catalogue"], ["/mode-3d", "nav.mode3d"], ["/m
 
 export default function PortalNavigation({ locale }: { locale: Locale }) {
   const pathname = usePathname();
-  return <nav className="desktop-navigation" aria-label="Navigation principale">
+  return <nav className="desktop-navigation" aria-label={translate(locale, "a11y.mainNav")}>
     {links.map(([href, label]) => <Link key={href} href={href} aria-current={pathname === href || pathname.startsWith(href + "/") ? "page" : undefined} className={href === "/premium" ? "premium-link" : undefined}>{translate(locale, label)}</Link>)}
   </nav>;
 }

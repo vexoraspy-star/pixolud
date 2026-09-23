@@ -12,6 +12,8 @@ import GameCard from "@/components/GameCard";
 import { getPublishedGames } from "@/lib/games";
 import { CATEGORIES } from "@/lib/types";
 import { CATEGORIES_SEO } from "@/lib/categoriesSeo";
+import { categoryLabel, translate } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 
 type SearchParams = Promise<{
   q?: string;
@@ -27,6 +29,8 @@ export default async function CataloguePage({
 }) {
   const { q = "", categorie = "", tri = "popularite", note = "" } = await searchParams;
   const allGames = await getPublishedGames();
+  const locale = await getLocale();
+  const t = (key: string) => translate(locale, key);
   const minNote = Number(note) || 0;
 
   const keywords = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -56,67 +60,67 @@ export default async function CataloguePage({
 
   return (
     <div className="portal-container portal-page">
-      <PortalHeading eyebrow="LE COIN DES CURIEUX" title="Trouve ta prochaine partie." description="Des mini-jeux imaginés par la communauté. Une envie, un clic, et c’est parti." />
-      <div className="section-title"><h2>Catalogue de jeux</h2><span>{games.length} jeu{games.length > 1 ? "x" : ""} trouvé{games.length > 1 ? "s" : ""}</span></div>
+      <PortalHeading eyebrow={t("catalogue.eyebrow")} title={t("catalogue.title")} description={t("catalogue.description")} />
+      <div className="section-title"><h2>{t("catalogue.heading")}</h2><span>{t(games.length > 1 ? "catalogue.foundMany" : "catalogue.foundOne").replace("{n}", String(games.length))}</span></div>
 
       <form key={[q, categorie, note, tri].join("|")} className="catalogue-filters" action="/catalogue">
         <input
           type="search"
           name="q"
-          aria-label="Rechercher un jeu ou un créateur"
+          aria-label={t("catalogue.search")}
           defaultValue={q}
-          placeholder="Rechercher un jeu, un créateur, un mot-clé..."
+          placeholder={t("catalogue.searchPlaceholder")}
           className="min-w-[220px] flex-1 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900"
         />
         <select
           name="note"
-          aria-label="Note minimale"
+          aria-label={t("catalogue.minRating")}
           defaultValue={note}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <option value="">Toutes les notes</option>
-          <option value="4">⭐ 4+ étoiles</option>
-          <option value="3">⭐ 3+ étoiles</option>
-          <option value="2">⭐ 2+ étoiles</option>
+          <option value="">{t("catalogue.allRatings")}</option>
+          <option value="4">⭐ {t("catalogue.starsPlus").replace("{n}", "4")}</option>
+          <option value="3">⭐ {t("catalogue.starsPlus").replace("{n}", "3")}</option>
+          <option value="2">⭐ {t("catalogue.starsPlus").replace("{n}", "2")}</option>
         </select>
         <select
           name="categorie"
-          aria-label="Catégorie"
+          aria-label={t("catalogue.category")}
           defaultValue={categorie}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <option value="">Toutes catégories</option>
+          <option value="">{t("catalogue.allCategories")}</option>
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {categoryLabel(locale, c)}
             </option>
           ))}
         </select>
         <select
           name="tri"
-          aria-label="Trier les jeux"
+          aria-label={t("catalogue.sort")}
           defaultValue={tri}
           className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <option value="popularite">Popularité</option>
-          <option value="recent">Plus récents</option>
-          <option value="note">Mieux notés</option>
+          <option value="popularite">{t("catalogue.sortPopular")}</option>
+          <option value="recent">{t("catalogue.sortRecent")}</option>
+          <option value="note">{t("catalogue.sortRating")}</option>
         </select>
         <button
           type="submit"
           className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
         >
-          Filtrer
+          {t("catalogue.filter")}
         </button>
       </form>
 
       <div className="category-rail mt-5">
         <FilterPill href={categoryHref("")} active={categorie === ""}>
-          Toutes
+          {t("catalogue.all")}
         </FilterPill>
         {CATEGORIES.map((c) => (
           <FilterPill key={c} href={categoryHref(c)} active={categorie === c}>
-            {c}
+            {categoryLabel(locale, c)}
           </FilterPill>
         ))}
       </div>
@@ -124,14 +128,14 @@ export default async function CataloguePage({
       {games.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {games.map((game) => (
-            <GameCard key={game.id} game={game} />
+            <GameCard key={game.id} game={game} locale={locale} />
           ))}
         </div>
       ) : (
         <div className="empty-panel">
           {allGames.length === 0
-            ? "Aucun jeu publié pour l'instant."
-            : "Aucun jeu ne correspond à ta recherche."}
+            ? t("catalogue.emptyAll")
+            : t("catalogue.emptySearch")}
         </div>
       )}
 
@@ -139,9 +143,9 @@ export default async function CataloguePage({
           elles que les moteurs de recherche listent. Les pastilles du haut ne
           font que filtrer cette page-ci. */}
       <section className="mt-12 border-t border-[var(--portal-line)] pt-8">
-        <h2 className="text-lg font-bold">Explorer par type de jeu</h2>
+        <h2 className="text-lg font-bold">{t("catalogue.byType")}</h2>
         <p className="mt-1 text-xs text-[var(--portal-muted)]">
-          Chaque catégorie a sa page, avec ses jeux et comment en créer un.
+          {t("catalogue.byTypeText")}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {CATEGORIES_SEO.map((c) => (
@@ -150,7 +154,7 @@ export default async function CataloguePage({
               href={`/jeux/${c.slug}`}
               className="rounded-full border border-[var(--portal-line)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--portal-accent)]"
             >
-              {c.emoji} {c.categorie}
+              {c.emoji} {categoryLabel(locale, c.categorie)}
             </Link>
           ))}
         </div>
