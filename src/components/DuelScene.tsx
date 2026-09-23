@@ -1639,6 +1639,14 @@ export default function DuelScene({
     // Montee en visee progressive : l'arme montait d'un coup au centre, ce qui
     // cassait la lecture du tir. Elle glisse maintenant en deux dixiemes.
     let aimBlend = 0;
+    // Arme vivante : amplitude du balancement et sprint qui montent et
+    // retombent en douceur, et inertie de l'arme quand on tourne la tete.
+    let bobAmp = 0;
+    let sprintBlend = 0;
+    let swayX = 0;
+    let swayY = 0;
+    let prevYaw = 0;
+    let prevPitch = 0;
     let walkPhase = 0;
     let nextStepAt = 0;
     let nextNetAt = 0;
@@ -3590,17 +3598,30 @@ export default function DuelScene({
       // En visee, l'arme vient au centre de l'ecran ; en sprint elle s'abaisse.
       aimBlend += ((isZoomed ? 1 : 0) - aimBlend) * Math.min(1, delta * 14);
       const aimLerp = aimBlend;
+      const doux = Math.min(1, delta * 8);
+      bobAmp += ((moving ? (sprinting ? 1.6 : 1) : 0) - bobAmp) * doux;
+      sprintBlend += ((sprinting ? 1 : 0) - sprintBlend) * Math.min(1, delta * 10);
+      // L'arme traine un peu derriere le regard, puis revient en place.
+      let dYaw = me.yaw - prevYaw;
+      dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+      const dPitch = me.pitch - prevPitch;
+      prevYaw = me.yaw;
+      prevPitch = me.pitch;
+      swayX += (THREE.MathUtils.clamp(dYaw * 1.2, -0.05, 0.05) - swayX) * Math.min(1, delta * 10);
+      swayY += (THREE.MathUtils.clamp(-dPitch * 1.2, -0.04, 0.04) - swayY) * Math.min(1, delta * 10);
+      // En visee, presque rien ne bouge : le point rouge doit rester au centre.
+      const libre = 1 - aimLerp * 0.85;
       model.group.position.set(
-        THREE.MathUtils.lerp(GUN_BASE.x, 0, aimLerp) + (moving ? Math.sin(walkPhase) * 0.012 : 0),
+        THREE.MathUtils.lerp(GUN_BASE.x, 0, aimLerp) + (Math.sin(walkPhase) * 0.012 * bobAmp + swayX) * libre,
         THREE.MathUtils.lerp(GUN_BASE.y, -0.12, aimLerp) +
-          (moving ? Math.abs(Math.cos(walkPhase)) * 0.012 : 0) -
+          (Math.abs(Math.cos(walkPhase)) * 0.012 * bobAmp + swayY) * libre -
           recoil * 0.02 -
-          (sprinting ? 0.09 : 0),
+          sprintBlend * 0.09,
         THREE.MathUtils.lerp(GUN_BASE.z, -0.5, aimLerp) + recoil * 0.07,
       );
-      model.group.rotation.x = recoil * 0.28 + (sprinting ? 0.38 : 0);
-      model.group.rotation.y = THREE.MathUtils.lerp(-0.06, 0, aimLerp);
-      model.group.rotation.z = sprinting ? 0.3 : 0;
+      model.group.rotation.x = recoil * 0.28 + sprintBlend * 0.38 + swayY * 1.5 * libre;
+      model.group.rotation.y = THREE.MathUtils.lerp(-0.06, 0, aimLerp) + swayX * 1.5 * libre;
+      model.group.rotation.z = sprintBlend * 0.3 + Math.sin(walkPhase) * 0.012 * bobAmp * libre;
       // Dans la lunette, l'arme disparait : sinon sa hausse et son canon
       // bouchaient le centre de la vue, la ou l'on vise.
       model.group.visible = !me.dead && me.alive && !(isZoomed && spec.zoomFov && aimBlend > 0.55) && !buildMode;
