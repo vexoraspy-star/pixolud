@@ -1,3 +1,6 @@
+@import "./modes-polish.css";
+@import "./community-polish.css";
+
 /* Panneaux du portail : surfaces communes, sans cout de rendu 3D. */
 .utility-panel {
   display: flex; flex-direction: column; overflow: hidden; width: min(360px,calc(100vw - 32px));

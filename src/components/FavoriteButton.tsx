@@ -55,7 +55,7 @@ export default function FavoriteButton({
         disabled={pending}
         aria-pressed={favori}
         title={favori ? "Retirer de mes favoris" : "Ajouter à mes favoris"}
-        className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition ${
+        className={`favorite-control inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition ${
           favori
             ? "border-amber-400 bg-amber-400/15 text-amber-600 dark:text-amber-300"
             : "border-zinc-300 text-zinc-700 hover:border-amber-400 dark:border-zinc-700 dark:text-zinc-200"

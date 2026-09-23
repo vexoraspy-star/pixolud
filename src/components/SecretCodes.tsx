@@ -16,7 +16,7 @@ export default function SecretCodes() {
   const trouves = useFoundCodes();
 
   return (
-    <section className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
+    <section className="secret-codes-panel mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <h2 className="text-sm font-bold text-zinc-900 dark:text-white">
         Codes secrets{" "}
         <span className="font-normal text-zinc-500 dark:text-zinc-400">

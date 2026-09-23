@@ -112,7 +112,7 @@ export default function ScriptEditor({
   const jouable = isScriptPlayable(data, limite) && !souci;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+    <div className="script-workshop mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/editeur" className="text-sm text-zinc-400 hover:text-violet-600">
           ← Mes jeux
@@ -129,23 +129,24 @@ export default function ScriptEditor({
         </p>
       )}
 
+      <div className="workshop-heading"><span className="mode-eyebrow">GAME SCRIPT / ATELIER</span><h1>Une idée. Ton code. Ton jeu.</h1></div>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Titre de ton jeu"
-        className="mt-6 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-lg font-bold text-zinc-900 outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        className="script-title-input mt-6 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-lg font-bold text-zinc-900 outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
       />
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Décris ton jeu…"
         rows={2}
-        className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        className="script-description-input mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
       />
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[1.15fr_1fr]">
+      <div className="script-workbench mt-6 grid gap-5 lg:grid-cols-[1.15fr_1fr]">
         {/* --- Le code --- */}
-        <section className="script-panel">
+        <section className="script-panel script-code-panel">
           <header className="script-panel-head">
             <h2>Ton programme</h2>
             <span className={trop ? "script-trop" : undefined}>
@@ -212,7 +213,7 @@ export default function ScriptEditor({
         </section>
 
         {/* --- L'apercu et la console --- */}
-        <section className="script-panel">
+        <section className="script-panel script-preview-panel">
           <header className="script-panel-head">
             <h2>Aperçu</h2>
             <select
@@ -234,6 +235,7 @@ export default function ScriptEditor({
 
           <ScriptStage data={lance} cle={cle} onLog={ajouterJournal} onErreur={ajouterErreur} />
 
+          <div className="script-console-label"><span>Console</span><span>Sortie du programme</span></div>
           <div className="script-console" aria-label="Console">
             {journal.length === 0 ? (
               <p className="script-console-vide">
@@ -317,7 +319,7 @@ export default function ScriptEditor({
         />
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
+      <div className="script-publish mt-6 flex flex-wrap items-center gap-3">
         <form action={publishGame}>
           <input type="hidden" name="gameId" value={gameId} />
           <button

@@ -31,13 +31,21 @@ export default async function FavorisPage() {
     .sort((a, b) => (ordre.get(a.id) ?? 0) - (ordre.get(b.id) ?? 0));
 
   return (
-    <div className="portal-container portal-page">
+    <div className="favorites-page portal-container portal-page">
       <div className="mx-auto max-w-5xl">
-        <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">Ta sélection</p>
-        <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Mes favoris</h1>
-        <p className="mt-2 text-sm text-[var(--portal-muted)]">
-          Les jeux que tu as mis de côté. Clique sur l&apos;étoile d&apos;un jeu pour l&apos;ajouter ou l&apos;enlever.
-        </p>
+        <div className="favorites-heading">
+          <span className="collection-star" aria-hidden="true">
+            ✦
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">Ta sélection</p>
+            <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Mes favoris</h1>
+            <p className="mt-2 text-sm text-[var(--portal-muted)]">
+              Les jeux que tu as mis de côté. Clique sur l&apos;étoile d&apos;un jeu pour l&apos;ajouter ou
+              l&apos;enlever.
+            </p>
+          </div>
+        </div>
 
         {!pret && (
           <p className="mt-6 rounded-2xl border border-amber-400/50 bg-amber-400/10 p-4 text-sm">
@@ -47,7 +55,7 @@ export default async function FavorisPage() {
         )}
 
         {pret && jeux.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-dashed border-[var(--portal-line)] p-10 text-center">
+          <div className="mode-empty mt-8 rounded-2xl border border-dashed border-[var(--portal-line)] p-10 text-center">
             <p className="text-4xl" aria-hidden="true">☆</p>
             <p className="mt-3 text-sm font-semibold">Aucun favori pour l&apos;instant.</p>
             <p className="mt-1 text-xs text-[var(--portal-muted)]">

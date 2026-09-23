@@ -20,6 +20,7 @@ export default function ScriptDemo() {
 
   return (
     <div className="script-demo">
+      <div className="script-demo-caption"><span>LE TERRAIN D’ESSAI</span><span>3 jeux · code ouvert</span></div>
       <div className="script-demo-tabs">
         {EXEMPLES.map((ex, i) => (
           <button
@@ -31,7 +32,7 @@ export default function ScriptDemo() {
               setCle((k) => k + 1);
             }}
           >
-            {ex.nom}
+            <span className="script-demo-number" aria-hidden="true">0{i + 1}</span>{ex.nom}
           </button>
         ))}
       </div>

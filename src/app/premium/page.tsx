@@ -56,7 +56,7 @@ export default async function PremiumPage({
           : "🚧 Le paiement réel arrive bientôt : les paliers payants ne sont pas encore activables."}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
+      <div className="premium-tiers mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
         {TIER_ORDER.map((t) => (
           <TierCard key={t} tier={t} current={currentTier === t} isAdmin={isAdmin} />
         ))}
@@ -107,6 +107,8 @@ function TierCard({
 
   return (
     <div
+      data-tier={tier}
+      data-current={current}
       className={`tier-card flex flex-col rounded-2xl border p-6 ${
         current
           ? "border-violet-500 ring-2 ring-violet-500"

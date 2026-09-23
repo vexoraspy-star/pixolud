@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { CallArtwork } from "@/components/ModeArtwork";
 import PixoCallRoom from "@/components/PixoCallRoom";
 import { MAX_PARTICIPANTS } from "@/lib/pixocall";
 
@@ -22,14 +23,19 @@ export default async function PixoCallPage() {
   const { data: profil } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
 
   return (
-    <div className="portal-container portal-page">
+    <div className="call-page portal-container portal-page">
       <div className="mx-auto max-w-3xl">
-        <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">Nouveau mode</p>
-        <h1 className="mt-2 text-4xl font-extrabold tracking-tight">PixoCall 🎙️</h1>
-        <p className="mt-3 text-sm leading-relaxed text-[var(--portal-muted)]">
-          Le salon vocal de Pixolud. Tu crées un salon, tu envoies le code à tes amis, et vous parlez pendant que vous
-          jouez — sans rien installer, directement dans le navigateur.
-        </p>
+        <div className="mode-hero call-hero">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">Nouveau mode</p>
+            <h1 className="mt-2 text-4xl font-extrabold tracking-tight">PixoCall 🎙️</h1>
+            <p className="mt-3 text-sm leading-relaxed text-[var(--portal-muted)]">
+              Le salon vocal de Pixolud. Tu crées un salon, tu envoies le code à tes amis, et vous parlez pendant que
+              vous jouez — sans rien installer, directement dans le navigateur.
+            </p>
+          </div>
+          <CallArtwork />
+        </div>
 
         <Suspense fallback={<p className="mt-8 text-sm text-[var(--portal-muted)]">Chargement…</p>}>
           <PixoCallRoom
@@ -42,7 +48,7 @@ export default async function PixoCallPage() {
           />
         </Suspense>
 
-        <section className="mt-10 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-5">
+        <section className="mode-guidance mt-10 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-5">
           <h2 className="text-sm font-bold">Comment ça marche, et ce que ça ne fait pas</h2>
           <ul className="mt-3 space-y-2 text-xs leading-relaxed text-[var(--portal-muted)]">
             <li>

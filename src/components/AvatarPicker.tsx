@@ -119,13 +119,13 @@ export default function AvatarPicker({
   const epaisseur = apercu.id === "aucun" ? 0 : 6;
 
   return (
-    <section className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
+    <section className="avatar-picker mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <h2 className="text-sm font-bold text-zinc-900 dark:text-white">Photo et cadre</h2>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         C&apos;est ce que les autres voient partout : sur ton profil, dans la liste d&apos;amis et dans les partys.
       </p>
 
-      <div className="mt-4 flex items-center gap-5">
+      <div className="avatar-preview mt-4 flex items-center gap-5">
         <span
           className="avatar-ring"
           style={{ width: 88, height: 88, padding: epaisseur, ...frameStyle(apercu) }}
@@ -170,7 +170,7 @@ export default function AvatarPicker({
       </div>
 
       <p className="mt-5 text-xs font-bold text-zinc-900 dark:text-white">Cadre</p>
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div className="avatar-frame-options mt-2 flex flex-wrap gap-2">
         {FRAMES.map((f) => {
           const permis = tierAtLeast(tier, f.minTier);
           return (
@@ -181,7 +181,7 @@ export default function AvatarPicker({
               onClick={() => choisirCadre(f.id)}
               aria-pressed={frame === f.id}
               title={permis ? f.label : `${f.label} — palier ${f.minTier === "max" ? "Max" : "Standard"}`}
-              className={`flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+              className={`avatar-frame-option flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
                 frame === f.id
                   ? "border-violet-500 bg-violet-500/10"
                   : "border-zinc-200 hover:border-violet-400 dark:border-zinc-700"

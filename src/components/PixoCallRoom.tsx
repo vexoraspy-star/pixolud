@@ -105,9 +105,9 @@ export default function PixoCallRoom({ moi }: { moi: MoiCall }) {
 
   if (etat !== "dedans") {
     return (
-      <div className="mt-8 space-y-5">
+      <div className="call-lobby mt-8 space-y-5">
         <section className="rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-5">
-          <h2 className="text-sm font-bold">Ouvrir un salon</h2>
+          <span className="call-option-icon" aria-hidden="true">＋</span><h2 className="text-sm font-bold">Ouvrir un salon</h2>
           <p className="mt-1 text-xs text-[var(--portal-muted)]">
             Tu obtiens un code à envoyer à tes amis. Tant que personne n&apos;est dedans, le salon n&apos;existe pas :
             rien n&apos;est enregistré nulle part.
@@ -123,7 +123,7 @@ export default function PixoCallRoom({ moi }: { moi: MoiCall }) {
         </section>
 
         <section className="rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-5">
-          <h2 className="text-sm font-bold">Rejoindre un salon</h2>
+          <span className="call-option-icon" aria-hidden="true">↗</span><h2 className="text-sm font-bold">Rejoindre un salon</h2>
           <form
             className="mt-3 flex gap-2"
             onSubmit={(e) => {
@@ -159,7 +159,7 @@ export default function PixoCallRoom({ moi }: { moi: MoiCall }) {
   }
 
   return (
-    <div className="mt-8 space-y-5">
+    <div className="call-room mt-8 space-y-5">
       <section className="rounded-2xl border border-[var(--portal-accent)] bg-[var(--portal-surface)] p-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-full bg-[var(--portal-accent)] px-3 py-1 text-xs font-extrabold tracking-[0.2em] text-white">
@@ -184,7 +184,7 @@ export default function PixoCallRoom({ moi }: { moi: MoiCall }) {
       </section>
 
       <section className="rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-5">
-        <ul className="grid gap-3 sm:grid-cols-2">
+        <ul className="call-participants grid gap-3 sm:grid-cols-2">
           <li className="flex items-center gap-3 rounded-xl bg-[var(--portal-soft)] p-3">
             <span
               className="rounded-full transition-shadow"
@@ -249,7 +249,7 @@ export default function PixoCallRoom({ moi }: { moi: MoiCall }) {
         )}
       </section>
 
-      <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-4">
+      <section className="call-controls flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-4">
         <button type="button" onClick={basculerMicro} aria-pressed={muet} className="portal-button small">
           {muet ? "🔇 Micro coupé" : "🎙️ Micro ouvert"}
         </button>

@@ -1,0 +1,96 @@
+/* Habillage social : classes et comportements existants conserves. */
+.portal-shell .friends-panel { width: min(410px,calc(100vw - 32px)); height: min(660px,calc(100dvh - 110px)); border-radius: 24px; box-shadow: 0 24px 80px #00000030; }
+.portal-shell .friends-panel .utility-heading { background: linear-gradient(115deg,var(--portal-accent-soft),var(--portal-surface)); padding: 20px; }
+.portal-shell .friends-emblem { border: 1px solid var(--portal-line); border-radius: 14px; }
+.portal-shell .friends-tabs { margin: 14px 18px 0; padding: 5px; gap: 5px; border: 1px solid var(--portal-line); border-radius: 13px; background: var(--portal-bg); }
+.portal-shell .friends-tabs button { min-height: 40px; font-size: 12px; background: transparent; border: 1px solid transparent; }
+.portal-shell .friends-tabs button[aria-pressed=true] { border-color: var(--portal-line); background: var(--portal-surface); color: var(--portal-ink); box-shadow: 0 2px 6px #0000000a; }
+.portal-shell .friends-dock-scroll { padding: 18px; }
+.portal-shell .friends-dock-add input { height: 44px; font-size: 12px; border-radius: 12px; }
+.portal-shell .friends-dock-section { margin-top: 22px; }
+.portal-shell .friends-dock-section h3 { font-size: 12px; align-items: center; margin-bottom: 12px; }
+.portal-shell .friends-dock-section h3 > span { min-width: 22px; padding: 3px 6px; border-radius: 7px; background: var(--portal-soft); text-align: center; font-size: 10px; }
+.portal-shell .friends-dock-list li + li { margin-top: 6px; }
+.portal-shell .friends-dock-list button { min-height: 62px; padding: 10px; gap: 12px; border: 1px solid var(--portal-line); background: var(--portal-bg); border-radius: 14px; }
+.portal-shell .friends-dock-list button:hover { border-color: var(--portal-accent); background: var(--portal-accent-soft); }
+.portal-shell .friends-dock-list strong { font-size: 13px; }
+.portal-shell .friends-dock-list em { font-size: 10px; margin-top: 4px; }
+.portal-shell .friends-dock-list span.avatar-ring { flex: none; }
+.portal-shell .friends-dock-list .avatar-initiales { flex: none; }
+.portal-shell .friends-dock-invites li { flex-wrap: wrap; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--portal-line); }
+.portal-shell .friends-dock-invites strong { font-size: 12px; }
+.portal-shell :is(.friends-dock-results,.friends-dock-invites,.friends-dock-chef) button { min-height: 34px; background: #7050d9; color: white; font-size: 11px; }
+.portal-shell .friends-dock-invites button.is-soft { background: var(--portal-soft); color: var(--portal-muted); }
+.portal-shell .friends-dock-empty { padding: 18px; border: 1px dashed var(--portal-line); border-radius: 13px; background: var(--portal-bg); line-height: 1.9; font-size: 12px; }
+.portal-shell .friends-dock-chat { padding: 16px 18px; }
+.portal-shell .friends-dock-chat-head { gap: 10px; padding-bottom: 14px; flex-wrap: wrap; }
+.portal-shell .friends-dock-chat-head strong { font-size: 13px; }
+.portal-shell .friends-dock-chat-head em { font-size: 10px; }
+.portal-shell .friends-dock-chat-head > .avatar-ring { flex: none; }
+.portal-shell .friends-dock-chat-head > .utility-emblem { flex: none; }
+.portal-shell .friends-dock-chat-head > span:not(.avatar-ring):not(.utility-emblem) { flex: 1 1 120px; }
+.portal-shell .friends-dock-chat-head > button:first-child { width: 34px; height: 34px; flex-shrink: 0; }
+.portal-shell .friends-dock-thread { gap: 12px; padding-block: 18px; }
+.portal-shell .friends-dock-thread .pixo-bubble { font-size: 12px; line-height: 1.8; padding: 11px 14px; max-width: 88%; overflow-wrap: anywhere; }
+.portal-shell .friends-dock-thread .from-me { align-self: flex-end; border-radius: 16px 16px 4px 16px; background: var(--portal-accent-soft); border: 1px solid var(--portal-line); color: var(--portal-ink); }
+.portal-shell .friends-dock-thread .from-pixo { align-self: flex-start; border-radius: 16px 16px 16px 4px; border: 1px solid var(--portal-line); background: var(--portal-bg); }
+.portal-shell .friends-dock-author { color: var(--portal-accent); opacity: 1; font-size: 10px; }
+.portal-shell .friends-panel .pixo-chat-form { display: flex; flex-shrink: 0; padding: 8px; border-radius: 14px; border: 1px solid var(--portal-line); background: var(--portal-bg); gap: 6px; }
+.portal-shell .friends-panel .pixo-chat-form input { flex: 1; width: 0; background: transparent; border: 0; min-width: 0; font-size: 12px; padding-inline: 8px; }
+.portal-shell .friends-panel .pixo-chat-form button { flex-shrink: 0; padding: 8px 12px; font-size: 11px; font-weight: 650; border-radius: 10px; min-height: 38px; background: #7050d9; color: white; }
+.portal-shell .friends-dock-members { gap: 8px; max-height: 140px; overflow-y: auto; }
+.portal-shell .friends-dock-members li { border: 1px solid var(--portal-line); border-radius: 12px; background: var(--portal-bg); padding: 6px 8px; gap: 7px; }
+.portal-shell .friends-dock-members li > span:not(.avatar-ring) { max-width: 130px; overflow-wrap: anywhere; }
+.portal-shell .friends-dock-members li > button { min-width: 28px; min-height: 28px; }
+.portal-shell .friends-dock-chef { border-bottom: 1px solid var(--portal-line); padding-bottom: 14px; }
+.portal-shell .friends-dock-chef select { min-height: 38px; border-radius: 10px; }
+.portal-shell :is(.friends-dock-call,.friends-dock-leave) { min-height: 32px; display: inline-flex; align-items: center; }
+.portal-shell .friends-dock-note { display: block; font-size: 11px; overflow-wrap: anywhere; border-inline-start: 3px solid var(--portal-accent); }
+.portal-shell .friends-panel .pixo-footer { font-size: 10px; padding: 12px 20px; }
+
+/* Avatars : la photo reste droite pendant la rotation du cadre. */
+.portal-shell .avatar-ring { isolation: isolate; box-shadow: 0 0 0 1px var(--portal-line),0 3px 8px #00000010; }
+.portal-shell .avatar-photo { box-shadow: 0 0 0 2px var(--portal-surface); }
+.portal-shell .avatar-initiales { background: linear-gradient(145deg,#a391dd,#634ba4); color: #fff; font-weight: 750; text-shadow: 0 1px 2px #0003; box-shadow: inset 0 1px 0 #ffffff30; }
+.portal-shell .avatar-ring[style*="avatar-frame-spin"] > :is(.avatar-photo,.avatar-initiales) { animation: avatar-content-steady 6s linear infinite; }
+@keyframes avatar-content-steady { to { rotate: -360deg; } }
+.portal-shell :is(.avatar-picker,.secret-codes-panel) { border: 1px solid var(--portal-line); background: var(--portal-surface); padding: 28px; border-radius: 22px; box-shadow: var(--portal-shadow); color: var(--portal-ink); }
+.portal-shell :is(.avatar-picker,.secret-codes-panel) > h2 { font-size: 19px; color: var(--portal-ink); letter-spacing: -.5px; }
+.portal-shell :is(.avatar-picker,.secret-codes-panel) > p { color: var(--portal-muted); font-size: 12px; line-height: 1.8; }
+.portal-shell .avatar-preview { padding: 24px; background: linear-gradient(120deg,var(--portal-accent-soft),var(--portal-bg)); border: 1px solid var(--portal-line); border-radius: 18px; margin-top: 22px; }
+.portal-shell .avatar-preview > .avatar-ring { flex-shrink: 0; }
+.portal-shell .avatar-preview p { max-width: 280px; line-height: 1.7; color: var(--portal-muted); font-size: 11px; }
+.portal-shell .avatar-picker .avatar-frame-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 14px; }
+.portal-shell .avatar-frame-option { position: relative; justify-content: start; min-width: 0; min-height: 62px; padding: 12px; gap: 10px; border: 1px solid var(--portal-line); border-radius: 13px; background: var(--portal-bg); color: var(--portal-ink); font-size: 11px; text-align: start; }
+.portal-shell .avatar-frame-option[aria-pressed=true] { border-color: var(--portal-accent); background: var(--portal-accent-soft); box-shadow: inset 0 0 0 1px var(--portal-accent); }
+.portal-shell .avatar-frame-option:disabled { opacity: .6; }
+.portal-shell .avatar-frame-option:disabled[aria-pressed=true] { opacity: 1; }
+.portal-shell .favorite-control { border: 1px solid var(--portal-line); color: var(--portal-muted); background: var(--portal-surface); border-radius: 12px; gap: 10px; }
+.portal-shell .favorite-control > span:first-child { font-size: 24px; line-height: 1; color: var(--portal-muted); }
+.portal-shell .favorite-control[aria-pressed=true] { background: color-mix(in srgb,#dca745 12%,var(--portal-surface)); color: var(--portal-ink); border-color: #b28c48; }
+.portal-shell .favorite-control[aria-pressed=true] > span:first-child { color: #b28537; }
+.portal-shell .favorite-control:not(:disabled):hover { border-color: #b28c48; }
+.portal-shell .secret-codes-panel > h2 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.portal-shell .secret-codes-panel h2 > span { display: inline-flex; align-items: center; padding: 4px 10px; background: var(--portal-soft); color: var(--portal-muted); font-size: 11px; border-radius: 8px; }
+.portal-shell .codes-list { gap: 10px; margin-top: 22px; }
+.portal-shell .codes-list li { padding: 16px; gap: 14px; border-radius: 14px; background: var(--portal-bg); }
+.portal-shell .codes-list li > span:first-child { display: grid; place-items: center; flex: none; width: 40px; height: 40px; background: var(--portal-soft); border-radius: 12px; font-size: 17px; }
+.portal-shell .codes-list strong { font-size: 13px; margin-bottom: 4px; }
+.portal-shell .codes-list em { font-size: 12px; line-height: 1.75; }
+.portal-shell .codes-list li.is-found { border-color: var(--portal-accent); background: var(--portal-accent-soft); }
+html[data-codes~="arcenciel"] body.portal-shell::after { inset: -50vmax; opacity: .1; background: conic-gradient(#c59ad8,#e3cb8c,#9bc9b8,#98c5d5,#a398d0,#c59ad8); }
+html[data-codes~="pixo"] .portal-shell .pixo-avatar::after { filter: drop-shadow(0 2px 2px #0004); transform: rotate(-12deg); }
+@media(max-width:600px) {
+  .portal-shell .friends-dock { inset-inline: 12px; }
+  .portal-shell .friends-panel { width: 100%; height: min(640px,calc(100dvh - 155px)); }
+  .portal-shell .friends-panel .pixo-chat-form input,.portal-shell .friends-dock-add input { font-size: 16px; }
+  .portal-shell :is(.avatar-picker,.secret-codes-panel) { padding: 20px; }
+  .portal-shell .avatar-preview { padding: 20px; gap: 18px; flex-wrap: wrap; }
+  .portal-shell .avatar-picker .avatar-frame-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+/* Le mode turbo ne doit pas retablir les mouvements supprimes. */
+@media(prefers-reduced-motion:reduce) {
+  .portal-shell :is(.avatar-ring,.avatar-photo,.avatar-initiales,.friends-panel,.favorite-control,.scare-art),
+  .portal-shell .scare-art *,
+  html[data-codes] .portal-shell *,html[data-codes] .portal-shell *::before,html[data-codes] .portal-shell *::after { animation: none !important; transition: none !important; }
+}

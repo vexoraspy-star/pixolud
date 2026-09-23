@@ -1,7 +1,7 @@
 /**
  * Le bestiaire des screamers.
  *
- * Deux sont des images (dessinees pour le site), les quatre autres sont du
+ * Deux sont des images (dessinees pour le site), les cinq autres sont du
  * SVG trace en code : celles-la apparaissent instantanement, meme avec une
  * mauvaise connexion — et un screamer en retard ne fait pas peur.
  *
@@ -60,6 +60,13 @@ export const SCREAMERS: Screamer[] = [
     description: "Le visage aux yeux rouges, version originale.",
     image: "",
     son: { voix: [[880, 180], [620, 140]], bruit: 1800 },
+  },
+  {
+    id: "felure",
+    name: "La Fêlure",
+    description: "Un masque de céramique fendu, les orbites de travers.",
+    image: "",
+    son: { voix: [[260, 70], [1040, 210]], bruit: 1200 },
   },
 ];
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import GameCard from "@/components/GameCard";
+import { ScriptArtwork } from "@/components/ModeArtwork";
 import ScriptDemo from "@/components/ScriptDemo";
 import { getPublishedGames } from "@/lib/games";
 import { createClient } from "@/lib/supabase/server";
@@ -47,16 +48,31 @@ export default async function GameScriptPage() {
   }
 
   return (
-    <div className="portal-container portal-page">
+    <div className="script-showcase portal-container portal-page">
       <div className="mx-auto max-w-6xl">
         {/* --- Presentation --- */}
-        <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">Le mode des bricoleurs</p>
-        <h1 className="mt-2 text-5xl font-extrabold tracking-tight">Game Script ⌨️</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--portal-muted)]">
-          Ici, on ne remplit pas un formulaire : on <b>écrit son jeu</b>. Quelques lignes suffisent, le jeu tourne juste
-          à côté de ton code, et tu le publies quand il te plaît. Pas d&apos;installation, pas de compte de
-          développeur — un navigateur, et c&apos;est tout.
-        </p>
+        <div className="mode-hero script-hero">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--portal-accent)]">
+              Le mode des bricoleurs
+            </p>
+            <h1 className="mt-2 text-5xl font-extrabold tracking-tight">
+              Game Script<span className="mode-title-dot">.</span>
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--portal-muted)]">
+              Ici, on ne remplit pas un formulaire : on <b>écrit son jeu</b>. Quelques lignes suffisent, le jeu tourne
+              juste à côté de ton code, et tu le publies quand il te plaît. Pas d&apos;installation, pas de compte de
+              développeur — un navigateur, et c&apos;est tout.
+            </p>
+
+            <div className="mode-tags">
+              <span>Écris</span>
+              <span>Essaie</span>
+              <span>Partage</span>
+            </div>
+          </div>
+          <ScriptArtwork />
+        </div>
 
         {/* --- La barre d'action, collee en haut quand on descend --- */}
         <div className="script-bar">
@@ -86,7 +102,7 @@ export default async function GameScriptPage() {
         </div>
 
         {/* --- Essayer tout de suite --- */}
-        <section className="mt-10">
+        <section className="mode-section mt-10">
           <h2 className="text-2xl font-bold">Essaie, puis regarde le code</h2>
           <p className="mt-2 text-sm text-[var(--portal-muted)]">
             Ces trois jeux tournent ici même, et leur code tient sur un écran. C&apos;est exactement ce que tu
@@ -96,7 +112,7 @@ export default async function GameScriptPage() {
         </section>
 
         {/* --- Les jeux des joueurs --- */}
-        <section className="mt-12">
+        <section className="mode-section mt-12">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-2xl font-bold">Les jeux de la communauté</h2>
             <span className="text-xs text-[var(--portal-muted)]">
@@ -105,7 +121,7 @@ export default async function GameScriptPage() {
           </div>
 
           {jeux.length === 0 ? (
-            <div className="mt-5 rounded-2xl border border-dashed border-[var(--portal-line)] p-10 text-center">
+            <div className="mode-empty mt-5 rounded-2xl border border-dashed border-[var(--portal-line)] p-10 text-center">
               <p className="text-4xl" aria-hidden="true">⌨️</p>
               <p className="mt-3 text-sm font-semibold">Personne n&apos;a encore publié de jeu programmé.</p>
               <p className="mt-1 text-xs text-[var(--portal-muted)]">Le premier, ce sera peut-être toi.</p>
@@ -120,7 +136,7 @@ export default async function GameScriptPage() {
         </section>
 
         {/* --- Ce qu'on a sous la main --- */}
-        <section className="mt-12 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-6">
+        <section className="script-toolbox mt-12 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-6">
           <h2 className="text-xl font-bold">Ce que tu peux écrire</h2>
           <p className="mt-2 text-sm text-[var(--portal-muted)]">
             Trois fonctions au maximum — <code>demarrer()</code>, <code>jouer(dt)</code> et <code>dessiner()</code> —
@@ -137,7 +153,7 @@ export default async function GameScriptPage() {
         </section>
 
         {/* --- Rassurer sur la securite --- */}
-        <section className="mt-8 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-6">
+        <section className="mode-guidance mt-8 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-6">
           <h2 className="text-xl font-bold">Jouer au jeu d&apos;un inconnu, sans risque</h2>
           <ul className="mt-3 space-y-2 text-sm leading-7 text-[var(--portal-muted)]">
             <li>🔒 Chaque jeu tourne dans un cadre isolé : il ne peut ni lire ton compte, ni tes cookies, ni rien enregistrer sur ton appareil.</li>
@@ -147,7 +163,7 @@ export default async function GameScriptPage() {
           </ul>
         </section>
 
-        <div className="mt-10 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-8 text-center">
+        <div className="mode-finale mt-10 rounded-2xl border border-[var(--portal-line)] bg-[var(--portal-surface)] p-8 text-center">
           <h2 className="text-2xl font-extrabold">Ton jeu commence par une ligne.</h2>
           <p className="mt-2 text-sm text-[var(--portal-muted)]">
             L&apos;exemple de départ est déjà jouable : change un chiffre, et il est à toi.
