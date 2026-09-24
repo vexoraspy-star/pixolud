@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import "@/app/colosses-polish.css";
 import ColossesScene, { type ColossesEtat, type ColossesOptions } from "./ColossesScene";
 import {
   COLOSSES,
@@ -113,29 +115,43 @@ export default function ColossesGame({ title }: { title: string }) {
   // ================================================================= menu
   if (ecran === "menu") {
     return (
-      <div className="colosses-menu">
+      <div className="colosses-menu colosses-selection">
         <div className="colosses-menu-inner">
           <Link href="/mode-3d" className="colosses-retour">
             ← Mode 3D
           </Link>
 
-          <h1 className="colosses-titre">{title}</h1>
+          <header className="colosses-hero">
+          <div className="colosses-hero-copy">
+          <p className="colosses-kicker">PIXOLUD ORIGINAL · COMBAT 1 CONTRE 1</p>
+          <h1 className="colosses-titre" aria-label={title}>COLOSSES<span>Entre dans l’arène.</span></h1>
           <p className="colosses-sous-titre">
             Deux combattants, trois rounds, un seul debout. Frappe, bloque, saute — et garde ton coup spécial pour le
             bon moment.
           </p>
+          <div className="colosses-reperes"><span>04 combattants</span><span>03 rounds</span><span>01 vainqueur</span></div>
+          <a className="colosses-decouvrir" href="#colosses-combattants">Choisis ton combattant <span aria-hidden="true">↘</span></a>
+          </div>
+          <div className="colosses-affiche" aria-hidden="true">
+            <span className="colosses-affiche-label">LE FACE-À-FACE</span>
+            <Image className="colosses-affiche-a" src={`/covers/colosses/${persoA}.webp`} alt="" width={560} height={640} priority unoptimized />
+            <b className="colosses-vs">VS</b>
+            <Image className="colosses-affiche-b" src={`/covers/colosses/${adversaire}.webp`} alt="" width={560} height={640} priority unoptimized />
+            <div className="colosses-affiche-noms"><span>{a.nom}</span><span>{b.nom}</span></div>
+          </div>
+          </header>
 
-          <section className="colosses-bloc">
-            <h2>Mode de jeu</h2>
+          <section className="colosses-bloc colosses-modes">
+            <h2><span>01</span> Ton terrain de jeu</h2>
             <div className="colosses-choix">
               <button type="button" aria-pressed={mode === "libre"} onClick={() => setMode("libre")}>
-                🤖 Combat libre
+                <span className="colosses-mode-icon" aria-hidden="true">↗</span><span>Combat libre<small>Un duel, à ton rythme</small></span>
               </button>
               <button type="button" aria-pressed={mode === "tournoi"} onClick={() => setMode("tournoi")}>
-                🏆 Tournoi
+                <span className="colosses-mode-icon" aria-hidden="true">♜</span><span>Tournoi<small>Gravis les quatre échelons</small></span>
               </button>
               <button type="button" aria-pressed={mode === "duo"} onClick={() => setMode("duo")}>
-                👥 À deux sur ce clavier
+                <span className="colosses-mode-icon" aria-hidden="true">Ⅱ</span><span>À deux sur ce clavier<small>Défie quelqu’un à tes côtés</small></span>
               </button>
             </div>
             {mode === "libre" && (
@@ -159,18 +175,21 @@ export default function ColossesGame({ title }: { title: string }) {
             )}
           </section>
 
-          <section className="colosses-bloc">
-            <h2>Les combattants</h2>
+          <section className="colosses-bloc" id="colosses-combattants">
+            <h2><span>02</span> Choisis ton camp</h2>
             <div className="colosses-grille">
               {COLOSSE_ORDER.map((id) => {
                 const c = COLOSSES[id];
                 const estA = persoA === id;
                 const estB = !enTournoi && persoB === id;
                 return (
-                  <div key={id} className={`colosses-carte${estA ? " est-a" : ""}${estB ? " est-b" : ""}`}>
-                    <span className="colosses-emoji" aria-hidden="true">
-                      {c.emoji}
-                    </span>
+                  <div key={id} data-combattant={id} className={`colosses-carte${estA ? " est-a" : ""}${estB ? " est-b" : ""}`}>
+                    <div className="colosses-portrait">
+                      <span className="colosses-portrait-num" aria-hidden="true">0{COLOSSE_ORDER.indexOf(id) + 1}</span>
+                      <Image src={`/covers/colosses/${id}.webp`} alt={`Portrait de ${c.nom}`} width={560} height={640} unoptimized />
+                      <span className="colosses-emoji" aria-hidden="true">{c.emoji}</span>
+                      <div className="colosses-selection-label">{estA && <span>JOUEUR 1</span>}{estB && <span>{contreOrdinateur ? "ORDINATEUR" : "JOUEUR 2"}</span>}</div>
+                    </div>
                     <strong>{c.nom}</strong>
                     <span className="colosses-phrase">{c.phrase}</span>
                     <ul className="colosses-stats">
@@ -202,7 +221,7 @@ export default function ColossesGame({ title }: { title: string }) {
           </section>
 
           <section className="colosses-bloc">
-            <h2>Les commandes</h2>
+            <h2><span>03</span> Prends le dessus</h2>
             <div className="colosses-touches">
               <div>
                 <h3>Joueur 1</h3>
@@ -258,6 +277,7 @@ export default function ColossesGame({ title }: { title: string }) {
           </section>
 
           <div className="colosses-bas">
+            <div className="colosses-match"><small>{enTournoi ? "TON PARCOURS COMMENCE" : "LE DUEL EST PRÊT"}</small><strong>{a.nom} <span>vs</span> {b.nom}</strong></div>
             <label className="colosses-volume">
               Volume
               <input

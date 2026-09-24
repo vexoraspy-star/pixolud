@@ -1,0 +1,80 @@
+/* Colosses : affiche et selection. Aucun rendu 3D dans le menu. */
+.colosses-menu.colosses-selection { background: radial-gradient(ellipse at 90% 0,#302321 0,transparent 42%),#0b1019; color:#f4f5f7; scrollbar-color:#4a5263 #0b1019; }
+.colosses-selection .colosses-menu-inner { max-width:1240px; padding:26px 32px 28px; }
+.colosses-selection .colosses-retour { color:#a9b5c8; font-size:13px; margin-bottom:24px; }
+.colosses-selection .colosses-retour:hover { color:#ffb47a; }
+.colosses-hero { display:grid; grid-template-columns:1.05fr 1fr; min-height:380px; border:1px solid #303847; border-radius:24px; overflow:hidden; background:#101824; }
+.colosses-hero-copy { padding:36px 0 32px 32px; position:relative; z-index:1; }
+.colosses-kicker { color:#ffb47a; font-size:10px; font-weight:800; letter-spacing:2px; }
+.colosses-selection .colosses-titre { margin-top:22px; font-size:clamp(42px,5.8vw,76px); font-weight:950; font-style:italic; letter-spacing:-4px; line-height:.94; }
+.colosses-titre > span { display:block; margin-top:12px; color:#ffab68; font-size:clamp(20px,2.2vw,28px); letter-spacing:-.8px; font-style:normal; }
+.colosses-selection .colosses-sous-titre { color:#b9c3d3; font-size:13px; line-height:1.75; max-width:410px; margin-top:22px; }
+.colosses-reperes { display:flex; flex-wrap:wrap; gap:8px 18px; margin:20px 0; color:#8e9db2; font-size:11px; }
+.colosses-decouvrir { display:inline-flex; gap:26px; align-items:center; padding:12px 18px; border:1px solid #596476; border-radius:8px; font-weight:700; font-size:12px; }
+.colosses-decouvrir:hover { background:#273140; border-color:#ffad6d; }
+.colosses-affiche { position:relative; min-width:0; overflow:hidden; isolation:isolate; background:radial-gradient(ellipse at 25% 48%,#284760 0,transparent 56%),radial-gradient(ellipse at 90% 70%,#824426 0,transparent 65%); }
+.colosses-affiche:before { content:""; position:absolute; inset:-20%; background:repeating-linear-gradient(115deg,transparent 0 80px,#ffffff05 81px 82px); transform:skewX(-10deg); }
+.colosses-affiche:after { content:""; position:absolute; inset:65% 0 0; z-index:2; background:linear-gradient(transparent,#101824); }
+.colosses-affiche-label { position:absolute; top:22px; left:0; right:0; text-align:center; letter-spacing:4px; font-size:9px; color:#d3dbe6; z-index:3; }
+.colosses-affiche img { position:absolute; width:75%; height:115%; object-fit:contain; bottom:-16%; z-index:1; }
+.colosses-affiche-a { left:-14%; }
+.colosses-affiche-b { right:-12%; transform:scaleX(-1); }
+.colosses-vs { position:absolute; z-index:0; left:50%; top:42%; transform:translate(-50%,-50%) skew(-10deg); font-size:100px; font-weight:950; font-style:italic; color:#ffffff20; }
+.colosses-affiche-noms { position:absolute; z-index:3; bottom:25px; left:12%; right:12%; display:flex; justify-content:space-between; text-transform:uppercase; font-weight:900; font-size:18px; letter-spacing:2px; }
+.colosses-affiche-noms span:first-child { color:#7ddcff; }
+.colosses-affiche-noms span:last-child { color:#ffb47a; }
+.colosses-selection .colosses-bloc { margin-top:30px; scroll-margin-top:20px; }
+.colosses-selection .colosses-bloc h2 { display:flex; align-items:center; gap:12px; color:#e1e7f0; font-size:13px; letter-spacing:.6px; text-transform:none; margin-bottom:15px; }
+.colosses-bloc h2 > span { display:grid; place-items:center; width:26px; height:26px; border:1px solid #485163; border-radius:7px; color:#92a1b6; font:10px monospace; }
+.colosses-modes > .colosses-choix { display:grid; grid-template-columns:repeat(3,1fr); }
+.colosses-selection .colosses-choix button { background:#131c2a; color:#d7dfeb; border:1px solid #343e50; border-radius:10px; min-height:66px; padding:12px 16px; display:flex; align-items:center; gap:14px; text-align:start; font-size:13px; }
+.colosses-choix button small { display:block; font-size:11px; margin-top:5px; color:#9cabc0; font-weight:400; }
+.colosses-mode-icon { font-size:26px; color:#95a9c0; }
+.colosses-selection .colosses-choix button[aria-pressed=true] { background:#30251e; border-color:#f6a36b; color:#ffd3b0; box-shadow:inset 3px 0 #ffae71; }
+.colosses-choix button[aria-pressed=true] .colosses-mode-icon { color:#ffad6c; }
+.colosses-selection .colosses-choix-petit { display:flex; gap:7px; margin-top:16px; }
+.colosses-selection .colosses-choix-petit button { min-height:36px; padding:7px 16px; font-size:11px; box-shadow:none; }
+.colosses-selection .colosses-note { color:#a4b0c3; font-size:12px; }
+.colosses-selection .colosses-grille { grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.colosses-selection .colosses-carte { --fighter:#66d4fb; position:relative; padding:0 17px 17px; overflow:hidden; border-radius:14px; background:#131c29; border-color:#354154; gap:9px; box-shadow:none; transition:border-color .18s,transform .18s; }
+.colosses-carte[data-combattant=roc] { --fighter:#ffb454; }
+.colosses-carte[data-combattant=eclair] { --fighter:#fff275; }
+.colosses-carte[data-combattant=brume] { --fighter:#c084fc; }
+.colosses-selection .colosses-carte:hover { border-color:var(--fighter); transform:translateY(-3px); }
+.colosses-selection .colosses-carte.est-a { border-color:#62d4ff; box-shadow:0 0 0 1px #62d4ff45; }
+.colosses-selection .colosses-carte.est-b { border-color:#ffb47a; box-shadow:0 0 0 1px #ffb47a45; }
+.colosses-selection .colosses-carte.est-a.est-b { border-color:#c5b7ff; }
+.colosses-portrait { height:205px; position:relative; margin:0 -17px 3px; overflow:hidden; background:radial-gradient(ellipse at 50% 80%,color-mix(in srgb,var(--fighter) 23%,#121a28),#101722 75%); }
+.colosses-portrait:after { content:""; position:absolute; inset:80% 0 0; background:linear-gradient(transparent,#131c29); }
+.colosses-portrait img { width:100%; height:290px; object-fit:contain; object-position:50% 0; position:absolute; top:0; }
+.colosses-portrait-num { position:absolute; top:14px; right:15px; color:#ffffff12; font-size:62px; font-style:italic; font-weight:900; }
+.colosses-portrait .colosses-emoji { position:absolute; top:16px; left:14px; font-size:16px; opacity:.75; }
+.colosses-selection-label { position:absolute; z-index:2; display:flex; flex-wrap:wrap; gap:4px; bottom:12px; left:16px; }
+.colosses-selection-label span { background:#142535; color:#91dfff; border:1px solid #3b738b; border-radius:4px; padding:4px 6px; font-size:8px; letter-spacing:1px; font-weight:800; }
+.colosses-carte.est-b .colosses-selection-label span:last-child { color:#ffd1ae; background:#30251e; border-color:#825a3e; }
+.colosses-selection .colosses-carte > strong { font-size:25px; letter-spacing:-.8px; }
+.colosses-selection .colosses-phrase { font-size:12px; color:#adb9ca; min-height:39px; }
+.colosses-selection .colosses-stats li { color:#a9b7ca; font-size:10px; grid-template-columns:48px minmax(0,1fr); }
+.colosses-selection .colosses-stats i { background:var(--fighter); opacity:.85; height:4px; border-radius:1px; max-width:100%; }
+.colosses-selection .colosses-special { color:#d1dbe9; font-size:11px; line-height:1.65; border-top:1px solid #303b4c; margin-top:7px; padding-top:10px; min-height:49px; }
+.colosses-selection .colosses-prendre { margin-top:auto; padding-top:4px; }
+.colosses-selection .colosses-prendre button { border-color:#40516a; border-radius:6px; background:#1a283a; color:#cddbee; min-height:40px; font-size:10px; }
+.colosses-selection .colosses-prendre button:hover:not(:disabled) { background:#2c415a; border-color:#91bfe7; }
+.colosses-selection .colosses-prendre button:disabled { background:#253d50; color:#a6e9ff; border-color:#477f9a; }
+.colosses-selection .colosses-prendre button:nth-child(2):disabled { background:#3a2a21; color:#ffd0ac; border-color:#8b6348; }
+.colosses-selection .colosses-touches > div { background:#101925; border-color:#303c4f; }
+.colosses-selection .colosses-touches h3 { color:#d3e0f1; }
+.colosses-selection .colosses-touches p { color:#a9b7ca; }
+.colosses-selection .colosses-touches b { background:#25354b; border-bottom:2px solid #425571; }
+.colosses-selection .colosses-bas { position:sticky; bottom:0; z-index:5; margin:26px -8px 0; padding:16px 20px; border:1px solid #4c5360; border-radius:14px; background:#192231; box-shadow:0 -10px 40px #0008; gap:22px; }
+.colosses-match { margin-inline-end:auto; }
+.colosses-match small { display:block; font-size:8px; letter-spacing:1.5px; color:#98adc5; margin-bottom:5px; }
+.colosses-match strong { font-size:17px; }
+.colosses-match strong span { color:#ffad6d; font-style:italic; padding:0 7px; }
+.colosses-selection .colosses-volume { color:#b6c5d9; font-size:11px; }
+.colosses-selection .colosses-volume input { accent-color:#ffa969; width:95px; }
+.colosses-selection .colosses-jouer { background:#ffaf73; color:#25160b; box-shadow:0 5px 18px #0004; border-radius:8px; min-height:50px; padding:0 28px; font-size:15px; }
+.colosses-selection :is(a,button,input):focus-visible { outline:3px solid #fff0bc; outline-offset:4px; }
+@media(max-width:850px) { .colosses-selection .colosses-menu-inner { padding:20px 20px 24px; }.colosses-hero-copy { padding:30px 0 28px 24px; }.colosses-selection .colosses-titre { font-size:50px; letter-spacing:-2px; }.colosses-selection .colosses-grille { grid-template-columns:repeat(2,minmax(0,1fr)); }.colosses-portrait { height:225px; }.colosses-portrait img { height:320px; }.colosses-mode-icon { display:none; }.colosses-selection .colosses-bas { gap:12px; }.colosses-volume input { max-width:65px; } }
+@media(max-width:540px) { .colosses-selection .colosses-menu-inner { padding:16px 14px 18px; }.colosses-selection .colosses-retour { margin-bottom:16px; }.colosses-hero { grid-template-columns:1fr; border-radius:16px; }.colosses-hero-copy { padding:25px 22px 0; }.colosses-kicker { font-size:8px; letter-spacing:1.5px; }.colosses-selection .colosses-titre { font-size:52px; }.colosses-titre > span { font-size:22px; }.colosses-selection .colosses-sous-titre { font-size:12px; margin-top:16px; }.colosses-reperes { font-size:10px; margin:14px 0; gap:12px; }.colosses-decouvrir { display:none; }.colosses-affiche { height:240px; }.colosses-affiche-label { top:12px; font-size:8px; }.colosses-affiche img { height:130%; bottom:-25%; }.colosses-affiche-noms { bottom:16px; font-size:15px; }.colosses-modes > .colosses-choix { grid-template-columns:1fr; gap:7px; }.colosses-selection .colosses-choix button { min-height:55px; }.colosses-choix button small { display:inline; margin-inline-start:10px; font-size:10px; }.colosses-mode-icon { display:block; font-size:22px; }.colosses-selection .colosses-choix-petit button { min-height:40px; padding:7px 12px; }.colosses-selection .colosses-grille { gap:10px; }.colosses-selection .colosses-carte { padding:0 12px 12px; gap:8px; }.colosses-portrait { height:170px; margin:0 -12px; }.colosses-portrait img { height:240px; width:125%; left:-12.5%; }.colosses-portrait-num { font-size:44px; }.colosses-portrait .colosses-emoji { font-size:13px; left:10px; }.colosses-selection-label { left:8px; }.colosses-selection-label span { font-size:7px; padding:3px 4px; }.colosses-selection .colosses-carte > strong { font-size:22px; }.colosses-selection .colosses-phrase { font-size:11px; min-height:53px; }.colosses-selection .colosses-special { min-height:76px; font-size:10px; }.colosses-selection .colosses-prendre { flex-direction:column; gap:5px; }.colosses-selection .colosses-prendre button { min-height:44px; }.colosses-selection .colosses-bas { padding:12px; margin-inline:0; gap:10px; }.colosses-match strong { font-size:14px; }.colosses-selection .colosses-volume { width:100%; order:3; justify-content:center; }.colosses-selection .colosses-jouer { padding:0 13px; font-size:12px; min-height:46px; }.colosses-selection .colosses-touches { grid-template-columns:1fr; } }
+@media(prefers-reduced-motion:reduce) { .colosses-selection *, .colosses-selection *:before, .colosses-selection *:after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }.colosses-selection .colosses-carte:hover { transform:none; } }

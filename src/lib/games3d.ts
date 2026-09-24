@@ -55,6 +55,7 @@ export const GAMES_3D: Game3D[] = [
   {
     slug: "colosses",
     title: "Colosses",
+    cover: "/covers/colosses/affiche.webp",
     description:
       "Combat 1 contre 1 : quatre combattants, trois rounds, des directs, des coups de pied et un coup sp\u00e9cial qui retourne un match. Contre l'ordinateur ou \u00e0 deux sur le m\u00eame clavier.",
     emoji: "\u2694\ufe0f",

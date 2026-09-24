@@ -1,0 +1,8 @@
+Portraits et affiche Colosses — Pixolud, septembre 2026.
+
+Rendus statiques du modele deja utilise dans le jeu : public/models/colosse.glb
+(CC0, source complete dans public/models/LICENCES.txt).
+Habillage : src/lib/colossesModeles.ts ; couleurs : src/lib/colosses.ts.
+Pose Idle, camera de trois quarts, eclairage de studio ; export WebP.
+Affiche composee pour Pixolud avec ces portraits et des formes vectorielles.
+Aucune ressource tierce supplementaire, aucune animation dans ces images.
