@@ -28,7 +28,8 @@ export type DanceId =
   | "vague"
   | "moonwalk"
   | "tourbillon"
-  | "carton";
+  | "carton"
+  | "loser";
 
 export interface Dance {
   id: DanceId;
@@ -325,11 +326,43 @@ export const DANCES: Record<DanceId, Dance> = {
       rig.shift(0, brandi * 0.04, 0);
     },
   },
+  loser: {
+    id: "loser",
+    name: "Loser",
+    rarity: "rare",
+    price: 750,
+    tagline: "Un L sur le front et des petits sauts : le perdant, c'est l'autre.",
+    loop: 0.9,
+    pose(rig, t) {
+      const phase = (t / 0.9) * TAU;
+      // Une jambe part devant a chaque temps, en alternance.
+      const droite = Math.max(0, S(phase));
+      const gauche = Math.max(0, -S(phase));
+      const saut = Math.abs(S(phase));
+      // La main droite forme un L colle au front, et n'en bouge pas.
+      rig.turn("UpperArm.R", -1.05, 0, -1.05);
+      rig.turn("LowerArm.R", -1.95, 0, 0);
+      rig.turn("Wrist.R", 0, 0, 0.35);
+      // Le bras gauche se balance, decontracte, au rythme des sauts.
+      rig.turn("UpperArm.L", -S(phase) * 0.35, 0, 0.25);
+      rig.turn("LowerArm.L", -0.5 - saut * 0.3, 0, 0);
+      // Les jambes lancees devant, genou a peine plie.
+      rig.turn("UpperLeg.R", -droite * 0.95, 0, 0);
+      rig.turn("LowerLeg.R", droite * 0.25, 0, 0);
+      rig.turn("UpperLeg.L", -gauche * 0.95, 0, 0);
+      rig.turn("LowerLeg.L", gauche * 0.25, 0, 0);
+      // Le corps se balance et la tete nargue, d'un cote puis de l'autre.
+      rig.turn("Hips", 0, 0, S(phase) * 0.1);
+      rig.turn("Chest", 0.08, S(phase) * 0.12, 0);
+      rig.turn("Head", -0.12, S(phase) * 0.2, 0);
+      rig.shift(0, saut * 0.07, 0);
+    },
+  },
 };
 
 export const DANCE_ORDER: DanceId[] = [
   "salut", "ressort", "pantin",
-  "robot", "disco", "vague",
+  "robot", "disco", "vague", "loser",
   "floss", "fiesta", "moonwalk", "tourbillon",
   "champion", "carton",
 ];

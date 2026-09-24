@@ -151,6 +151,7 @@ const DANCE_EMOJI: Record<DanceId, string> = {
   moonwalk: "🌙",
   tourbillon: "🌀",
   carton: "🟥",
+  loser: "🤟",
 };
 
 function ItemIcon({ itemKey }: { itemKey: string }) {
