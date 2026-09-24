@@ -75,7 +75,9 @@ export default function CubesGame({ title }: { title: string }) {
     let number = seedText ? 0 : Date.now() % 2147483647;
     for (const letter of seedText) number = (Math.imul(number, 31) + letter.charCodeAt(0)) | 0;
     setPending(null); setError("");
-    setRun({ version: 1, seed: number, mode, player: { ...spawnPoint(number), yaw: 0, pitch: -.15 }, hotbar: [1, 3, 8, 10, 12, 28, 7, 5, 32], stock: { 28: 8 }, edits: [], savedAt: Date.now() });
+    // Creatif : des blocs a construire. Survie : les mains vides, comme dans le jeu d'origine.
+    const hotbar = mode === "creatif" ? [1, 3, 8, 10, 12, 28, 7, 5, 32] : [0, 0, 0, 0, 0, 0, 0, 0, 28];
+    setRun({ version: 2, seed: number, mode, player: { ...spawnPoint(number), yaw: 0, pitch: -.15 }, hotbar, stock: mode === "creatif" ? {} : { 28: 4 }, edits: [], savedAt: Date.now(), survie: { vie: 100, faim: 100, soif: 100 }, temps: 40 });
   }
   function resume() {
     try { const raw = localStorage.getItem(CUBES_SAVE_KEY); if (!raw) { setError("Aucun monde sauvegardé sur cet appareil."); return; } setRun(parseWorldSave(raw)); setError(""); }
@@ -94,7 +96,7 @@ export default function CubesGame({ title }: { title: string }) {
           <h1 className="mt-4 text-7xl leading-none font-black tracking-[-.06em] sm:text-8xl lg:text-9xl">{title.replace(/^[^\p{L}\p{N}]+/u, "")}<span className="text-[#e5c581]">.</span></h1>
           <p className="mt-5 max-w-sm text-base leading-7 text-[#c3d3bd]">Une cabane dans les bois. Une cité dans les nuages. <span className="text-[#f5eddb]">Et si tout commençait par un bloc ?</span></p>
           <button onClick={resume} className="mt-7 inline-flex min-h-12 items-center gap-7 rounded-xl border border-[#efd594] bg-[#e8c987] px-5 py-3 text-sm font-bold text-[#26392d] shadow-[0_5px_0_#a98b50] hover:bg-[#f2d998] active:translate-y-0.5 active:shadow-[0_3px_0_#a98b50]">Reprendre mon monde <span aria-hidden="true">→</span></button>
-          <div className="mt-6 flex flex-wrap gap-4 text-[11px] text-[#a9bfab]"><span>◇ Monde infini</span><span>◇ 32 blocs à découvrir</span><span>◇ Solo</span></div>
+          <div className="mt-6 flex flex-wrap gap-4 text-[11px] text-[#a9bfab]"><span>◇ Monde infini</span><span>◇ 140 blocs, plus de 200 objets à fabriquer</span><span>◇ Jour et nuit</span><span>◇ Solo</span></div>
         </div>
         <div className="pointer-events-none -my-4 max-h-[300px] overflow-hidden sm:max-h-[380px] md:-mr-8 md:max-h-none"><CubesLandscape /></div>
       </div>
@@ -102,7 +104,7 @@ export default function CubesGame({ title }: { title: string }) {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 id="cubes-new-world" className="text-xs font-bold uppercase tracking-[.16em] text-[#e4dec6]">Une nouvelle aventure</h2><span className="text-[11px] text-[#a9bda6]">Choisis ta façon de jouer</span></div>
         <div className="grid gap-3 sm:grid-cols-2">
           <button onClick={() => create("creatif")} className="group flex items-center gap-4 rounded-xl border border-[#b8cf9f]/20 bg-[#244337] p-4 text-left hover:border-[#c8dba8]/60 hover:bg-[#2d5140] sm:p-5"><span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#aec780]/10"><CubesBlockIcon id={1} size={45} /></span><span className="flex-1"><strong className="block text-lg text-[#e3ecca]">Créatif</strong><span className="mt-1 block text-xs leading-5 text-[#bed0b3]">Blocs illimités, vol libre.<br />Construis sans limites.</span></span><span aria-hidden="true" className="text-[#b7cba1] transition-transform group-hover:translate-x-1">↗</span></button>
-          <button onClick={() => create("survie")} className="group flex items-center gap-4 rounded-xl border border-[#d7b67d]/20 bg-[#343e30] p-4 text-left hover:border-[#d7b67d]/60 hover:bg-[#444c35] sm:p-5"><span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#e1b86c]/10"><CubesBlockIcon id={28} size={48} /></span><span className="flex-1"><strong className="block text-lg text-[#efdab0]">Survie</strong><span className="mt-1 block text-xs leading-5 text-[#d1c6ab]">Récolte, bâtis ton refuge.<br />Prépare-toi pour la nuit.</span></span><span aria-hidden="true" className="text-[#d7b67d] transition-transform group-hover:translate-x-1">↗</span></button>
+          <button onClick={() => create("survie")} className="group flex items-center gap-4 rounded-xl border border-[#d7b67d]/20 bg-[#343e30] p-4 text-left hover:border-[#d7b67d]/60 hover:bg-[#444c35] sm:p-5"><span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#e1b86c]/10"><CubesBlockIcon id={28} size={48} /></span><span className="flex-1"><strong className="block text-lg text-[#efdab0]">Survie</strong><span className="mt-1 block text-xs leading-5 text-[#d1c6ab]">Récolte, fabrique, mange et bois.<br />Prépare-toi pour la nuit.</span></span><span aria-hidden="true" className="text-[#d7b67d] transition-transform group-hover:translate-x-1">↗</span></button>
         </div>
         <details className="mt-4 text-xs text-[#b9cbb0]"><summary className="w-fit cursor-pointer rounded py-1.5 hover:text-[#f2e4c5] focus-visible:outline-2 focus-visible:outline-[#efce87]">Personnaliser la graine du monde <span className="text-[#8eaa98]">· facultatif</span></summary><label className="mt-3 block" htmlFor="cubes-seed">Un même mot génère le même terrain.</label><input id="cubes-seed" value={seed} onChange={e => setSeed(e.target.value)} maxLength={80} placeholder="Ex. : mon petit paradis" className="mt-2 w-full max-w-md rounded-lg border border-[#b8cf9f]/25 bg-[#102c28] px-3 py-2.5 text-sm text-[#f8f2df] placeholder:text-[#8eaa98] focus:outline-2 focus:outline-[#efce87]" /></details>
       </section>

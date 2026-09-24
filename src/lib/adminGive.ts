@@ -29,13 +29,14 @@ export async function giveDuel(opts: { coins?: number; xp?: number; all?: boolea
 }
 
 export async function giveCubes(count: number): Promise<string> {
-  const [{ PALETTE }, { CUBES_SAVE_KEY }] = await Promise.all([import("./voxel"), import("./voxelSave")]);
+  const [{ PALETTE }, { CUBES_SAVE_KEY }, { allThings }] = await Promise.all([import("./voxel"), import("./voxelSave"), import("./voxelItems")]);
   const blocks: Record<string, number> = {};
-  for (const id of PALETTE) blocks[String(id)] = count;
+  // Tous les blocs ET tous les objets (outils, armures, nourriture...).
+  for (const id of allThings(PALETTE)) blocks[String(id)] = count;
   // 1. Une partie de survie est ouverte : elle ajoute les blocs elle-meme.
   const detail: CubesGive = { blocks };
   window.dispatchEvent(new CustomEvent(GIVE_CUBES_EVENT, { detail }));
-  if (detail.handled) return `Cubes : +${count} de chaque bloc dans ta partie.`;
+  if (detail.handled) return `Cubes : +${count} de chaque bloc et objet dans ta partie.`;
   // 2. Sinon, on les range dans la sauvegarde du monde de survie.
   try {
     const raw = localStorage.getItem(CUBES_SAVE_KEY);
@@ -45,7 +46,7 @@ export async function giveCubes(count: number): Promise<string> {
     const stock = { ...(save.stock ?? {}) };
     for (const [id, n] of Object.entries(blocks)) stock[id] = Math.min(1_000_000, (stock[id] ?? 0) + n);
     localStorage.setItem(CUBES_SAVE_KEY, JSON.stringify({ ...save, stock }));
-    return `Cubes : +${count} de chaque bloc dans ton monde de survie.`;
+    return `Cubes : +${count} de chaque bloc et objet dans ton monde de survie.`;
   } catch {
     return "Cubes : sauvegarde illisible, rien n'a changé.";
   }

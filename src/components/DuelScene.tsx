@@ -91,7 +91,7 @@ import {
   type DuelOptions,
 } from "@/lib/duelOptions";
 import DuelCrosshair from "./DuelCrosshair";
-import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
+import { createAnimatedModel, preloadExtraClips, type AnimatedModel } from "@/lib/models3d";
 import DuelOptionsPanel from "./DuelOptionsPanel";
 import DuelAdminPanel from "./DuelAdminPanel";
 import { DRILLS, trainingScore, type DrillId, type TrainingResult } from "@/lib/duelTraining";
@@ -1577,6 +1577,9 @@ export default function DuelScene({
         scene.add(m.root);
         myAvatar = m;
         myDancer = createDancer(m);
+        // Les danses animees (fichier a part) arrivent en fond, pour que la
+        // touche G reponde tout de suite.
+        preloadExtraClips("soldat-swat").catch(() => {});
       })
       .catch(() => {});
 

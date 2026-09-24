@@ -12,6 +12,14 @@ reechantillonnage et quantification avec gltf-transform).
 - zombie-b.glb    « Zombie »      https://poly.pizza/m/JoBvxIUpZP
 - soldat-swat.glb « SWAT »        https://poly.pizza/m/Btfn3G5Xv4
 
+soldat-danses.glb — les 20 danses animees du Duel
+-------------------------------------------------
+Animations : Mesh2Motion (licence CC0 1.0),
+https://github.com/Mesh2Motion/mesh2motion-app (human-addon-animations.glb et
+human-base-animations.glb). Reciblees le 24/09/2026 dans Blender sur le
+squelette du SWAT ci-dessus (squelette seul, sans maillage). Aucune capture de
+mouvement de Carnegie Mellon (licence non libre) n'a ete utilisee.
+
 colosse.glb — les combattants de Colosses
 -----------------------------------------
 Mannequin, squelette et animations : Mesh2Motion (licence CC0 1.0),

@@ -125,6 +125,28 @@ export function preloadModel(id: ModelId): Promise<GLTF> {
   return p;
 }
 
+/**
+ * Animations rangees dans un fichier a part (les danses du soldat) : le modele
+ * reste leger, et elles ne se chargent qu'au moment ou on en demande une.
+ */
+const EXTRA_CLIPS_URL: Partial<Record<ModelId, string>> = {
+  "soldat-swat": "/models/soldat-danses.glb",
+};
+
+const extraCache = new Map<ModelId, Promise<THREE.AnimationClip[]>>();
+
+export function preloadExtraClips(id: ModelId): Promise<THREE.AnimationClip[]> {
+  const url = EXTRA_CLIPS_URL[id];
+  if (!url) return Promise.resolve([]);
+  let p = extraCache.get(id);
+  if (!p) {
+    p = new GLTFLoader().loadAsync(url).then((gltf) => gltf.animations);
+    p.catch(() => extraCache.delete(id));
+    extraCache.set(id, p);
+  }
+  return p;
+}
+
 export interface PlayOptions {
   fade?: number;
   loop?: boolean;
@@ -162,6 +184,8 @@ export interface AnimatedModel {
   /** Nom de l'animation en cours. */
   current: string | null;
   has(name: string): boolean;
+  /** Charge les animations rangees a part (danses) ; sans effet si deja fait. */
+  loadExtraClips(): Promise<void>;
   /**
    * Joue une animation (fondu depuis la precedente). Sans effet si elle tourne
    * deja, sauf avec `restart` : deux coups de poing de suite doivent repartir
@@ -272,6 +296,12 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
     mixer,
     current: null,
     has: (name) => clips.has(name),
+    async loadExtraClips() {
+      for (const c of await preloadExtraClips(id)) {
+        const name = c.name.split("|").pop() as string;
+        if (!clips.has(name)) clips.set(name, c);
+      }
+    },
     play(name, opts = {}) {
       const clip = clips.get(name);
       if (!clip) return;

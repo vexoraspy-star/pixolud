@@ -29,7 +29,27 @@ export type DanceId =
   | "moonwalk"
   | "tourbillon"
   | "carton"
-  | "loser";
+  | "loser"
+  | "charleston"
+  | "roule"
+  | "dehanche"
+  | "petitedanse"
+  | "jumpingjacks"
+  | "salto"
+  | "pompes"
+  | "meditation"
+  | "levitation"
+  | "onde"
+  | "poingleve"
+  | "victoire"
+  | "colere"
+  | "perdu"
+  | "coucou"
+  | "telephone"
+  | "brascroises"
+  | "heros"
+  | "seisme"
+  | "crizombie";
 
 export interface Dance {
   id: DanceId;
@@ -39,8 +59,13 @@ export interface Dance {
   tagline: string;
   /** Duree d'une boucle, en secondes. */
   loop: number;
-  /** Animation du fichier a jouer telle quelle (le salut), sinon choregraphie en code. */
+  /**
+   * Animation du fichier a jouer telle quelle (le salut, et les « Emote_ »
+   * du fichier de danses, chargees a la demande), sinon choregraphie en code.
+   */
   clip?: string;
+  /** Vitesse de lecture de l'animation (1 par defaut). */
+  clipSpeed?: number;
   /** Choregraphie : pose le squelette a l'instant t (secondes depuis le debut). */
   pose?: (rig: DanceRig, t: number) => void;
 }
@@ -358,13 +383,45 @@ export const DANCES: Record<DanceId, Dance> = {
       rig.shift(0, saut * 0.07, 0);
     },
   },
+
+  // Danses animees pour de vrai (Mesh2Motion, CC0), reciblees sur le soldat
+  // dans Blender : fichier soldat-danses.glb.
+  coucou: emote("coucou", "Coucou", "commun", 300, "Grand bonjour des deux bras : on se connaît ?", "Emote_Coucou", 4.8),
+  brascroises: emote("brascroises", "Bras croisés", "commun", 350, "Tu attends quoi, exactement ?", "Emote_BrasCroises", 2.5),
+  telephone: emote("telephone", "Au téléphone", "commun", 400, "« Oui maman, je gagne. Je te rappelle. »", "Emote_Telephone", 3),
+  perdu: emote("perdu", "Perdu", "commun", 400, "Il était où, déjà ? Il était là...", "Emote_Perdu", 2.9),
+  colere: emote("colere", "Colère", "commun", 450, "Les poings serrés, prêt à exploser.", "Emote_Colere", 0.8),
+  petitedanse: emote("petitedanse", "Petite danse", "rare", 500, "Deux pas à gauche, deux pas à droite.", "Emote_PetiteDanse", 1.3),
+  jumpingjacks: emote("jumpingjacks", "Jumping jacks", "rare", 550, "L'échauffement avant la prochaine manche.", "Emote_JumpingJacks", 1.25),
+  pompes: emote("pompes", "Pompes", "rare", 600, "Pendant que tu recharges, lui s'entraîne.", "Emote_Pompes", 1.5),
+  victoire: emote("victoire", "Victoire", "rare", 650, "Les bras au ciel : c'est plié.", "Emote_Victoire", 1.7),
+  poingleve: emote("poingleve", "Poing levé", "rare", 700, "Yes ! Yes ! YES !", "Emote_PoingLeve", 2.25),
+  dehanche: emote("dehanche", "Déhanché", "rare", 800, "La main vers le ciel, les hanches qui roulent.", "Emote_Dehanche", 2.5),
+  charleston: emote("charleston", "Charleston", "epique", 1000, "Les années folles débarquent sur le champ de bataille.", "Emote_Charleston", 2.3),
+  meditation: emote("meditation", "Méditation", "epique", 1100, "Le calme absolu au milieu des balles.", "Emote_Meditation", 1.5),
+  roule: emote("roule", "Vague du corps", "epique", 1300, "Une ondulation de la tête aux pieds.", "Emote_Roule", 6.5),
+  crizombie: emote("crizombie", "Cri de zombie", "epique", 1400, "Il n'est plus tout à fait vivant, et il veut que tu le saches.", "Emote_CriZombie", 3.7),
+  onde: emote("onde", "Onde de choc", "epique", 1500, "Les deux mains en avant : une décharge d'énergie.", "Emote_Onde", 0.9, 0.5),
+  heros: emote("heros", "Atterrissage de héros", "legendaire", 2000, "Un genou à terre, le poing au sol. Comme au cinéma.", "Emote_Heros", 1.4),
+  levitation: emote("levitation", "Lévitation", "legendaire", 2200, "Les pieds ne touchent plus le sol.", "Emote_Levitation", 2),
+  salto: emote("salto", "Salto arrière", "legendaire", 2500, "Un salto arrière parfait. Bonne chance pour faire mieux.", "Emote_Salto", 2.5),
+  seisme: emote("seisme", "Séisme", "legendaire", 2800, "Il frappe le sol des deux poings : tout tremble.", "Emote_Seisme", 2.7),
 };
+
+/** Une danse animee du fichier de danses. */
+function emote(id: DanceId, name: string, rarity: Rarity, price: number, tagline: string, clip: string, loop: number, clipSpeed?: number): Dance {
+  return { id, name, rarity, price, tagline, loop, clip, clipSpeed };
+}
 
 export const DANCE_ORDER: DanceId[] = [
   "salut", "ressort", "pantin",
+  "coucou", "brascroises", "telephone", "perdu", "colere",
   "robot", "disco", "vague", "loser",
+  "petitedanse", "jumpingjacks", "pompes", "victoire", "poingleve", "dehanche",
   "floss", "fiesta", "moonwalk", "tourbillon",
+  "charleston", "meditation", "roule", "crizombie", "onde",
   "champion", "carton",
+  "heros", "levitation", "salto", "seisme",
 ];
 
 /** Os que les choregraphies touchent : on les remet au repos a chaque image. */
@@ -483,8 +540,21 @@ export function createDancer(model: AnimatedModel): Dancer {
         baseZ = model.root.position.z;
         baseYaw = model.root.rotation.y;
         const dance = DANCES[id];
-        if (dance.clip) model.play(dance.clip, { fade: 0.15 });
-        else {
+        const clip = dance.clip;
+        if (clip) {
+          const jouer = () => model.play(clip, { fade: 0.15, speed: dance.clipSpeed ?? 1 });
+          if (model.has(clip)) jouer();
+          else {
+            // Premiere danse animee : le fichier de danses arrive, puis on danse
+            // (si personne n'a change d'avis entre-temps).
+            model
+              .loadExtraClips()
+              .then(() => {
+                if (current === id) jouer();
+              })
+              .catch(() => {});
+          }
+        } else {
           model.mixer.stopAllAction();
           model.current = null;
         }

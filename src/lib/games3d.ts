@@ -32,13 +32,13 @@ export const GAMES_3D: Game3D[] = [
   {
     slug: "cubes",
     title: "Cubes",
-    description: "Explore un monde de blocs, creuse ses grottes et construis ton refuge. Crée librement ou récolte tes ressources en affrontant les zombies.",
+    description: "Explore un monde de blocs, creuse ses grottes et construis ton refuge. Fabrique plus de 200 objets, surveille ta faim et ta soif, et tiens bon quand la nuit fait sortir les monstres.",
     emoji: "🌳",
     gradient: "from-emerald-700 to-slate-950",
     genre: "Construction et exploration",
     players: "Solo",
     duration: "À ton rythme",
-    highlights: ["Créatif et survie", "Terrain généré à partir d’une graine", "Sauvegarde et export du monde"],
+    highlights: ["Créatif et survie", "Table de craft et plus de 200 objets", "Jour, nuit et monstres", "Vie, faim et soif"],
   },
   {
     slug: "labyrinthe-legendaire",
