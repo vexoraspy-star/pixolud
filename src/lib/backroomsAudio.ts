@@ -5,6 +5,7 @@
 // se coupe (panne), le silence fait plus peur que n'importe quel cri.
 
 import type { LightingKind } from "./backrooms";
+import type { MonsterKind } from "./backroomsMonsters";
 
 export interface Spatial {
   pan?: number;
@@ -38,6 +39,7 @@ function noiseBurst(
   gain: number,
   shape: (t: number) => number,
   filter?: { type: BiquadFilterType; freq: number; q?: number },
+  delay = 0,
 ) {
   if (dead(ctx)) return;
   const size = Math.max(1, Math.floor(ctx.sampleRate * seconds));
@@ -47,7 +49,7 @@ function noiseBurst(
   const src = ctx.createBufferSource();
   src.buffer = buffer;
   const g = ctx.createGain();
-  g.gain.setValueAtTime(gain, ctx.currentTime);
+  g.gain.setValueAtTime(gain, ctx.currentTime + delay);
   if (filter) {
     const f = ctx.createBiquadFilter();
     f.type = filter.type;
@@ -59,7 +61,7 @@ function noiseBurst(
     src.connect(g);
   }
   g.connect(dest);
-  src.start(ctx.currentTime);
+  src.start(ctx.currentTime + delay);
 }
 
 function tone(
@@ -158,8 +160,25 @@ export function createBackroomsAudio(lighting: LightingKind, flavor: AudioFlavor
   const humGain = ctx.createGain();
   humGain.gain.value = 0;
   humGain.connect(master);
+  // Lumieres eteintes : plus un seul neon, donc plus de bourdonnement du tout.
   const humBase =
-    flavor === "centrale" ? 0.075 : flavor === "piscines" ? 0.025 : lighting === "neons" ? 0.07 : lighting === "entrepot" ? 0.035 : lighting === "alarme" ? 0.02 : 0.012;
+    flavor === "noir"
+      ? 0
+      : flavor === "centrale"
+        ? 0.075
+        : flavor === "piscines"
+          ? 0.025
+          : flavor === "hotel"
+            ? 0.03
+            : flavor === "fete"
+              ? 0.04
+              : lighting === "neons"
+                ? 0.07
+                : lighting === "entrepot"
+                  ? 0.035
+                  : lighting === "alarme"
+                    ? 0.02
+                    : 0.012;
   const hum1 = ctx.createOscillator();
   hum1.type = "sawtooth";
   // La centrale ronfle a 50 Hz, comme un vrai transformateur.
@@ -333,6 +352,46 @@ export function createBackroomsAudio(lighting: LightingKind, flavor: AudioFlavor
             tone(ctx, dest, "square", 880, 880, 0.35, 0.05, 0.01);
             tone(ctx, dest, "square", 660, 660, 0.35, 0.04, 0.01);
           }
+        } else if (flavor === "hotel") {
+          const r = Math.random();
+          if (r < 0.35) {
+            // L'ascenseur s'arrete a un autre etage. Personne n'en sort.
+            const dest = out(ctx, master, { pan, gain: 0.2 + Math.random() * 0.2 });
+            tone(ctx, dest, "sine", 1318, 1318, 0.8, 0.08, 0.005);
+            tone(ctx, dest, "sine", 1046, 1046, 1, 0.08, 0.005, 0.3);
+          } else if (r < 0.65) {
+            // Une porte de chambre qui se referme, tout au bout du couloir.
+            const dest = out(ctx, master, { pan, gain: 0.35 + Math.random() * 0.2 });
+            noiseBurst(ctx, dest, 0.12, 0.5, (t) => Math.pow(1 - t, 4), { type: "lowpass", freq: 420 });
+            tone(ctx, dest, "sine", 90, 55, 0.18, 0.14, 0.003);
+          } else {
+            // Une television allumee derriere une porte : des voix qu'on ne comprend pas.
+            const dest = out(ctx, master, { pan, gain: 0.14 });
+            const n = 5 + Math.floor(Math.random() * 6);
+            for (let k = 0; k < n; k++) {
+              noiseBurst(ctx, dest, 0.08 + Math.random() * 0.1, 0.4, (t) => Math.sin(t * Math.PI), { type: "bandpass", freq: 450 + Math.random() * 750, q: 4 }, k * 0.16 + Math.random() * 0.05);
+            }
+          }
+        } else if (flavor === "noir") {
+          // Presque rien : une goutte, un craquement tres loin. Le silence fait le reste.
+          const r = Math.random();
+          if (r < 0.4) {
+            const f = 700 + Math.random() * 700;
+            tone(ctx, out(ctx, master, { pan, gain: 0.25 + Math.random() * 0.25 }), "sine", f, f * 1.7, 0.08, 0.1, 0.001);
+          } else if (r < 0.6) {
+            tone(ctx, out(ctx, master, { pan, gain: 0.35 }), "sine", 70, 48, 0.35, 0.18, 0.004);
+            noiseBurst(ctx, out(ctx, master, { pan, gain: 0.25 }), 0.2, 0.3, (t) => Math.pow(1 - t, 3), { type: "lowpass", freq: 300 });
+          }
+        } else if (flavor === "fete") {
+          // Au loin, quelqu'un fait la fete. Un ballon eclate, une trompette, un rire.
+          const r = Math.random();
+          if (r < 0.35) {
+            noiseBurst(ctx, out(ctx, master, { pan, gain: 0.25 + Math.random() * 0.2 }), 0.06, 0.6, (t) => Math.pow(1 - t, 6), { type: "highpass", freq: 900 });
+          } else if (r < 0.6) {
+            partyHorn(ctx, out(ctx, master, { pan, gain: 0.12 + Math.random() * 0.08 }), 0);
+          } else {
+            laugh(ctx, out(ctx, master, { pan, gain: 0.12 + Math.random() * 0.1 }), 3 + Math.floor(Math.random() * 3), 330 + Math.random() * 60, 0);
+          }
         } else if (lighting === "entrepot") {
           const f = 1400 + Math.random() * 1600;
           tone(ctx, out(ctx, master, { pan, gain: 0.5 + Math.random() * 0.4 }), "sine", f, f * 0.6, 0.12, 0.12, 0.002);
@@ -392,8 +451,13 @@ export function createBackroomsAudio(lighting: LightingKind, flavor: AudioFlavor
 
 export type Surface = "moquette" | "beton" | "metal" | "carrelage" | "eau";
 
-/** Ambiance propre a certains niveaux, en plus de celle de l'eclairage. */
-export type AudioFlavor = "centrale" | "bureaux" | "piscines" | null;
+/**
+ * Ambiance propre a certains niveaux, en plus de celle de l'eclairage.
+ * "hotel" : ascenseur, portes, television derriere une porte ; "noir" : aucun
+ * bourdonnement, presque rien ; "fete" : ballons, trompettes et rires au loin
+ * (la musique, elle, se lance a part avec playPartyMusic).
+ */
+export type AudioFlavor = "centrale" | "bureaux" | "piscines" | "hotel" | "noir" | "fete" | null;
 
 /** Un pas. La moquette detrempee fait « scrouitch », le metal sonne creux. */
 export function playStep(ctx: AudioContext, master: GainNode, surface: Surface, intensity: number, opts?: Spatial) {
@@ -722,4 +786,415 @@ export function playDeath(ctx: AudioContext, master: GainNode) {
 /** La lucidite qui lache : une note aigue qui siffle dans les oreilles. */
 export function playTinnitus(ctx: AudioContext, master: GainNode) {
   tone(ctx, master, "sine", 6200, 6000, 3, 0.03, 1.2);
+}
+
+// ---------------------------------------------------------------------------
+// Nouveaux monstres : le Voleur de peau, les Chiens, les Fetards
+// ---------------------------------------------------------------------------
+
+interface VoiceOptions {
+  from: number;
+  to: number;
+  seconds: number;
+  peak: number;
+  /** Premier et deuxieme formants : la voyelle (a : 800/1250, i : 330/2300, o : 480/850). */
+  f1: number;
+  f2: number;
+  delay?: number;
+  attack?: number;
+  /** Vibrato : frequence (Hz) et amplitude (Hz). */
+  vibrato?: number;
+  depth?: number;
+}
+
+/**
+ * Une voix synthetique : une scie qui glisse d'une note a l'autre, passee dans
+ * deux formants (la voyelle). Sert aux cris, aux rires et aux aboiements.
+ */
+function voice(ctx: AudioContext, dest: AudioNode, o: VoiceOptions) {
+  if (dead(ctx)) return;
+  const now = ctx.currentTime + (o.delay ?? 0);
+  const end = now + o.seconds;
+  const peak = Math.max(0.0002, o.peak);
+  const osc = ctx.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(Math.max(1, o.from), now);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.to), end);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, now);
+  env.gain.exponentialRampToValueAtTime(peak, now + Math.min(o.attack ?? 0.03, o.seconds * 0.4));
+  env.gain.setValueAtTime(peak, now + o.seconds * 0.6);
+  env.gain.exponentialRampToValueAtTime(0.0001, end);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = "bandpass";
+  f1.frequency.value = o.f1;
+  f1.Q.value = 2.5;
+  const f2 = ctx.createBiquadFilter();
+  f2.type = "bandpass";
+  f2.frequency.value = o.f2;
+  f2.Q.value = 3.5;
+  const f2Gain = ctx.createGain();
+  f2Gain.gain.value = 0.6;
+  osc.connect(f1);
+  osc.connect(f2);
+  f1.connect(env);
+  f2.connect(f2Gain);
+  f2Gain.connect(env);
+  env.connect(dest);
+  if (o.vibrato) {
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = o.vibrato;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = o.depth ?? 6;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    lfo.start(now);
+    lfo.stop(end + 0.05);
+  }
+  osc.start(now);
+  osc.stop(end + 0.05);
+}
+
+/** Grognement : une scie grave qui rale (modulee une vingtaine de fois par seconde). */
+function growl(ctx: AudioContext, dest: AudioNode, seconds: number, gain: number, delay = 0) {
+  if (dead(ctx)) return;
+  const now = ctx.currentTime + delay;
+  const len = Math.max(0.4, seconds);
+  const peak = Math.max(0.0002, gain);
+  const osc = ctx.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(80 + Math.random() * 15, now);
+  osc.frequency.linearRampToValueAtTime(62 + Math.random() * 8, now + len);
+  const rattle = ctx.createOscillator();
+  rattle.type = "square";
+  rattle.frequency.value = 20 + Math.random() * 9;
+  const rattleDepth = ctx.createGain();
+  rattleDepth.gain.value = 0.45;
+  const vca = ctx.createGain();
+  vca.gain.value = 0.55;
+  rattle.connect(rattleDepth);
+  rattleDepth.connect(vca.gain);
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 480;
+  lp.Q.value = 4;
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, now);
+  env.gain.exponentialRampToValueAtTime(peak, now + 0.15);
+  env.gain.setValueAtTime(peak, now + len * 0.7);
+  env.gain.exponentialRampToValueAtTime(0.0001, now + len);
+  osc.connect(vca);
+  vca.connect(lp);
+  lp.connect(env);
+  env.connect(dest);
+  osc.start(now);
+  rattle.start(now);
+  osc.stop(now + len + 0.05);
+  rattle.stop(now + len + 0.05);
+  // La gorge qui racle, par-dessus.
+  noiseBurst(ctx, dest, len, gain * 0.5, (t) => Math.sin(Math.PI * t) * (Math.random() < 0.5 ? 1 : 0.35), { type: "bandpass", freq: 350, q: 2 }, delay);
+}
+
+/** Langue de belle-mere : une anche qui bourdonne, se deroule, puis retombe. */
+function partyHorn(ctx: AudioContext, dest: AudioNode, delay: number) {
+  if (dead(ctx)) return;
+  const now = ctx.currentTime + delay;
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(430, now);
+  osc.frequency.linearRampToValueAtTime(470, now + 0.08);
+  osc.frequency.setValueAtTime(470, now + 0.45);
+  osc.frequency.linearRampToValueAtTime(380, now + 0.6);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 17;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 9;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 1500;
+  bp.Q.value = 1.2;
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, now);
+  env.gain.exponentialRampToValueAtTime(0.22, now + 0.03);
+  env.gain.setValueAtTime(0.22, now + 0.5);
+  env.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
+  osc.connect(bp);
+  bp.connect(env);
+  env.connect(dest);
+  osc.start(now);
+  lfo.start(now);
+  osc.stop(now + 0.65);
+  lfo.stop(now + 0.65);
+}
+
+/** Rire : des « ha » (ou des « hi ») qui montent, trop reguliers pour etre vrais. */
+function laugh(ctx: AudioContext, dest: AudioNode, count: number, pitch: number, delay: number, vowel: "a" | "i" = "a") {
+  const [f1, f2] = vowel === "a" ? [780, 1250] : [340, 2300];
+  for (let i = 0; i < count; i++) {
+    const at = delay + i * (vowel === "a" ? 0.16 : 0.12);
+    const p = pitch * (1 + i * 0.03);
+    voice(ctx, dest, { from: p * 1.08, to: p * 0.9, seconds: vowel === "a" ? 0.12 : 0.09, peak: 0.3, f1, f2, delay: at, attack: 0.012 });
+    noiseBurst(ctx, dest, 0.1, 0.18, (t) => Math.sin(Math.PI * t), { type: "bandpass", freq: 1400, q: 1.5 }, at);
+  }
+}
+
+/**
+ * Le Voleur de peau imite une voix humaine, sans jamais tout a fait y arriver :
+ * « allo ? », « y'a quelqu'un ? », « aide-moi », en syllabes soufflees, avec
+ * dessous une vraie voix, a peine audible et un peu trop grave.
+ */
+function thiefWhisper(ctx: AudioContext, dest: AudioNode) {
+  // [F1, F2, duree, consonne dure avant]
+  const phrases: [number, number, number, boolean][][] = [
+    [
+      [750, 1200, 0.16, false],
+      [480, 850, 0.34, false],
+    ],
+    [
+      [300, 2200, 0.1, false],
+      [750, 1250, 0.12, false],
+      [420, 1900, 0.14, true],
+      [460, 1100, 0.3, true],
+    ],
+    [
+      [700, 1700, 0.2, false],
+      [300, 2300, 0.08, true],
+      [330, 750, 0.1, false],
+      [650, 1100, 0.3, false],
+    ],
+  ];
+  const phrase = phrases[Math.floor(Math.random() * phrases.length)];
+  let at = 0;
+  phrase.forEach(([f1, f2, dur, hard], i) => {
+    if (hard) {
+      noiseBurst(ctx, dest, 0.03, 0.35, (t) => Math.pow(1 - t, 3), { type: "highpass", freq: 2600 }, at);
+      at += 0.03;
+    }
+    const shape = (t: number) => Math.sin(Math.PI * Math.min(1, t * 1.15));
+    noiseBurst(ctx, dest, dur, 0.45, shape, { type: "bandpass", freq: f1, q: 6 }, at);
+    noiseBurst(ctx, dest, dur, 0.3, shape, { type: "bandpass", freq: f2, q: 8 }, at);
+    // La derniere syllabe monte, comme une question.
+    const last = i === phrase.length - 1;
+    voice(ctx, dest, { from: 112, to: last ? 150 : 104, seconds: dur, peak: 0.035, f1, f2, delay: at, attack: 0.02 });
+    at += dur + 0.03;
+  });
+}
+
+/** Cri du Voleur de peau : un cri humain qui se dechire en crissement. */
+function thiefScream(ctx: AudioContext, dest: AudioNode) {
+  voice(ctx, dest, { from: 330, to: 560, seconds: 0.5, peak: 0.3, f1: 850, f2: 1300, vibrato: 6, depth: 10 });
+  voice(ctx, dest, { from: 560, to: 1400, seconds: 0.9, peak: 0.22, f1: 1900, f2: 3000, delay: 0.42, vibrato: 21, depth: 70 });
+  voice(ctx, dest, { from: 587, to: 1320, seconds: 0.9, peak: 0.16, f1: 1900, f2: 3000, delay: 0.42, vibrato: 17, depth: 50 });
+  noiseBurst(ctx, dest, 1, 0.35, (t) => Math.sin(Math.PI * t) * (0.5 + Math.random() * 0.5), { type: "bandpass", freq: 2600, q: 1.4 }, 0.42);
+}
+
+/** Les Chiens t'ont entendu : grognement, deux aboiements rauques, puis un hurlement qui se brise. */
+function houndCall(ctx: AudioContext, dest: AudioNode) {
+  growl(ctx, dest, 1.1, 0.5);
+  for (const at of [0.35, 0.62]) {
+    voice(ctx, dest, { from: 460, to: 250, seconds: 0.16, peak: 0.35, f1: 900, f2: 1700, delay: at, attack: 0.008 });
+    noiseBurst(ctx, dest, 0.14, 0.4, (t) => Math.pow(1 - t, 2), { type: "bandpass", freq: 1100, q: 1 }, at);
+  }
+  voice(ctx, dest, { from: 300, to: 640, seconds: 0.5, peak: 0.22, f1: 800, f2: 1200, delay: 0.95, vibrato: 9, depth: 18 });
+  voice(ctx, dest, { from: 640, to: 240, seconds: 0.9, peak: 0.2, f1: 700, f2: 1100, delay: 1.42, vibrato: 11, depth: 28 });
+}
+
+export type MonsterCallVariant = "appel" | "ambiance";
+
+/**
+ * Voix d'un monstre.
+ * - « appel » (par defaut) : il t'a repere. Le Voleur crie, les Fetards
+ *   soufflent dans une trompette de fete et rient, les Chiens grognent,
+ *   aboient et hurlent.
+ * - « ambiance » : il rode. Le Voleur chuchote en imitant une voix, les Chiens
+ *   grognent bas en reniflant, un Fetard glousse ou fait couiner un ballon.
+ */
+export function playMonsterCall(ctx: AudioContext, master: GainNode, kind: MonsterKind, opts?: Spatial, variant: MonsterCallVariant = "appel") {
+  if (dead(ctx)) return;
+  const dest = out(ctx, master, opts);
+  if (kind === "voleur") {
+    if (variant === "appel") thiefScream(ctx, dest);
+    else thiefWhisper(ctx, dest);
+  } else if (kind === "chiens") {
+    if (variant === "appel") {
+      houndCall(ctx, dest);
+    } else {
+      growl(ctx, dest, 0.9 + Math.random() * 0.6, 0.35);
+      for (let i = 0; i < 3; i++) {
+        noiseBurst(ctx, dest, 0.05, 0.12, (t) => Math.sin(Math.PI * t), { type: "highpass", freq: 1800 }, 1.2 + i * 0.11);
+      }
+    }
+  } else if (variant === "appel") {
+    partyHorn(ctx, dest, 0);
+    laugh(ctx, dest, 6, 290, 0.55);
+  } else if (Math.random() < 0.6) {
+    laugh(ctx, dest, 3, 440, 0, "i");
+  } else {
+    // Un ballon qu'on tord entre les doigts.
+    tone(ctx, dest, "sine", 900, 1400, 0.25, 0.08, 0.02);
+    tone(ctx, dest, "sine", 1400, 1000, 0.2, 0.06, 0.02, 0.22);
+  }
+}
+
+/** Un pas de monstre : pieds nus du Voleur, pattes et griffes des Chiens, semelles qui couinent des Fetards. */
+export function playMonsterStep(ctx: AudioContext, master: GainNode, kind: MonsterKind, opts?: Spatial) {
+  if (dead(ctx)) return;
+  const dest = out(ctx, master, opts);
+  if (kind === "voleur") {
+    // Pieds nus sur la moquette, et parfois un lambeau de peau qui claque.
+    noiseBurst(ctx, dest, 0.08, 0.14, (t) => Math.pow(1 - t, 3), { type: "lowpass", freq: 850 });
+    if (Math.random() < 0.5) noiseBurst(ctx, dest, 0.05, 0.07, (t) => Math.sin(Math.PI * t), { type: "bandpass", freq: 1500, q: 2 }, 0.05);
+  } else if (kind === "chiens") {
+    // Quatre pattes : deux appuis rapproches, et les griffes qui cliquettent.
+    for (const at of [0, 0.07]) noiseBurst(ctx, dest, 0.06, 0.16, (t) => Math.pow(1 - t, 3), { type: "lowpass", freq: 700 }, at);
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      const f = 2600 + Math.random() * 1200;
+      tone(ctx, dest, "square", f, f * 0.8, 0.012, 0.035, 0.001, 0.01 + i * 0.03 + Math.random() * 0.02);
+    }
+  } else {
+    // Des semelles de caoutchouc qui couinent, comme un jouet.
+    noiseBurst(ctx, dest, 0.07, 0.12, (t) => Math.pow(1 - t, 3), { type: "lowpass", freq: 600 });
+    const f = 1000 + Math.random() * 300;
+    tone(ctx, dest, "sine", f, f * 1.35, 0.07, 0.035, 0.005, 0.02);
+  }
+}
+
+// --- Musique de fete ---------------------------------------------------------
+
+const PARTY_RATE = 22050;
+/** Boucle de musique, calculee une seule fois (echantillons bruts, 22 kHz, 4 mesures). */
+let partyLoop: Float32Array | null = null;
+
+function renderPartyLoop(): Float32Array {
+  const rate = PARTY_RATE;
+  const beat = 60 / 124;
+  const bars = 4;
+  const total = Math.floor(bars * 4 * beat * rate);
+  const d = new Float32Array(total);
+  // Les notes qui depassent la fin reviennent au debut : la boucle ne claque pas.
+  const add = (start: number, seconds: number, fn: (t: number) => number) => {
+    const i0 = Math.floor(start * rate);
+    const n = Math.floor(seconds * rate);
+    for (let i = 0; i < n; i++) d[(i0 + i) % total] += fn(i / rate);
+  };
+  const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
+  const TAU = Math.PI * 2;
+  // Do, sol, la mineur, fa : la suite d'accords de toutes les fetes.
+  const chords = [
+    [60, 64, 67],
+    [59, 62, 67],
+    [57, 60, 64],
+    [57, 60, 65],
+  ];
+  const roots = [36, 43, 45, 41];
+  // Une ritournelle de boite a musique, en arpeges (-1 : silence).
+  const tune = [
+    [76, 79, 84, 79, 76, 79, 72, -1],
+    [74, 79, 83, 79, 74, 71, 74, -1],
+    [72, 76, 81, 76, 72, 76, 69, -1],
+    [72, 77, 81, 77, 74, 72, 71, 74],
+  ];
+  for (let bar = 0; bar < bars; bar++) {
+    const root = hz(roots[bar]);
+    for (let b = 0; b < 4; b++) {
+      const t0 = (bar * 4 + b) * beat;
+      // Grosse caisse sur chaque temps : c'est elle qui traverse les murs.
+      add(t0, 0.3, (t) => Math.sin(TAU * (45 * t + (90 / 22) * (1 - Math.exp(-22 * t)))) * Math.exp(-t * 11) * 0.9);
+      // Basse « poum-pa » : la fondamentale, puis l'octave.
+      add(t0, beat * 0.45, (t) => (Math.sin(TAU * root * t) > 0 ? 1 : -1) * 0.16 * Math.exp(-t * 6));
+      add(t0 + beat / 2, beat * 0.4, (t) => (Math.sin(TAU * root * 2 * t) > 0 ? 1 : -1) * 0.1 * Math.exp(-t * 7));
+      // Accord plaque a contretemps.
+      for (const m of chords[bar]) {
+        const f = hz(m);
+        add(t0 + beat / 2, 0.2, (t) => (2 * ((f * t) % 1) - 1) * 0.05 * Math.exp(-t * 10));
+      }
+      // Claquement de mains sur 2 et 4.
+      if (b % 2 === 1) add(t0, 0.15, (t) => (Math.random() * 2 - 1) * 0.3 * Math.exp(-t * 28));
+      // La ritournelle, en croches.
+      for (let e = 0; e < 2; e++) {
+        const m = tune[bar][b * 2 + e];
+        if (m < 0) continue;
+        const f = hz(m);
+        add(t0 + (e * beat) / 2, 0.35, (t) => (Math.sin(TAU * f * t) + 0.3 * Math.sin(TAU * f * 2 * t)) * 0.11 * Math.exp(-t * 7));
+      }
+    }
+  }
+  let peak = 0;
+  for (let i = 0; i < total; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak > 0) for (let i = 0; i < total; i++) d[i] *= 0.85 / peak;
+  return d;
+}
+
+export interface PartyMusic {
+  /** Volume (0 a 1 environ) et panoramique (-1 a 1), avec un fondu. */
+  setLevel: (gain: number, pan?: number) => void;
+  stop: () => void;
+}
+
+/**
+ * Musique de fete en boucle, comme entendue a travers les murs : seuls les
+ * graves passent (la grosse caisse, la basse), et la bande magnetique ondule
+ * juste assez pour mettre mal a l'aise. Volume de depart : `opts.gain`
+ * (0,35 par defaut). A arreter en quittant le niveau (fermer le contexte
+ * audio l'arrete aussi).
+ */
+export function playPartyMusic(ctx: AudioContext, master: GainNode, opts?: Spatial): PartyMusic {
+  const silent: PartyMusic = { setLevel: () => {}, stop: () => {} };
+  if (dead(ctx)) return silent;
+  try {
+    if (!partyLoop) partyLoop = renderPartyLoop();
+    const buffer = ctx.createBuffer(1, partyLoop.length, PARTY_RATE);
+    buffer.getChannelData(0).set(partyLoop);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const wow = ctx.createOscillator();
+    wow.frequency.value = 0.21;
+    const wowDepth = ctx.createGain();
+    wowDepth.gain.value = 0.012;
+    wow.connect(wowDepth);
+    wowDepth.connect(src.playbackRate);
+    const wall = ctx.createBiquadFilter();
+    wall.type = "lowpass";
+    wall.frequency.value = 700;
+    wall.Q.value = 0.9;
+    const level = ctx.createGain();
+    level.gain.value = Math.max(0, opts?.gain ?? 0.35);
+    const panner = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : null;
+    src.connect(wall);
+    wall.connect(level);
+    if (panner) {
+      panner.pan.value = Math.max(-1, Math.min(1, opts?.pan ?? 0));
+      level.connect(panner);
+      panner.connect(master);
+    } else {
+      level.connect(master);
+    }
+    src.start();
+    wow.start();
+    let stopped = false;
+    return {
+      setLevel: (gain, pan) => {
+        if (stopped || dead(ctx)) return;
+        level.gain.setTargetAtTime(Math.max(0, gain), ctx.currentTime, 0.4);
+        if (panner && pan !== undefined) panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), ctx.currentTime, 0.4);
+      },
+      stop: () => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          src.stop();
+          wow.stop();
+          level.disconnect();
+        } catch {
+          // deja arrete, ou contexte ferme
+        }
+      },
+    };
+  } catch {
+    return silent;
+  }
 }

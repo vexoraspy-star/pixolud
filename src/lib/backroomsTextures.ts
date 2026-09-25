@@ -692,7 +692,7 @@ export function makeArrowDecal(color = "#8a1410"): THREE.CanvasTexture {
   return t;
 }
 
-export type DoorStyle = "service" | "monte-charge" | "trappe" | "sortie" | "centrale" | "securite" | "piscine";
+export type DoorStyle = "service" | "monte-charge" | "trappe" | "sortie" | "centrale" | "securite" | "piscine" | "hotel" | "noir" | "fete";
 
 /** Portes de sortie, une par niveau. */
 export function makeDoorTexture(style: DoorStyle): THREE.CanvasTexture {
@@ -855,6 +855,116 @@ export function makeDoorTexture(style: DoorStyle): THREE.CanvasTexture {
     ctx.fillRect(28, 330, 18, 60);
     ctx.fillStyle = "rgba(90,130,120,0.18)";
     for (let i = 0; i < 12; i++) ctx.fillRect(Math.random() * W, H - 80 + Math.random() * 60, 2 + Math.random() * 30, 2);
+  } else if (style === "hotel") {
+    // Porte du personnel : tole peinte creme, on la distingue des portes de chambre en bois.
+    ctx.fillStyle = "#cfc4a8";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(60,45,30,0.4)";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.fillStyle = "#7a1c1c";
+    ctx.fillRect(38, 70, W - 76, 64);
+    ctx.fillStyle = "#e9d3a0";
+    ctx.font = "bold 22px serif";
+    ctx.textAlign = "center";
+    ctx.fillText("PERSONNEL", W / 2, 99);
+    ctx.font = "13px serif";
+    ctx.fillText("SORTIE DE SERVICE", W / 2, 121);
+    // Barre anti-panique et traces de mains sales autour.
+    ctx.fillStyle = "#3a3630";
+    ctx.fillRect(24, 272, W - 48, 20);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.fillRect(24, 272, W - 48, 3);
+    ctx.fillStyle = "rgba(70,50,30,0.22)";
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.ellipse(40 + Math.random() * (W - 80), 250 + Math.random() * 60, 12, 16, Math.random(), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#8a7a5a";
+    ctx.fillRect(0, H - 34, W, 34);
+  } else if (style === "noir") {
+    // Lourde porte d'acier noir ; quelqu'un a peint « SORTIE » en vert qui luit.
+    ctx.fillStyle = "#18191b";
+    ctx.fillRect(0, 0, W, H);
+    for (let y = 0; y < H; y += 64) {
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(12, y + 4, W - 24, 2);
+    }
+    ctx.strokeStyle = "rgba(0,0,0,0.7)";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(8, 8, W - 16, H - 16);
+    ctx.save();
+    ctx.translate(W / 2, 170);
+    ctx.rotate(-0.08);
+    ctx.fillStyle = "#6dff8a";
+    ctx.shadowColor = "#6dff8a";
+    ctx.shadowBlur = 14;
+    ctx.font = "bold 44px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("SORTIE", 0, 0);
+    ctx.restore();
+    ctx.fillStyle = "#6dff8a";
+    ctx.globalAlpha = 0.7;
+    for (let i = 0; i < 5; i++) ctx.fillRect(70 + Math.random() * 110, 176, 3, 20 + Math.random() * 50);
+    ctx.globalAlpha = 1;
+    // Griffures profondes, a hauteur de chien.
+    ctx.strokeStyle = "rgba(160,160,165,0.55)";
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath();
+      ctx.moveTo(60 + k * 12, 360);
+      ctx.lineTo(80 + k * 14, 470);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#2c2d30";
+    ctx.fillRect(W - 58, 270, 26, 60);
+  } else if (style === "fete") {
+    // Porte de sortie de la fete : rayures bonbon, ballons scotches, et un grand sourire.
+    for (let k = 0, x = -H; x < W + H; k++, x += 40) {
+      ctx.fillStyle = k % 2 === 0 ? "#ff7ab8" : "#fff2f8";
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 20, 0);
+      ctx.lineTo(x + 20 + H * 0.4, H);
+      ctx.lineTo(x + H * 0.4, H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.strokeStyle = "rgba(90,20,60,0.5)";
+    ctx.lineWidth = 8;
+    ctx.strokeRect(8, 8, W - 16, H - 16);
+    ctx.fillStyle = "#fff8d6";
+    ctx.beginPath();
+    ctx.arc(W / 2, 150, 70, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1b1418";
+    ctx.font = "bold 72px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("=)", W / 2, 152);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#7a1450";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText("À BIENTÔT !", W / 2, 262);
+    for (const [bx, by, c] of [
+      [30, 40, "#5fd4ff"],
+      [W - 34, 52, "#ffe45c"],
+      [44, 330, "#8cff6a"],
+    ] as const) {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 18, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(40,20,30,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by + 22);
+      ctx.lineTo(bx + 6, by + 70);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#3a1830";
+    ctx.fillRect(W - 60, 290, 26, 54);
   } else {
     ctx.fillStyle = style === "sortie" ? "#6b6560" : "#77746a";
     ctx.fillRect(0, 0, W, H);
@@ -1326,5 +1436,757 @@ export function makeWaterSurface(): THREE.CanvasTexture {
       ctx.stroke();
     }
   }
+  return finish(canvas);
+}
+
+/**
+ * Dessine `draw(x, y)` a sa place et, pres d'un bord, de l'autre cote aussi :
+ * la texture se repete sans couture.
+ */
+function wrapped(S: number, x: number, y: number, margin: number, draw: (x: number, y: number) => void) {
+  for (const ox of [0, -S, S]) {
+    if (ox !== 0 && (ox < 0 ? x < S - margin : x > margin)) continue;
+    for (const oy of [0, -S, S]) {
+      if (oy !== 0 && (oy < 0 ? y < S - margin : y > margin)) continue;
+      draw(x + ox, y + oy);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Niveau 5 — L'Hotel de la terreur
+// ---------------------------------------------------------------------------
+
+/** Fleuron de damas : une feuille en goutte, deux volutes, une perle. */
+function damask(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, fill: string, line: string) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s);
+  ctx.quadraticCurveTo(cx + s * 0.75, cy - s * 0.2, cx, cy + s * 0.9);
+  ctx.quadraticCurveTo(cx - s * 0.75, cy - s * 0.2, cx, cy - s);
+  ctx.fill();
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 2;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(cx + side * s * 0.62, cy + s * 0.55, s * 0.32, side < 0 ? -0.4 : Math.PI - 1.9, side < 0 ? 1.9 : Math.PI + 0.4);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - s * 1.25, s * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = line;
+  ctx.fill();
+}
+
+/** Papier peint d'hotel : damas rouge sombre, cimaise, lambris de noyer. Les motifs se raccordent d'un mur a l'autre. */
+export function makeHotelWallpaper(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 756;
+  const { canvas, ctx } = canvas2d(W, H);
+  const rail = Math.round(H * 0.6);
+  const base = ctx.createLinearGradient(0, 0, 0, rail);
+  base.addColorStop(0, "#4a0e12");
+  base.addColorStop(1, "#5c1519");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, rail);
+  // Rayures fines, puis le damas en quinconce.
+  for (let x = 0; x < W; x += 32) {
+    ctx.fillStyle = "rgba(0,0,0,0.1)";
+    ctx.fillRect(x, 0, 2, rail);
+  }
+  for (let row = 0, y = 70; y < rail + 60; row++, y += 110) {
+    for (let x = row % 2 === 0 ? 64 : 0; x <= W; x += 128) {
+      damask(ctx, x, y, 30, "rgba(140,60,34,0.4)", "rgba(190,120,60,0.35)");
+    }
+  }
+  // Voile de fumee et de nicotine vers le plafond.
+  const smoke = ctx.createLinearGradient(0, 0, 0, rail * 0.5);
+  smoke.addColorStop(0, "rgba(20,8,4,0.45)");
+  smoke.addColorStop(1, "rgba(20,8,4,0)");
+  ctx.fillStyle = smoke;
+  ctx.fillRect(0, 0, W, rail * 0.5);
+  // Trace plus claire d'un tableau decroche.
+  if (Math.random() < 0.5) {
+    const tw = 90 + Math.random() * 80;
+    const tx = Math.random() * (W - tw);
+    ctx.fillStyle = "rgba(160,70,60,0.16)";
+    ctx.fillRect(tx, 150 + Math.random() * 120, tw, tw * 0.75);
+  }
+  for (let i = 0; i < 2; i++) {
+    waterStain(ctx, Math.random() * W, Math.random() * rail * 0.8, 30 + Math.random() * 60, "rgba(30,10,4,0.16)", "rgba(20,6,2,0.2)");
+  }
+  // Lambris de noyer, par panneaux de 128 px (quatre par mur, raccordes).
+  ctx.fillStyle = "#3a1c10";
+  ctx.fillRect(0, rail, W, H - rail);
+  for (let x = 0; x < W; x += 128) {
+    const g = ctx.createLinearGradient(x, 0, x + 128, 0);
+    g.addColorStop(0, "#43210f");
+    g.addColorStop(0.5, "#4f2814");
+    g.addColorStop(1, "#40200e");
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 14, rail + 34, 100, H - rail - 84);
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 14, rail + 34, 100, H - rail - 84);
+    ctx.strokeStyle = "rgba(230,170,110,0.18)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 17, rail + 37, 94, H - rail - 90);
+  }
+  // Fil du bois.
+  ctx.strokeStyle = "rgba(20,8,2,0.25)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * W;
+    ctx.beginPath();
+    ctx.moveTo(x, rail + 10);
+    ctx.bezierCurveTo(x + 4, rail + 80, x - 4, H - 120, x + 2, H - 40);
+    ctx.stroke();
+  }
+  // Cimaise moulee.
+  ctx.fillStyle = "#2a1208";
+  ctx.fillRect(0, rail - 6, W, 22);
+  ctx.fillStyle = "rgba(240,190,130,0.28)";
+  ctx.fillRect(0, rail - 6, W, 3);
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fillRect(0, rail + 14, W, 4);
+  // Plinthe.
+  ctx.fillStyle = "#1e0d06";
+  ctx.fillRect(0, H - 30, W, 30);
+  ctx.fillStyle = "rgba(240,190,130,0.16)";
+  ctx.fillRect(0, H - 30, W, 2);
+  grain(ctx, W, H, 18);
+  return finish(canvas);
+}
+
+/** Moquette d'hotel rouge : losanges dores et fleurons, usee en longues bandes, avec ses taches. */
+export function makeHotelCarpet(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#651016";
+  ctx.fillRect(0, 0, S, S);
+  // Treillis de losanges (periode 64 : il se raccorde tout seul).
+  ctx.strokeStyle = "rgba(196,128,52,0.55)";
+  ctx.lineWidth = 3;
+  for (let i = -S; i <= S * 2; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + S, S);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i + S, 0);
+    ctx.lineTo(i, S);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(20,4,6,0.45)";
+  ctx.lineWidth = 1;
+  for (let i = -S; i <= S * 2; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i + 4, 0);
+    ctx.lineTo(i + 4 + S, S);
+    ctx.stroke();
+  }
+  // Fleurons au centre de chaque losange.
+  const fleuron = (x: number, y: number) => {
+    ctx.fillStyle = "rgba(214,150,64,0.7)";
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2;
+      ctx.beginPath();
+      ctx.ellipse(x + Math.cos(a) * 7, y + Math.sin(a) * 7, 6, 3, a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#2a0608";
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  for (let a = 0; a <= S; a += 64) {
+    for (let b = 0; b <= S; b += 64) {
+      fleuron(a + 32, b);
+      fleuron(a, b + 32);
+    }
+  }
+  // Usure : des bandes plus claires la ou tout le monde marche.
+  for (let i = 0; i < 3; i++) {
+    const y = Math.random() * S;
+    const g = ctx.createLinearGradient(0, y - 50, 0, y + 50);
+    g.addColorStop(0, "rgba(170,90,70,0)");
+    g.addColorStop(0.5, "rgba(170,90,70,0.12)");
+    g.addColorStop(1, "rgba(170,90,70,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y - 50, S, 100);
+  }
+  // Taches sombres, qu'on prefere ne pas identifier.
+  for (let i = 0; i < 3; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 20 + Math.random() * 40;
+    wrapped(S, x, y, 60, (px, py) => {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, "rgba(28,4,4,0.45)");
+      g.addColorStop(0.7, "rgba(28,4,4,0.25)");
+      g.addColorStop(1, "rgba(28,4,4,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(px - r, py - r, r * 2, r * 2);
+    });
+  }
+  grain(ctx, S, S, 30);
+  return finish(canvas);
+}
+
+/** Plafond de platre creme a caissons, fissure et tache d'eau. */
+export function makeHotelCeiling(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#b8a888";
+  ctx.fillRect(0, 0, S, S);
+  for (const p of [0, 256]) {
+    ctx.fillStyle = "rgba(60,45,25,0.35)";
+    ctx.fillRect(p, 0, 8, S);
+    ctx.fillRect(0, p, S, 8);
+    ctx.fillStyle = "rgba(255,245,215,0.3)";
+    ctx.fillRect(p + 8, 0, 2, S);
+    ctx.fillRect(0, p + 8, S, 2);
+  }
+  for (let i = 0; i < 2; i++) {
+    waterStain(ctx, Math.random() * S, Math.random() * S, 30 + Math.random() * 60, "rgba(110,80,40,0.16)", "rgba(80,55,25,0.2)");
+  }
+  ctx.strokeStyle = "rgba(50,38,24,0.5)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    let x = Math.random() * S;
+    let y = Math.random() * S;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 10; k++) {
+      x += (Math.random() - 0.5) * 36;
+      y += (Math.random() - 0.5) * 36;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  grain(ctx, S, S, 14);
+  return finish(canvas);
+}
+
+/**
+ * Porte de chambre en bois sombre : quatre panneaux moulures, judas, poignee
+ * et plaque de proprete en laiton. La plaque du numero est posee par le decor
+ * (a 1,70 m). `sign` : l'affichette « NE PAS DERANGER » pend a la poignee.
+ */
+export function makeHotelRoomDoor(sign: boolean): THREE.CanvasTexture {
+  const W = 256;
+  const H = 512;
+  const { canvas, ctx } = canvas2d(W, H);
+  ctx.fillStyle = "#1c0c06";
+  ctx.fillRect(0, 0, W, H);
+  const g = ctx.createLinearGradient(0, 0, W, 0);
+  g.addColorStop(0, "#40200f");
+  g.addColorStop(0.5, "#4d2813");
+  g.addColorStop(1, "#3c1d0d");
+  ctx.fillStyle = g;
+  ctx.fillRect(12, 12, W - 24, H - 12);
+  ctx.strokeStyle = "rgba(10,4,0,0.3)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 40; i++) {
+    const x = 14 + Math.random() * (W - 28);
+    ctx.beginPath();
+    ctx.moveTo(x, 12);
+    ctx.bezierCurveTo(x + 3, 150, x - 3, 350, x + 1, H);
+    ctx.stroke();
+  }
+  // Panneaux moulures.
+  for (const [px, py, pw, ph] of [
+    [34, 44, 80, 170],
+    [142, 44, 80, 170],
+    [34, 250, 80, 200],
+    [142, 250, 80, 200],
+  ]) {
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(px, py, pw, ph);
+    ctx.strokeStyle = "rgba(230,160,100,0.2)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(px + 5, py + 5, pw - 10, ph - 10);
+  }
+  // Judas.
+  ctx.fillStyle = "#b8914a";
+  ctx.beginPath();
+  ctx.arc(W / 2, 150, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#050302";
+  ctx.beginPath();
+  ctx.arc(W / 2, 150, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Poignee, rosace et serrure.
+  ctx.fillStyle = "#c9a052";
+  ctx.beginPath();
+  ctx.arc(210, 272, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(186, 268, 28, 8);
+  ctx.fillStyle = "#2a1a08";
+  ctx.fillRect(207, 292, 6, 12);
+  // Plaque de proprete, rayee par les valises.
+  ctx.fillStyle = "#a88440";
+  ctx.fillRect(12, H - 40, W - 24, 34);
+  ctx.strokeStyle = "rgba(60,40,10,0.5)";
+  for (let i = 0; i < 14; i++) {
+    const x = 16 + Math.random() * (W - 40);
+    ctx.beginPath();
+    ctx.moveTo(x, H - 36 + Math.random() * 10);
+    ctx.lineTo(x + 10 + Math.random() * 30, H - 30 + Math.random() * 20);
+    ctx.stroke();
+  }
+  if (sign) {
+    // Affichette qui pend a la poignee.
+    ctx.save();
+    ctx.translate(200, 280);
+    ctx.rotate(0.06);
+    ctx.fillStyle = "#e9dcc0";
+    ctx.fillRect(-22, 0, 44, 110);
+    ctx.strokeStyle = "#7a1c1c";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-19, 3, 38, 104);
+    ctx.fillStyle = "#7a1c1c";
+    ctx.font = "bold 10px serif";
+    ctx.textAlign = "center";
+    ctx.fillText("NE PAS", 0, 44);
+    ctx.fillText("DÉRANGER", 0, 58);
+    ctx.fillStyle = "#1c0c06";
+    ctx.beginPath();
+    ctx.arc(0, 12, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  grain(ctx, W, H, 16);
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Parquet de la salle de bal : lames de chene en quinconce, cire usee, rayures de talons. */
+export function makeParquet(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#2c1606";
+  ctx.fillRect(0, 0, S, S);
+  const lane = 42.67;
+  for (let r = 0; r < 12; r++) {
+    const y = r * lane;
+    let x = -Math.random() * 200;
+    while (x < S) {
+      const len = [128, 192, 256][Math.floor(Math.random() * 3)];
+      const shade = Math.random() * 26;
+      const plank = (px: number) => {
+        ctx.fillStyle = `rgb(${128 + shade},${78 + shade * 0.7},${38 + shade * 0.4})`;
+        ctx.fillRect(px + 1, y + 1, len - 2, lane - 2);
+        ctx.strokeStyle = "rgba(60,30,8,0.3)";
+        ctx.lineWidth = 1;
+        for (let k = 0; k < 4; k++) {
+          const gy = y + 5 + Math.random() * (lane - 10);
+          ctx.beginPath();
+          ctx.moveTo(px + 2, gy);
+          ctx.bezierCurveTo(px + len * 0.3, gy + 3, px + len * 0.6, gy - 3, px + len - 2, gy + 1);
+          ctx.stroke();
+        }
+      };
+      plank(x);
+      if (x + len > S) plank(x - S);
+      if (x < 0) plank(x + S);
+      x += len;
+    }
+  }
+  // Cire usee au centre, lustre sur les bords.
+  const g = ctx.createRadialGradient(S / 2, S / 2, 40, S / 2, S / 2, S * 0.7);
+  g.addColorStop(0, "rgba(255,220,160,0.1)");
+  g.addColorStop(1, "rgba(0,0,0,0.12)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(20,10,4,0.4)";
+  for (let i = 0; i < 30; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 10);
+    ctx.stroke();
+  }
+  grain(ctx, S, S, 16);
+  return finish(canvas);
+}
+
+/** Marbre creme veine de gris, pour les colonnes. */
+export function makeMarble(): THREE.CanvasTexture {
+  const W = 256;
+  const H = 512;
+  const { canvas, ctx } = canvas2d(W, H);
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, "#e6dfcf");
+  g.addColorStop(1, "#d6cdb8");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 10; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 40 + Math.random() * 90;
+    const b = ctx.createRadialGradient(x, y, 0, x, y, r);
+    b.addColorStop(0, "rgba(170,160,140,0.18)");
+    b.addColorStop(1, "rgba(170,160,140,0)");
+    ctx.fillStyle = b;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let v = 0; v < 7; v++) {
+    let x = Math.random() * W;
+    let y = 0;
+    ctx.strokeStyle = `rgba(80,78,84,${0.2 + Math.random() * 0.3})`;
+    ctx.lineWidth = 0.6 + Math.random() * 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    while (y < H) {
+      x += (Math.random() - 0.45) * 26;
+      y += 10 + Math.random() * 26;
+      ctx.lineTo(((x % W) + W) % W, y);
+    }
+    ctx.stroke();
+  }
+  // Salissure au pied, la ou frottent les chaussures.
+  const dirt = ctx.createLinearGradient(0, H * 0.85, 0, H);
+  dirt.addColorStop(0, "rgba(60,50,35,0)");
+  dirt.addColorStop(1, "rgba(60,50,35,0.3)");
+  ctx.fillStyle = dirt;
+  ctx.fillRect(0, H * 0.85, W, H * 0.15);
+  grain(ctx, W, H, 8);
+  return finish(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// Niveau 6 — Lumieres eteintes
+// ---------------------------------------------------------------------------
+
+/** Beton noir : coffrage, coulures humides, griffures, traits comptes a la craie. Presque rien sans lampe. */
+export function makeBlackConcreteWall(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 692;
+  const { canvas, ctx } = canvas2d(W, H);
+  ctx.fillStyle = "#2a2a2d";
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 16; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 50 + Math.random() * 140;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, Math.random() < 0.5 ? "rgba(70,70,75,0.22)" : "rgba(8,8,10,0.3)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 2;
+  for (let y = 173; y < H; y += 173) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  // Coulures humides : un filet sombre, un filet clair qui brille sous la lampe.
+  for (let i = 0; i < 12; i++) {
+    const x = Math.random() * W;
+    const len = 120 + Math.random() * 420;
+    const g = ctx.createLinearGradient(0, 0, 0, len);
+    g.addColorStop(0, "rgba(5,5,6,0.5)");
+    g.addColorStop(1, "rgba(5,5,6,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x, 0, 3 + Math.random() * 7, len);
+    ctx.fillStyle = "rgba(150,160,170,0.12)";
+    ctx.fillRect(x - 1, 0, 1, len * 0.7);
+  }
+  // Griffures, par quatre, a hauteur de chien.
+  ctx.strokeStyle = "rgba(150,150,155,0.45)";
+  ctx.lineCap = "round";
+  for (let set = 0; set < 2; set++) {
+    if (Math.random() < 0.4) continue;
+    const x0 = Math.random() * (W - 80);
+    const y0 = H * (0.55 + Math.random() * 0.2);
+    for (let k = 0; k < 4; k++) {
+      ctx.lineWidth = 1.5 + Math.random() * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0 + k * 11, y0);
+      ctx.quadraticCurveTo(x0 + k * 11 + 12, y0 + 50, x0 + k * 12 + 6, y0 + 100 + Math.random() * 30);
+      ctx.stroke();
+    }
+  }
+  // Quelqu'un a compte les jours, a la craie.
+  if (Math.random() < 0.45) {
+    const tx = 40 + Math.random() * (W - 200);
+    const ty = 200 + Math.random() * 200;
+    ctx.strokeStyle = "rgba(210,210,200,0.5)";
+    ctx.lineWidth = 3;
+    for (let n = 0; n < 3 + Math.floor(Math.random() * 3); n++) {
+      const gx = tx + n * 34;
+      for (let k = 0; k < 4; k++) {
+        ctx.beginPath();
+        ctx.moveTo(gx + k * 6, ty);
+        ctx.lineTo(gx + k * 6 + 1, ty + 36);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(gx - 4, ty + 30);
+      ctx.lineTo(gx + 24, ty + 6);
+      ctx.stroke();
+    }
+  }
+  const damp = ctx.createLinearGradient(0, H - 110, 0, H);
+  damp.addColorStop(0, "rgba(4,4,5,0)");
+  damp.addColorStop(1, "rgba(4,4,5,0.6)");
+  ctx.fillStyle = damp;
+  ctx.fillRect(0, H - 110, W, 110);
+  grain(ctx, W, H, 30);
+  return finish(canvas);
+}
+
+/** Sol de beton sombre et mouille : les flaques brillent sous la lampe. */
+export function makeBlackFloor(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#222225";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 18; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 30 + Math.random() * 90;
+    const tone = Math.random() < 0.5 ? "rgba(60,60,66,0.2)" : "rgba(6,6,8,0.3)";
+    wrapped(S, x, y, 120, (px, py) => {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, tone);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(px - r, py - r, r * 2, r * 2);
+    });
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = 60 + Math.random() * (S - 120);
+    const y = 60 + Math.random() * (S - 120);
+    const rx = 25 + Math.random() * 45;
+    ctx.fillStyle = "rgba(6,7,9,0.5)";
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, rx * (0.4 + Math.random() * 0.4), Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(160,170,185,0.2)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(0, 254, S, 3);
+  ctx.fillRect(254, 0, 3, S);
+  grain(ctx, S, S, 30);
+  return finish(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// Niveau Fun — La Fete
+// ---------------------------------------------------------------------------
+
+const PARTY_COLORS = ["#ff5fa2", "#5fd4ff", "#ffb02e", "#8cd65f", "#c58cff"];
+
+/** Papier peint de fete : pois de toutes les couleurs, frise, soubassement a rayures bonbon. Un sourire au crayon, parfois. */
+export function makePartyWallpaper(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 745;
+  const { canvas, ctx } = canvas2d(W, H);
+  const low = Math.round(H * 0.72);
+  const g = ctx.createLinearGradient(0, 0, 0, low);
+  g.addColorStop(0, "#fff0a6");
+  g.addColorStop(1, "#ffe98a");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, low);
+  // Pois en quinconce, periode 64 : ils se raccordent d'un mur a l'autre.
+  for (let row = 0, y = 120; y < low - 10; row++, y += 48) {
+    for (let x = row % 2 === 0 ? 32 : 0; x <= W; x += 64) {
+      ctx.fillStyle = PARTY_COLORS[(row * 3 + Math.round(x / 64)) % PARTY_COLORS.length];
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  // Frise.
+  ctx.fillStyle = "#ff7ab8";
+  ctx.fillRect(0, 40, W, 50);
+  ctx.fillStyle = "#fff6fb";
+  ctx.fillRect(0, 44, W, 3);
+  ctx.fillRect(0, 83, W, 3);
+  ctx.font = "bold 26px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("JOYEUX ANNIVERSAIRE !", W / 2, 66);
+  ctx.textBaseline = "alphabetic";
+  // Soubassement a rayures bonbon, puis plinthe.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, low, W, H - low);
+  ctx.clip();
+  ctx.fillStyle = "#fff4fa";
+  ctx.fillRect(0, low, W, H - low);
+  ctx.fillStyle = "#ff9ccb";
+  for (let x = -H; x < W + H; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x, low);
+    ctx.lineTo(x + 16, low);
+    ctx.lineTo(x + 16 + (H - low), H);
+    ctx.lineTo(x + (H - low), H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = "#c2407e";
+  ctx.fillRect(0, low - 4, W, 8);
+  ctx.fillStyle = "#6a1c48";
+  ctx.fillRect(0, H - 26, W, 26);
+  // Salissures : de la sueur de mains, une trainee de gateau, des taches.
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = "rgba(90,50,30,0.16)";
+    ctx.beginPath();
+    ctx.ellipse(Math.random() * W, low - 40 - Math.random() * 200, 14, 20, Math.random(), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  waterStain(ctx, Math.random() * W, 140 + Math.random() * 200, 30 + Math.random() * 50, "rgba(120,90,20,0.1)", "rgba(100,70,10,0.14)");
+  if (Math.random() < 0.5) {
+    // Un sourire dessine au crayon gras, a hauteur d'enfant.
+    const sx = 60 + Math.random() * (W - 120);
+    const sy = low - 70 - Math.random() * 90;
+    ctx.strokeStyle = "rgba(30,20,30,0.7)";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(sx, sy, 34, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(sx, sy + 2, 20, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(30,20,30,0.75)";
+    ctx.fillRect(sx - 13, sy - 14, 6, 10);
+    ctx.fillRect(sx + 7, sy - 14, 6, 10);
+  }
+  grain(ctx, W, H, 12);
+  return finish(canvas);
+}
+
+/** Moquette criarde de salle des fetes : confettis et zigzags fluo sur fond violet nuit, taches de soda. */
+export function makePartyCarpet(): THREE.CanvasTexture {
+  const S = 512;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#28123e";
+  ctx.fillRect(0, 0, S, S);
+  const neon = ["#ff4fa0", "#3fe0ff", "#ffe44a", "#7dff6a", "#b886ff"];
+  for (let i = 0; i < 150; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const c = neon[i % neon.length];
+    const kind = i % 4;
+    const a = Math.random() * Math.PI * 2;
+    wrapped(S, x, y, 30, (px, py) => {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(a);
+      ctx.fillStyle = c;
+      ctx.strokeStyle = c;
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth = 3;
+      if (kind === 0) {
+        ctx.beginPath();
+        ctx.moveTo(0, -9);
+        ctx.lineTo(8, 6);
+        ctx.lineTo(-8, 6);
+        ctx.closePath();
+        ctx.fill();
+      } else if (kind === 1) {
+        ctx.beginPath();
+        ctx.moveTo(-14, 0);
+        for (let k = 0; k < 4; k++) ctx.lineTo(-10 + k * 8, k % 2 === 0 ? -6 : 6);
+        ctx.stroke();
+      } else if (kind === 2) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(-7, -2, 14, 4);
+      }
+      ctx.restore();
+    });
+  }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 4; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 20 + Math.random() * 35;
+    wrapped(S, x, y, 60, (px, py) => {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, "rgba(10,4,14,0.45)");
+      g.addColorStop(1, "rgba(10,4,14,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(px - r, py - r, r * 2, r * 2);
+    });
+  }
+  grain(ctx, S, S, 24);
+  return finish(canvas);
+}
+
+/** Plafond de salle des fetes : dalles pastel, bouts de serpentin encore colles. */
+export function makePartyCeiling(): THREE.CanvasTexture {
+  const t = makeCeilingTiles("#e9d2e4", 1);
+  const canvas = t.image as HTMLCanvasElement;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.lineWidth = 4;
+    for (let i = 0; i < 6; i++) {
+      ctx.strokeStyle = PARTY_COLORS[i % PARTY_COLORS.length];
+      ctx.globalAlpha = 0.7;
+      let x = Math.random() * 512;
+      let y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 8; k++) {
+        x += 14 + Math.random() * 10;
+        y += Math.sin(k * 1.4) * 12;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    t.needsUpdate = true;
+  }
+  return t;
+}
+
+/** Damier : `tiles` carreaux par cote, joints fins, reflet sur chaque carreau. */
+export function makeCheckerFloor(a = "#f4f4f4", b = "#1b1b1f", tiles = 2): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  const t = S / tiles;
+  for (let y = 0; y < tiles; y++) {
+    for (let x = 0; x < tiles; x++) {
+      ctx.fillStyle = (x + y) % 2 === 0 ? a : b;
+      ctx.fillRect(x * t, y * t, t, t);
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.fillRect(x * t + 6, y * t + 6, t - 12, 4);
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(x * t + 6, y * t + t - 10, t - 12, 4);
+    }
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 3;
+  for (let p = 0; p <= S; p += t) {
+    ctx.beginPath();
+    ctx.moveTo(p, 0);
+    ctx.lineTo(p, S);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, p);
+    ctx.lineTo(S, p);
+    ctx.stroke();
+  }
+  grain(ctx, S, S, 10);
   return finish(canvas);
 }
