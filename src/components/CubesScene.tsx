@@ -58,6 +58,10 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
   const [fatal, setFatal] = useState(false);
   const [lockFailed, setLockFailed] = useState(false);
   const [terrainReady, setTerrainReady] = useState(false);
+  // Distance de vue et brouillard : propres a Cubes, gardes sur l'appareil.
+  const [vue, setVue] = useState<VueCubes>(lireVue);
+  const vueRef = useRef(vue);
+  useEffect(() => { vueRef.current = vue; ecrireVue(vue); }, [vue]);
   const [hud, setHud] = useState<CubesHudState>(() => ({
     mode: initial.mode, selected: 0, hotbar: initial.hotbar, stock: initial.stock,
     vie: initial.survie?.vie ?? 100, faim: initial.survie?.faim ?? 100, soif: initial.survie?.soif ?? 100, air: 10, underwater: false,
@@ -214,27 +218,51 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       scene.add(group); meshes.set(key, group);
       c.dirty = false; world.dirty.delete(key);
     }
+    let lastRadius = -1;
+    const offsets: { x: number; z: number; distance: number }[] = [];
     function terrainStep() {
       const cx = Math.floor(player.x / CHUNK), cz = Math.floor(player.z / CHUNK);
-      const radius = quality === "performance" ? 1 : 2;
+      // Distance de vue choisie par le joueur (0 : automatique selon la qualite).
+      const vue = vueRef.current;
+      const radius = vue.distance > 0 ? vue.distance : quality === "performance" ? 1 : 2;
       const fog = scene.fog as THREE.Fog;
-      fog.far = radius * CHUNK + 4;
-      fog.near = fog.far * .55;
-      const candidates: { x: number; z: number; distance: number }[] = [];
-      for (let z = -radius; z <= radius; z++) for (let x = -radius; x <= radius; x++) candidates.push({ x: cx + x, z: cz + z, distance: x * x + z * z });
-      candidates.sort((a, b) => a.distance - b.distance);
-      const missing = candidates.find(c => !world.chunk(c.x, c.z));
-      if (missing) {
-        const c = world.ensureChunk(missing.x, missing.z);
-        world.lightChunk(c);
-        for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
-          const neighbor = world.chunk(c.cx + x, c.cz + z);
-          if (neighbor) neighbor.dirty = true;
-        }
+      if (vue.brouillard) {
+        fog.far = radius * CHUNK + 4;
+        fog.near = fog.far * (radius > 3 ? .7 : .55);
+      } else {
+        // Sans brouillard : on voit jusqu'au bout du monde charge.
+        fog.near = 1e5; fog.far = 1e5 + 1;
       }
-      // Generer puis mailler dans la meme image depassait parfois 16 ms : un seul des deux par image.
-      const dirty = missing ? undefined : candidates.find(c => world.chunk(c.x, c.z)?.dirty);
-      if (dirty) rebuild(`${dirty.x},${dirty.z}`);
+      const far = Math.max(190, radius * CHUNK + 48);
+      if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); }
+      if (radius !== lastRadius) {
+        // Liste des zones a charger, de la plus proche a la plus lointaine (calculee une fois par distance).
+        lastRadius = radius;
+        offsets.length = 0;
+        for (let z = -radius; z <= radius; z++) for (let x = -radius; x <= radius; x++) offsets.push({ x, z, distance: x * x + z * z });
+        offsets.sort((a, b) => a.distance - b.distance);
+      }
+      const candidates = offsets.map(o => ({ x: cx + o.x, z: cz + o.z, distance: o.distance }));
+      // Generer ou mailler une zone coute quelques millisecondes : on en fait
+      // plusieurs par image tant qu'il reste du temps (loin = plus de zones).
+      const budget = radius > 3 ? 7 : 4;
+      const debut = performance.now();
+      for (let pas = 0; pas < 12; pas++) {
+        const missing = candidates.find(c => !world.chunk(c.x, c.z));
+        if (missing) {
+          const c = world.ensureChunk(missing.x, missing.z);
+          world.lightChunk(c);
+          for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
+            const neighbor = world.chunk(c.cx + x, c.cz + z);
+            if (neighbor) neighbor.dirty = true;
+          }
+        } else {
+          const dirty = candidates.find(c => world.chunk(c.x, c.z)?.dirty);
+          if (!dirty) break;
+          rebuild(`${dirty.x},${dirty.z}`);
+        }
+        if (performance.now() - debut > budget) break;
+      }
       for (const [key, c] of world.chunks) if (Math.abs(c.cx - cx) > radius + 1 || Math.abs(c.cz - cz) > radius + 1) {
         removeMesh(key); world.unloadChunk(c.cx, c.cz); world.dirty.delete(key);
       }
@@ -878,10 +906,51 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
           <button onClick={() => commands.current?.export()} className="rounded-xl border border-white/20 px-3 py-2">Exporter le monde</button>
           <button onClick={onExit} className="rounded-xl border border-white/20 px-3 py-2">Menu</button>
         </div>
-        {panel === "pause" && <Game3DSettings onQuality={() => {}} onBrightness={saveBrightness3D} />}
+        {panel === "pause" && <>
+          <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#c8dba8]">Graphismes · distance de vue</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {DISTANCES.map(d => <button key={d.id} onClick={() => setVue(v => ({ ...v, distance: d.id }))} aria-pressed={vue.distance === d.id} className={`rounded-lg border px-2.5 py-1.5 text-[11px] ${vue.distance === d.id ? "border-amber-200 bg-amber-100/15 text-amber-100" : "border-white/10 text-white/75 hover:bg-white/10"}`}>{d.label}</button>)}
+            </div>
+            <label className="mt-2.5 flex items-center gap-2 text-xs text-white/85"><input type="checkbox" checked={vue.brouillard} onChange={e => setVue(v => ({ ...v, brouillard: e.target.checked }))} className="accent-amber-200" /> Brouillard au loin <span className="text-white/50">(le décocher : on voit tout le paysage chargé)</span></label>
+            {vue.distance >= 6 && <p className="mt-2 text-[11px] text-amber-200/90">Pour les ordinateurs puissants : si le jeu ralentit, reviens à une distance plus courte.</p>}
+          </div>
+          <Game3DSettings onQuality={() => {}} onBrightness={saveBrightness3D} />
+        </>}
         <p className="mt-5 border-t border-white/10 pt-3 text-[10px] leading-5 text-[#9bae9f]">Sauvegarde automatique sur cet appareil · Exporte ton monde pour le conserver.<br />Clavier et souris requis · {hud.fps} i/s · {hud.chunks} zones chargées</p>
       </div>
     </div>}
   </div>;
+}
+
+interface VueCubes {
+  /** Rayon en zones de 16 blocs (0 : automatique selon le reglage de qualite). */
+  distance: number;
+  brouillard: boolean;
+}
+
+const VUE_KEY = "pixolud-cubes-vue";
+const DISTANCES = [
+  { id: 0, label: "Automatique" },
+  { id: 1, label: "Courte" },
+  { id: 2, label: "Normale" },
+  { id: 4, label: "Grande" },
+  { id: 6, label: "Très grande" },
+  { id: 8, label: "Extrême" },
+  { id: 10, label: "Maximale" },
+];
+
+function lireVue(): VueCubes {
+  try {
+    const v = JSON.parse(localStorage.getItem(VUE_KEY) ?? "null") as Partial<VueCubes> | null;
+    const distance = DISTANCES.some(d => d.id === v?.distance) ? v!.distance! : 0;
+    return { distance, brouillard: v?.brouillard !== false };
+  } catch {
+    return { distance: 0, brouillard: true };
+  }
+}
+
+function ecrireVue(v: VueCubes) {
+  try { localStorage.setItem(VUE_KEY, JSON.stringify(v)); } catch { /* Stockage indisponible : reglage pour cette partie seulement. */ }
 }
 

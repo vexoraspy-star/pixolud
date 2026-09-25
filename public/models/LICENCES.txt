@@ -20,6 +20,16 @@ https://github.com/Mesh2Motion/mesh2motion-app. Corps etire et decharne le
 7 animations choisies et renommees (Rode, Course, Tapie, Ecoute, Attaque, Cri,
 Rampe). Tete du mannequin retiree : le jeu y pose une tete dessinee en code.
 
+fetard.glb, chien.glb, voleur.glb — les Fetards, les Chiens et le Voleur de peau (Backrooms)
+-------------------------------------------------------------------------------------------
+Mannequin, squelette et animations : Mesh2Motion (licence CC0 1.0),
+https://github.com/Mesh2Motion/mesh2motion-app. Proportions et couleurs
+retouchees le 25/09/2026 dans Blender, animations choisies et renommees :
+- fetard : Marche, Course, Attente, Salut, Danse, Attaque ;
+- chien : Rampe, Tapie, Attaque, Cri ;
+- voleur : Rode, Course, Tapie, Ecoute, Attaque, Rampe.
+Les visages (sourire peint, yeux) sont dessines en code dans le jeu.
+
 soldat-danses.glb — les 20 danses animees du Duel
 -------------------------------------------------
 Animations : Mesh2Motion (licence CC0 1.0),

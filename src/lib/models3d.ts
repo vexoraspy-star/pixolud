@@ -21,9 +21,12 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * jeux gardent alors leur modele dessine en code.
  */
 
-export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat" | "colosse" | "bacterie";
+export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat" | "colosse" | "bacterie" | "fetard" | "chien" | "voleur";
 
 const MODEL_URL: Record<ModelId, string> = {
+  fetard: "/models/fetard.glb",
+  chien: "/models/chien.glb",
+  voleur: "/models/voleur.glb",
   "zombie-a": "/models/zombie-a.glb",
   "zombie-b": "/models/zombie-b.glb",
   "soldat-swat": "/models/soldat-swat.glb",
