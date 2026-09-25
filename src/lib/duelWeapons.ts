@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import type { WeaponFoley } from "./duelAudio";
+import type { CasingKind } from "./duelEffects";
 import { CAMOS, type CamoId } from "./duelProfile";
 import {
   makeCamoTexture,
@@ -444,10 +447,45 @@ export const LOOT_TABLE: WeaponId[] = [
   "roquettes",
 ];
 
+/**
+ * Un evenement mecanique cale sur une animation : un bruit, des douilles qui
+ * sortent. `at` est une fraction du cycle de tir ou du rechargement : la
+ * scene le declenche quand l'avancement franchit ce seuil, donc le son tombe
+ * toujours pile sur le geste, quelle que soit la duree.
+ */
+export interface MechCue {
+  at: number;
+  sound?: WeaponFoley;
+  /** Vrai : les douilles vides sortent a cet instant. */
+  eject?: boolean;
+}
+
+/** Comment l'arme se recharge : chaque style a ses gestes et ses bruits. */
+export type ReloadStyle = "chargeur" | "cartouches" | "barillet" | "bascule" | "projectile";
+
 export interface WeaponModel {
   group: THREE.Group;
-  /** Sphere de l'eclair de bouche, deja placee au bout du canon. */
-  flash: THREE.Mesh;
+  /** Point d'attache de l'eclair, au bout du canon : le laser en part aussi. */
+  flash: THREE.Object3D;
+  /** Fenetre d'ejection : c'est de la que sortent les douilles. */
+  ejectPort: THREE.Object3D;
+  /** Allure des douilles de cette arme. */
+  casing: CasingKind;
+  /**
+   * Vrai : une douille sort a chaque coup. Sinon elle sort au cycle (pompe,
+   * verrou : voir cycleCues), au rechargement (revolver, fusil double) ou
+   * jamais (arbalete, roquettes, poings).
+   */
+  ejectOnShot: boolean;
+  /** Force de la lueur que le tir jette autour de lui (0 : aucune). */
+  flashLight: number;
+  reloadStyle: ReloadStyle;
+  /** Bruits et douilles entre deux coups (pompe, verrou), en fraction de la cadence. */
+  cycleCues: readonly MechCue[];
+  /** Bruits et douilles du rechargement, en fraction de sa duree. */
+  reloadCues(shells: number, empty: boolean): MechCue[];
+  /** Allume l'eclair de bouche (aim : 0 a la hanche, 1 en visee). */
+  fireFlash(time: number, aim: number): void;
   /** Anime les pieces mobiles et les mains. A appeler a chaque image. */
   update(anim: WeaponAnim): void;
   dispose(): void;
@@ -465,7 +503,175 @@ export interface WeaponAnim {
   aim: number;
   /** 1 en sprint. */
   sprint: number;
+  /** Avancement du cycle depuis le dernier coup : 0 au coup, 1 arme prete. */
+  cycle?: number;
+  /** Chargeur vide : culasse bloquee ouverte, projectile absent. */
+  empty?: boolean;
+  /** Cartouches a remettre pendant ce rechargement. */
+  shells?: number;
 }
+
+/** Eclair de bouche de chaque arme : etoile, flamme, teinte, jets du frein de bouche, lueur. */
+const MUZZLE: Record<WeaponId, { star: number; flame: number; color: number; jets: boolean; light: number }> = {
+  poings: { star: 0, flame: 0, color: 0xffffff, jets: false, light: 0 },
+  pistolet: { star: 0.1, flame: 0.14, color: 0xffd79a, jets: false, light: 0.8 },
+  revolver: { star: 0.13, flame: 0.2, color: 0xffc27a, jets: false, light: 1 },
+  pm: { star: 0.08, flame: 0.11, color: 0xffe2a8, jets: false, light: 0.55 },
+  mitraillette: { star: 0.09, flame: 0.13, color: 0xffdca0, jets: false, light: 0.6 },
+  fusil: { star: 0.1, flame: 0.16, color: 0xffd08a, jets: true, light: 0.75 },
+  carabine: { star: 0.1, flame: 0.16, color: 0xffd8a0, jets: true, light: 0.8 },
+  mitrailleuse: { star: 0.13, flame: 0.24, color: 0xffc47a, jets: false, light: 0.9 },
+  sniper: { star: 0.13, flame: 0.18, color: 0xffcf8f, jets: true, light: 1.1 },
+  rafale: { star: 0.1, flame: 0.15, color: 0xffd694, jets: false, light: 0.7 },
+  pompe: { star: 0.2, flame: 0.3, color: 0xffb566, jets: false, light: 1.3 },
+  double: { star: 0.21, flame: 0.32, color: 0xffb066, jets: false, light: 1.4 },
+  arbalete: { star: 0, flame: 0, color: 0xffffff, jets: false, light: 0 },
+  roquettes: { star: 0.24, flame: 0.34, color: 0xffa050, jets: false, light: 1.5 },
+};
+
+/** Duree de l'eclair : deux ou trois images, pas plus. */
+const FLASH_SECONDS = 0.04;
+
+// --- Textures de l'eclair, partagees par les quatorze armes ---
+// Dessinees une seule fois au canvas ; la derniere arme detruite les libere.
+let flashTextures: { star: THREE.CanvasTexture; flame: THREE.CanvasTexture } | null = null;
+let flashTextureUsers = 0;
+
+/** Etoile vue de face : un coeur blanc-jaune et sept rayons effiles. */
+function drawFlashStar(): THREE.CanvasTexture {
+  const S = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = S;
+  canvas.height = S;
+  const g = canvas.getContext("2d")!;
+  const c = S / 2;
+  g.globalCompositeOperation = "lighter";
+  const rays = 7;
+  for (let i = 0; i < rays; i++) {
+    const a = (i / rays) * Math.PI * 2 + (i % 2) * 0.22;
+    const len = i % 2 === 0 ? 62 : 42;
+    const base = i % 2 === 0 ? 8 : 6;
+    const grad = g.createLinearGradient(c, c, c + Math.cos(a) * len, c + Math.sin(a) * len);
+    grad.addColorStop(0, "rgba(255,240,200,0.95)");
+    grad.addColorStop(0.45, "rgba(255,170,60,0.55)");
+    grad.addColorStop(1, "rgba(255,110,20,0)");
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(c + Math.cos(a - Math.PI / 2) * base, c + Math.sin(a - Math.PI / 2) * base);
+    g.lineTo(c + Math.cos(a) * len, c + Math.sin(a) * len);
+    g.lineTo(c + Math.cos(a + Math.PI / 2) * base, c + Math.sin(a + Math.PI / 2) * base);
+    g.closePath();
+    g.fill();
+  }
+  const core = g.createRadialGradient(c, c, 0, c, c, 34);
+  core.addColorStop(0, "rgba(255,255,245,1)");
+  core.addColorStop(0.3, "rgba(255,230,150,0.9)");
+  core.addColorStop(0.7, "rgba(255,150,40,0.35)");
+  core.addColorStop(1, "rgba(255,120,20,0)");
+  g.fillStyle = core;
+  g.beginPath();
+  g.arc(c, c, 34, 0, Math.PI * 2);
+  g.fill();
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Flamme vue de profil : la base (a gauche) au canon, la pointe vers la droite. */
+function drawFlashFlame(): THREE.CanvasTexture {
+  const W = 128;
+  const H = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const g = canvas.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, "rgba(255,250,225,1)");
+  grad.addColorStop(0.25, "rgba(255,215,120,0.9)");
+  grad.addColorStop(0.6, "rgba(255,140,40,0.5)");
+  grad.addColorStop(1, "rgba(255,90,20,0)");
+  g.fillStyle = grad;
+  // Une goutte allongee : large au canon, effilee au bout.
+  g.beginPath();
+  g.moveTo(0, H / 2);
+  g.bezierCurveTo(W * 0.1, 4, W * 0.55, H * 0.28, W, H / 2);
+  g.bezierCurveTo(W * 0.55, H * 0.72, W * 0.1, H - 4, 0, H / 2);
+  g.fill();
+  // Coeur plus blanc le long de l'axe.
+  g.globalCompositeOperation = "lighter";
+  const core = g.createLinearGradient(0, 0, W * 0.6, 0);
+  core.addColorStop(0, "rgba(255,255,240,0.8)");
+  core.addColorStop(1, "rgba(255,200,120,0)");
+  g.fillStyle = core;
+  g.fillRect(0, H * 0.42, W * 0.6, H * 0.16);
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function acquireFlashTextures() {
+  if (!flashTextures) flashTextures = { star: drawFlashStar(), flame: drawFlashFlame() };
+  flashTextureUsers += 1;
+  return flashTextures;
+}
+
+function releaseFlashTextures() {
+  flashTextureUsers -= 1;
+  if (flashTextureUsers <= 0 && flashTextures) {
+    flashTextures.star.dispose();
+    flashTextures.flame.dispose();
+    flashTextures = null;
+    flashTextureUsers = 0;
+  }
+}
+
+// --- Petites courbes d'animation ---
+const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+/** 0 avant a, 1 apres b, et une transition douce entre les deux. */
+function ramp(t: number, a: number, b: number) {
+  const k = clamp01((t - a) / (b - a));
+  return k * k * (3 - 2 * k);
+}
+/** Aller-retour : monte entre a et b, redescend entre c et d. */
+function hump(t: number, a: number, b: number, c: number, d: number) {
+  return ramp(t, a, b) - ramp(t, c, d);
+}
+
+/**
+ * Rechargement au coup par coup : combien d'allers-retours de la main, a
+ * partir de quand, et combien de temps chacun. Partage par l'animation et par
+ * les bruits, pour qu'ils tombent ensemble.
+ */
+interface DipPlan {
+  n: number;
+  t0: number;
+  len: number;
+}
+/** Ecrit dans `out` (reutilise a chaque image : rien d'alloue). */
+function dipPlan(style: ReloadStyle, shells: number, magSize: number, out: DipPlan): DipPlan {
+  if (style === "cartouches") {
+    // Autant de cartouches que de coups tires : une seule, c'est un seul geste.
+    out.n = Math.max(1, Math.min(magSize, Math.round(shells)));
+    out.len = 0.7 / Math.max(out.n, 3);
+    out.t0 = 0.1 + (0.7 - out.n * out.len) / 2;
+  } else if (style === "bascule") {
+    out.n = Math.max(1, Math.min(2, Math.round(shells)));
+    out.len = 0.23;
+    out.t0 = 0.26 + (0.46 - out.n * out.len) / 2;
+  } else if (style === "barillet") {
+    out.n = 1;
+    out.t0 = 0.36;
+    out.len = 0.3;
+  } else {
+    out.n = 1;
+    out.t0 = 0.14;
+    out.len = 0.52;
+  }
+  return out;
+}
+
+/** Ou la main gauche plonge chercher une munition : sous l'arme, hors champ. */
+const DIP_DOWN = new THREE.Vector3(-0.04, -0.34, 0.12);
 
 /**
  * Le modele tenu en main, a la premiere personne.
@@ -527,6 +733,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   const sable = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x9c8155 }));
   const olive = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x5d6349 }));
   const brass = keep(new THREE.MeshLambertMaterial({ color: 0xb08d3a }));
+  const shellRed = keep(new THREE.MeshLambertMaterial({ color: 0xa3261c }));
   const accent = keep(new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
   const white = keep(new THREE.MeshBasicMaterial({ color: 0xe8f0f5 }));
 
@@ -614,8 +821,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   let muzzleZ = -0.6;
   /** Hauteur de la ligne de mire : en visee, on l'amene au centre de l'ecran. */
   let sightY = 0.07;
-  /** Rechargement : chargeur qui tombe, ou cartouches glissees une a une. */
-  let reloadStyle: "chargeur" | "cartouches" = "chargeur";
+  /** Rechargement : chargeur, cartouches une a une, barillet, bascule, projectile. */
+  let reloadStyle: ReloadStyle = "chargeur";
 
   // Pieces mobiles, remplies par chaque arme.
   let slide: THREE.Object3D | null = null;
@@ -624,10 +831,28 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   let mag: THREE.Object3D | null = null;
   /** Barillet du revolver : il tourne d'un sixieme de tour a chaque coup. */
   let drum: THREE.Object3D | null = null;
+  /** Canons du fusil double : ils basculent autour de la charniere. */
+  let barrels: THREE.Object3D | null = null;
   /** Hauteur du canon, la ou part l'eclair de bouche. */
   let muzzleY = 0.014;
   const rightHand = buildHand();
   const leftHand = buildHand();
+
+  // Fenetre d'ejection : chaque arme la place (et la rattache a sa culasse
+  // quand celle-ci bouge), la scene y fait naitre les douilles.
+  const ejectPort = new THREE.Object3D();
+  let ejectParent: THREE.Object3D = body;
+  ejectPort.position.set(0.045, 0.02, 0);
+  let casing: CasingKind = "laiton";
+  /**
+   * Rechargement au coup par coup : ou la main gauche apporte les munitions,
+   * dans le repere de son parent (la pompe, les canons ou l'arme).
+   */
+  const dipPort = new THREE.Vector3();
+  /** Ce que la main gauche tient en revenant : cartouche, chargeur rapide. */
+  let carry: THREE.Object3D | null = null;
+  /** La culasse se manoeuvre a la main gauche en fin de rechargement. */
+  let rackHand = false;
 
   /** Pontet et queue de detente, communs a toutes les armes. */
   function triggerGuard(y: number, z: number) {
@@ -659,6 +884,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       put(slide, box(0.072, 0.075, 0.3, steel), 0, 0.028, -0.05);
       for (let i = 0; i < 5; i++) put(slide, box(0.076, 0.05, 0.008, metal), 0, 0.028, 0.05 + i * 0.016);
       put(slide, box(0.03, 0.038, 0.085, dark), 0.038, 0.035, -0.02); // fenetre d'ejection
+      // La douille sort de la fenetre, qui recule avec la culasse.
+      ejectParent = slide;
+      ejectPort.position.set(0.05, 0.04, -0.02);
+      rackHand = true;
       put(slide, box(0.014, 0.024, 0.014, dark), 0, 0.075, -0.185); // guidon
       put(slide, box(0.006, 0.008, 0.006, white), 0, 0.082, -0.19);
       for (const sx of [-0.024, 0.024]) {
@@ -720,6 +949,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.09, 0.115, 0.03, polymer), 0, -0.005, 0.36);
       muzzleZ = -0.47;
       sightY = 0.06;
+      ejectPort.position.set(0.048, 0.02, -0.02);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.15, 0.1).rotation.set(-0.2, 0, 0);
       put(body, leftHand, -0.01, -0.075, -0.25).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
       break;
@@ -767,6 +998,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.062, 0.145, 0.032, dark), 0, -0.015, 0.425);
       muzzleZ = -0.67;
       sightY = 0.128;
+      ejectPort.position.set(0.05, 0.02, 0.02);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.16, 0.13).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.33).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
       break;
@@ -797,6 +1030,12 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.74;
       sightY = 0.078;
       reloadStyle = "cartouches";
+      casing = "coque";
+      ejectPort.position.set(0.058, 0.01, 0.02);
+      // Les cartouches entrent par la trappe sous la carcasse ; la main est
+      // fille de la pompe, d'ou le decalage.
+      dipPort.set(0, -0.1, 0.02).sub(pump.position);
+      carry = put(leftHand, tube(0.016, 0.06, shellRed), 0, -0.012, -0.035);
       put(body, rightHand, 0.01, -0.125, 0.16).rotation.set(-0.12, 0, 0);
       // La main gauche est fille de la pompe : elle coulisse avec elle.
       put(pump, leftHand, -0.012, -0.055, 0.01).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
@@ -825,7 +1064,13 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.35;
       muzzleY = 0.034;
       sightY = 0.09;
-      reloadStyle = "cartouches";
+      // Le barillet bascule a gauche, les douilles tombent, un chargeur rapide
+      // remet les six balles d'un coup.
+      reloadStyle = "barillet";
+      ejectParent = drum;
+      ejectPort.position.set(0, 0, 0.055);
+      dipPort.set(-0.075, -0.01, 0.075);
+      carry = put(leftHand, tube(0.042, 0.035, brass, 6), 0, -0.012, -0.04);
       put(body, rightHand, 0.01, -0.125, 0.1).rotation.set(-0.38, 0, 0);
       put(body, leftHand, -0.062, -0.155, 0.06).rotation.set(-0.32, 0.6, 0.4);
       break;
@@ -855,6 +1100,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.29;
       muzzleY = 0.01;
       sightY = 0.095;
+      ejectPort.position.set(0.045, 0.03, -0.02);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.12, 0.035).rotation.set(-0.08, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.13).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
       break;
@@ -894,6 +1141,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleY = 0.02;
       sightY = 0.105;
       reloadStyle = "chargeur";
+      casing = "long";
+      ejectPort.position.set(0.062, -0.01, -0.02);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.1, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
       break;
@@ -925,6 +1175,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.76;
       muzzleY = 0.012;
       sightY = 0.12;
+      casing = "long";
+      ejectPort.position.set(0.046, 0.02, 0.04);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.15, 0.16).rotation.set(-0.3, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
@@ -982,6 +1235,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       }
       muzzleZ = -0.92;
       sightY = 0.14;
+      casing = "long";
+      ejectPort.position.set(0.048, 0.025, 0.08);
       put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.26).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
@@ -1011,6 +1266,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.52;
       muzzleY = 0.012;
       sightY = 0.132;
+      // Bullpup : la fenetre d'ejection est derriere la poignee.
+      ejectPort.position.set(0.05, 0.02, 0.12);
+      rackHand = true;
       put(body, rightHand, 0.01, -0.15, -0.01).rotation.set(-0.2, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.29).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
@@ -1019,10 +1277,21 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     case "double": {
       // Deux canons cote a cote, bois vernis, deux chiens : l'arme de ferme.
       add(box(0.1, 0.1, 0.2, metal), 0, 0, 0.05);
-      for (const sx of [-0.024, 0.024]) add(tube(0.024, 0.62, steel, 10), sx, 0.035, -0.37);
-      add(box(0.02, 0.012, 0.6, metal), 0, 0.064, -0.36); // bande de visee
-      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.012, 6, 5)), brass), 0, 0.075, -0.66);
-      add(box(0.09, 0.07, 0.3, wood), 0, -0.012, -0.25); // devant
+      // Canons, bande et devant forment un bloc qui bascule autour de la
+      // charniere, a l'avant de la bascule : c'est ainsi qu'on le recharge.
+      const hy = -0.03;
+      const hz = -0.05;
+      const bar = new THREE.Group();
+      barrels = bar;
+      add(bar, 0, hy, hz);
+      for (const sx of [-0.024, 0.024]) put(bar, tube(0.024, 0.62, steel, 10), sx, 0.035 - hy, -0.37 - hz);
+      put(bar, box(0.02, 0.012, 0.6, metal), 0, 0.064 - hy, -0.36 - hz); // bande de visee
+      put(bar, new THREE.Mesh(keep(new THREE.SphereGeometry(0.012, 6, 5)), brass), 0, 0.075 - hy, -0.66 - hz);
+      put(bar, box(0.09, 0.07, 0.3, wood), 0, -0.012 - hy, -0.25 - hz); // devant
+      // Les douilles sautent de la culasse ouverte, au-dessus de la charniere.
+      ejectParent = bar;
+      ejectPort.position.set(0, 0.035 - hy, -0.03 - hz);
+      dipPort.set(0, 0.075 - hy, 0.02 - hz);
       add(box(0.066, 0.09, 0.14, wood), 0, -0.04, 0.17); // poignee anglaise
       const dstock = add(box(0.08, 0.12, 0.34, wood), 0, -0.075, 0.34);
       dstock.rotation.x = 0.14;
@@ -1035,9 +1304,12 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.69;
       muzzleY = 0.035;
       sightY = 0.075;
-      reloadStyle = "cartouches";
+      reloadStyle = "bascule";
+      casing = "coque";
+      carry = put(leftHand, tube(0.016, 0.06, shellRed), 0, -0.012, -0.035);
       put(body, rightHand, 0.01, -0.12, 0.17).rotation.set(-0.14, 0, 0);
-      put(body, leftHand, -0.012, -0.075, -0.25).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
+      // La main gauche tient le devant : elle suit les canons quand ils basculent.
+      put(bar, leftHand, -0.012, -0.075 - hy, -0.25 - hz).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
       break;
     }
 
@@ -1070,6 +1342,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.45;
       muzzleY = 0.07;
       sightY = 0.11;
+      // Un carreau neuf, pose a la main sur le rail.
+      reloadStyle = "projectile";
+      dipPort.set(-0.02, -0.03, 0.02);
       put(body, rightHand, 0.01, -0.13, 0.13).rotation.set(-0.25, 0, 0);
       put(body, leftHand, -0.012, -0.065, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.2, 0.25);
       break;
@@ -1095,6 +1370,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.82;
       muzzleY = 0.02;
       sightY = 0.11;
+      // Une roquette neuve, enfoncee par l'avant du tube.
+      reloadStyle = "projectile";
+      dipPort.set(-0.05, -0.07, 0.05);
       put(body, rightHand, 0.01, -0.14, 0.03).rotation.set(-0.15, 0, 0);
       put(body, leftHand, 0, -0.12, -0.26).rotation.set(-0.1, 0, 0);
       break;
@@ -1148,97 +1426,523 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     });
   }
 
-  const flashMat = keep(
-    new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 }),
-  );
-  const flashSize = id === "pompe" || id === "double" ? 0.14 : id === "roquettes" ? 0.18 : 0.09;
-  const flash = new THREE.Mesh(keep(new THREE.SphereGeometry(flashSize, 8, 8)), flashMat);
-  // L'arbalete n'a pas d'eclair de bouche : la corde claque, c'est tout.
-  if (id === "arbalete") flash.scale.setScalar(0.001);
+  // --- Eclair de bouche ---
+  // Une etoile face a nous, deux flammes croisees le long du canon, et deux
+  // jets lateraux pour les armes a frein de bouche. Melange additif : il
+  // eclaire sans masquer, et ne coute rien quand il est eteint.
+  const muzzle = MUZZLE[id];
+  const flash = new THREE.Group();
   flash.position.set(0, id === "pistolet" ? 0.028 : muzzleY, muzzleZ);
   flash.visible = false;
   body.add(flash);
+  /** Etoile et flammes : elles tournent au hasard a chaque coup. */
+  const spin = new THREE.Group();
+  flash.add(spin);
+  /** Jets du frein de bouche : toujours sur les cotes. */
+  const jets = new THREE.Group();
+  flash.add(jets);
+  const flashTex = acquireFlashTextures();
+  let disposed = false;
+  const starMat = keep(
+    new THREE.MeshBasicMaterial({
+      map: flashTex.star,
+      color: muzzle.color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const flameMat = keep(
+    new THREE.MeshBasicMaterial({
+      map: flashTex.flame,
+      color: muzzle.color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  // L'arbalete et les poings n'ont pas d'eclair : la corde claque, c'est tout.
+  if (muzzle.star > 0) {
+    const quad = keep(new THREE.PlaneGeometry(1, 1));
+    // Flamme : sa base au canon, elle s'etire vers l'avant.
+    const flameGeo = keep(new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0));
+    const star = new THREE.Mesh(quad, starMat);
+    star.scale.set(muzzle.star * 2, muzzle.star * 2, 1);
+    star.position.z = -0.01;
+    spin.add(star);
+    for (let i = 0; i < 2; i++) {
+      // Deux plans croises contenant l'axe du canon : une flamme en volume.
+      const holder = new THREE.Group();
+      holder.rotation.z = (i * Math.PI) / 2;
+      const f = new THREE.Mesh(flameGeo, flameMat);
+      f.rotation.y = Math.PI / 2;
+      f.scale.set(muzzle.flame, muzzle.flame * 0.45, 1);
+      holder.add(f);
+      spin.add(holder);
+    }
+    if (muzzle.jets) {
+      for (const side of [0, Math.PI]) {
+        const j = new THREE.Mesh(flameGeo, flameMat);
+        j.rotation.z = side;
+        j.scale.set(muzzle.star * 1.3, muzzle.star * 0.45, 1);
+        j.position.z = 0.045;
+        jets.add(j);
+      }
+    }
+  }
+  let flashUntil = -1;
+  let flashScale = 1;
+  let flameStretch = 1;
+  function fireFlash(time: number, aim: number) {
+    if (muzzle.star <= 0) return;
+    flashUntil = time + FLASH_SECONDS;
+    spin.rotation.z = Math.random() * Math.PI * 2;
+    // Jamais deux eclairs identiques ; en visee il se fait petit pour ne pas
+    // cacher le point rouge.
+    flashScale = (0.8 + Math.random() * 0.5) * (1 - aim * 0.5);
+    flameStretch = 0.75 + Math.random() * 0.55;
+  }
 
+  // --- Reperes des gestes, pris sur l'arme au repos (repere du corps) ---
+  group.updateMatrixWorld(true);
+  const magCenter = new THREE.Vector3();
+  if (mag) bounds.setFromObject(mag).getCenter(magCenter);
+  const slideCenter = new THREE.Vector3();
+  if (slide) bounds.setFromObject(slide).getCenter(slideCenter);
+  // Projectile : la main l'apporte a sa place, sur le rail ou dans le tube.
+  if (reloadStyle === "projectile") dipPort.add(magCenter);
+  ejectParent.add(ejectPort);
+  if (carry) carry.visible = false;
+
+  // --- Fusion des pieces fixes ---
+  // Chaque boite etait un appel de rendu : 50 a 90 par arme. On regroupe par
+  // materiau tout ce qui bouge ensemble (le corps de l'arme, chaque piece
+  // mobile, chaque main) : il en reste une quinzaine. La crosse, qui s'efface
+  // en visee, est fusionnee a part.
+  const units: THREE.Object3D[] = [body, rightHand, leftHand];
+  for (const p of [slide, pump, bolt, mag, drum, barrels]) if (p) units.push(p);
+  const unitSet = new Set(units);
+  const stockSet = new Set(stockParts);
+  const loose = new Set<THREE.Object3D>([flash, ejectPort]);
+  if (carry) loose.add(carry);
+  const stockGroup = new THREE.Group();
+  const inv = new THREE.Matrix4();
+  const rel = new THREE.Matrix4();
+  function mergeInto(buckets: Map<THREE.Material, THREE.Mesh[]>, target: THREE.Object3D) {
+    for (const [mat, meshes] of buckets) {
+      if (meshes.length < 2) continue;
+      const geos: THREE.BufferGeometry[] = [];
+      for (const m of meshes) {
+        rel.multiplyMatrices(inv, m.matrixWorld);
+        geos.push(m.geometry.clone().applyMatrix4(rel));
+      }
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (!merged) continue;
+      target.add(new THREE.Mesh(keep(merged), mat));
+      for (const m of meshes) m.removeFromParent();
+    }
+  }
+  for (const unit of units) {
+    inv.copy(unit.matrixWorld).invert();
+    const buckets = new Map<THREE.Material, THREE.Mesh[]>();
+    const stockBuckets = new Map<THREE.Material, THREE.Mesh[]>();
+    const visit = (o: THREE.Object3D) => {
+      for (const c of o.children) {
+        if (unitSet.has(c) || loose.has(c)) continue;
+        if (c instanceof THREE.Mesh && !Array.isArray(c.material) && c.children.length === 0) {
+          const inStock = stockSet.has(c);
+          // Une piece de crosse accrochee a une piece mobile reste a part.
+          if (inStock && unit !== body) continue;
+          const b = inStock ? stockBuckets : buckets;
+          const list = b.get(c.material);
+          if (list) list.push(c);
+          else b.set(c.material, [c]);
+        } else {
+          visit(c);
+        }
+      }
+    };
+    visit(unit);
+    mergeInto(buckets, unit);
+    if (unit === body) mergeInto(stockBuckets, stockGroup);
+  }
+  body.add(stockGroup);
+  // Ce qui s'efface en visee : la crosse fusionnee, et les pieces restees seules.
+  const stockToggles: THREE.Object3D[] = [stockGroup];
+  for (const p of stockParts) if (p.parent) stockToggles.push(p);
+
+  // --- Bruits et douilles ---
+  const spec = WEAPONS[id];
+  const magSize = spec.magSize;
+  const cycleCues: MechCue[] = pump
+    ? [
+        { at: 0.38, sound: "pumpBack" },
+        { at: 0.42, eject: true },
+        { at: 0.68, sound: "pumpFwd" },
+      ]
+    : bolt
+      ? [
+          { at: 0.26, sound: "boltOpen" },
+          { at: 0.5, eject: true },
+          { at: 0.72, sound: "boltClose" },
+        ]
+      : [];
+  const ejectOnShot = !pump && !bolt && reloadStyle === "chargeur" && !spec.melee;
+  /** Rechargement du sniper : la culasse s'ouvre et se referme sur cette fenetre. */
+  const BOLT_T0 = 0.66;
+  const BOLT_LEN = 0.24;
+
+  function reloadCues(shells: number, empty: boolean): MechCue[] {
+    const cues: MechCue[] = [];
+    if (reloadStyle === "chargeur") {
+      cues.push({ at: 0.2, sound: "magOut" }, { at: 0.62, sound: "magIn" });
+      if (bolt) {
+        cues.push({ at: BOLT_T0 + 0.26 * BOLT_LEN, sound: "boltOpen" }, { at: BOLT_T0 + 0.72 * BOLT_LEN, sound: "boltClose" });
+      } else if (rackHand && slide) {
+        cues.push({ at: 0.82, sound: "rack" });
+      }
+      return cues;
+    }
+    const plan = dipPlan(reloadStyle, shells, magSize, { n: 1, t0: 0, len: 1 });
+    if (reloadStyle === "barillet") {
+      cues.push({ at: 0.15, sound: "drumOpen" }, { at: 0.3, eject: true }, { at: 0.78, sound: "drumClose" });
+    } else if (reloadStyle === "bascule") {
+      cues.push({ at: 0.13, sound: "breakOpen" }, { at: 0.22, eject: true }, { at: 0.8, sound: "breakClose" });
+    }
+    if (reloadStyle === "projectile") {
+      // Ces deux bruits commencent avant le geste final : le clic tombe dessus.
+      const rocket = id === "roquettes";
+      cues.push({ at: plan.t0 + (rocket ? 0.72 : 0.55) * plan.len, sound: rocket ? "rocketLoad" : "arrowLoad" });
+    } else {
+      for (let i = 0; i < plan.n; i++) cues.push({ at: plan.t0 + (i + 0.85) * plan.len, sound: "shellIn" });
+    }
+    // Pompe vide : il faut encore chambrer la premiere cartouche.
+    if (reloadStyle === "cartouches" && empty && pump) {
+      cues.push({ at: 0.875, sound: "pumpBack" }, { at: 0.945, sound: "pumpFwd" });
+    }
+    cues.sort((a, b) => a.at - b.at);
+    return cues;
+  }
+
+  // --- Etat de l'animation ---
   // Positions de repos des pieces mobiles : l'animation repart toujours d'ici.
   const slideZ = slide?.position.z ?? 0;
   const pumpZ = pump?.position.z ?? 0;
   const boltZ = bolt?.position.z ?? 0;
-  const magY = mag?.position.y ?? 0;
+  const magRest = mag ? mag.position.clone() : new THREE.Vector3();
+  const drumRest = drum ? drum.position.clone() : new THREE.Vector3();
   const leftBase = leftHand.position.clone();
-  let drumTarget = 0;
-  let lastRecoil = 0;
+  const leftRot = new THREE.Vector3(leftHand.rotation.x, leftHand.rotation.y, leftHand.rotation.z);
   const rightBase = rightHand.position.clone();
+  const rightRot = new THREE.Vector3(rightHand.rotation.x, rightHand.rotation.y, rightHand.rotation.z);
+  let drumTarget = 0;
+  let drumSpun = false;
+  let lastRecoil = 0;
+  let lastTime = -1;
+  let tiltShown = 0;
+  // Vecteurs de travail : rien n'est alloue pendant la partie.
+  const handPos = new THREE.Vector3();
+  const handRot = new THREE.Vector3();
+  const dipDown = new THREE.Vector3();
+  const knob = new THREE.Vector3();
+  const planTmp: DipPlan = { n: 1, t0: 0, len: 1 };
+
+  /**
+   * Chargeur : la main gauche va au chargeur, le tire vers le bas (hors
+   * champ), revient avec un neuf, le claque en place, puis manoeuvre la
+   * culasse s'il y en a une. Des positions-cles, reliees en douceur.
+   */
+  interface HandKey {
+    t: number;
+    p: THREE.Vector3;
+    r: THREE.Vector3;
+  }
+  const magKeys: HandKey[] = [];
+  const magGrip = magCenter.clone().add(new THREE.Vector3(-0.045, -0.02, 0.02));
+  if (reloadStyle === "chargeur" && mag && !spec.melee) {
+    const gripRot = new THREE.Vector3(-0.15, 0.9, 0.25);
+    const down = magGrip.clone().add(new THREE.Vector3(-0.08, -0.45, 0.16));
+    const under = magGrip.clone().add(new THREE.Vector3(0, -0.08, 0.01));
+    const k = (t: number, p: THREE.Vector3, r: THREE.Vector3) => magKeys.push({ t, p, r });
+    k(0, leftBase, leftRot);
+    k(0.06, leftBase, leftRot);
+    k(0.16, magGrip, gripRot);
+    k(0.33, down, gripRot);
+    k(0.41, down, gripRot);
+    k(0.55, under, gripRot);
+    k(0.63, magGrip, gripRot);
+    if (rackHand && slide) {
+      // La poignee d'armement, du cote ou elle se trouve sur l'arme.
+      const side = slideCenter.x > 0.01 ? 1 : -1;
+      const handle = slideCenter.clone().add(new THREE.Vector3(side * 0.05, 0, 0.03));
+      const pulled = handle.clone().add(new THREE.Vector3(0, 0, 0.055));
+      const handleRot = new THREE.Vector3(-0.15, -side * 0.9, -side * 0.25);
+      k(0.72, handle, handleRot);
+      k(0.78, handle, handleRot);
+      k(0.8, pulled, handleRot);
+      k(0.84, handle, handleRot);
+      k(0.95, leftBase, leftRot);
+    } else {
+      k(0.8, leftBase, leftRot);
+    }
+    k(1, leftBase, leftRot);
+  }
+
+  function samplePath(keys: HandKey[], t: number) {
+    const last = keys[keys.length - 1];
+    if (t <= keys[0].t) {
+      handPos.copy(keys[0].p);
+      handRot.copy(keys[0].r);
+      return;
+    }
+    for (let i = 0; i < keys.length - 1; i++) {
+      const a = keys[i];
+      const b = keys[i + 1];
+      if (t < b.t) {
+        const k = ramp(t, a.t, b.t);
+        handPos.lerpVectors(a.p, b.p, k);
+        handRot.lerpVectors(a.r, b.r, k);
+        return;
+      }
+    }
+    handPos.copy(last.p);
+    handRot.copy(last.r);
+  }
+
+  /**
+   * Coup par coup : `n` allers-retours de la main gauche, chacun va chercher
+   * une munition sous l'arme puis la pousse au point `dipPort`. Vrai tant
+   * que la main tient quelque chose.
+   */
+  function dip(t: number, n: number, t0: number, len: number): boolean {
+    if (t < t0) return false;
+    const i = Math.floor((t - t0) / len);
+    if (i >= n) {
+      const end = t0 + n * len;
+      handPos.lerpVectors(dipPort, leftBase, ramp(t, end, end + 0.08));
+      return false;
+    }
+    const u = (t - t0) / len - i;
+    dipDown.copy(dipPort).add(DIP_DOWN);
+    const from = i === 0 ? leftBase : dipPort;
+    if (u < 0.45) {
+      handPos.lerpVectors(from, dipDown, ramp(u, 0, 0.45));
+      return false;
+    }
+    if (u < 0.85) {
+      handPos.lerpVectors(dipDown, dipPort, ramp(u, 0.45, 0.85));
+      return true;
+    }
+    handPos.copy(dipPort);
+    handPos.z -= 0.025 * Math.sin(((u - 0.85) / 0.15) * Math.PI);
+    return u < 0.9;
+  }
 
   function update(anim: WeaponAnim) {
-    const rec = Math.min(1, Math.max(0, anim.recoil));
+    const dt = lastTime < 0 ? 0 : Math.min(0.1, Math.max(0, anim.time - lastTime));
+    lastTime = anim.time;
+    const rec = clamp01(anim.recoil);
+    const cyc = clamp01(anim.cycle ?? 1);
+    const empty = anim.empty === true;
+    const r = clamp01(anim.reload);
+    const reloading = r > 0;
+    const shells = anim.shells ?? magSize;
     const showStock = anim.aim < 0.5;
-    for (const p of stockParts) p.visible = showStock;
-    // Un tir vient de partir quand `rec` vaut 1 ; il retombe vers 0. Le
-    // cycle (aller-retour) se lit donc a l'envers : sin((1 - rec) * PI).
-    const cycle = Math.sin((1 - rec) * Math.PI);
+    for (const p of stockToggles) p.visible = showStock;
 
-    if (slide) slide.position.z = slideZ + rec * 0.055;
+    // --- Eclair : trois images, de plus en plus petit ---
+    const fk = flashUntil > anim.time ? (flashUntil - anim.time) / FLASH_SECONDS : 0;
+    flash.visible = fk > 0;
+    if (fk > 0) {
+      const s = flashScale * (0.6 + 0.4 * fk);
+      spin.scale.set(s, s, s * flameStretch);
+      jets.scale.setScalar(s);
+      const o = Math.min(1, 0.35 + fk);
+      starMat.opacity = o;
+      flameMat.opacity = o;
+    }
+
+    // --- L'arme bascule vers l'interieur pendant le rechargement ---
+    // Un rechargement interrompu (changement d'arme) revient en douceur.
+    const tiltTarget = reloading ? hump(r, 0, 0.12, 0.85, 1) : 0;
+    tiltShown = tiltTarget >= tiltShown ? tiltTarget : Math.max(tiltTarget, tiltShown - dt * 5);
+    const tilt = tiltShown;
+    let rx = 0;
+    let rz = 0;
+    let py = 0;
+
+    // --- Culasse : recul a chaque coup, bloquee ouverte a vide (pistolet),
+    // tiree puis relachee en fin de rechargement ---
+    if (slide) {
+      let back = rec * 0.055;
+      if (reloading && reloadStyle === "chargeur") {
+        back =
+          empty && id === "pistolet"
+            ? 0.055 * (1 - ramp(r, 0.81, 0.84))
+            : 0.055 * hump(r, 0.78, 0.8, 0.81, 0.84);
+      } else if (empty && id === "pistolet") {
+        back = 0.055;
+      }
+      slide.position.z = slideZ + back;
+    }
+
+    // --- Barillet : un sixieme de tour par coup ; au rechargement il
+    // bascule a gauche, l'arme se cabre, puis il se referme et tourne ---
     if (drum) {
-      // Un nouveau coup : le recul remonte d'un bond.
       if (rec > lastRecoil + 0.5) drumTarget += Math.PI / 3;
-      drum.rotation.z += (drumTarget - drum.rotation.z) * 0.35;
+      let open = 0;
+      if (reloading && reloadStyle === "barillet") {
+        open = hump(r, 0.12, 0.22, 0.7, 0.8);
+        if (r > 0.76 && !drumSpun) {
+          drumTarget += Math.PI * 2;
+          drumSpun = true;
+        }
+        rx += 0.55 * hump(r, 0.2, 0.27, 0.32, 0.4);
+      } else {
+        drumSpun = false;
+      }
+      drum.rotation.z += (drumTarget - drum.rotation.z) * (1 - Math.exp(-dt * 22));
+      drum.position.set(drumRest.x - open * 0.075, drumRest.y - open * 0.02, drumRest.z);
     }
     lastRecoil = rec;
-    if (pump) pump.position.z = pumpZ + cycle * 0.15;
-    if (bolt) {
-      bolt.rotation.x = -cycle * 1.0;
-      bolt.position.z = boltZ + cycle * 0.11;
+
+    // --- Fusil double : les canons basculent autour de la charniere ---
+    if (barrels) {
+      barrels.rotation.x = reloading && reloadStyle === "bascule" ? -0.55 * hump(r, 0.1, 0.2, 0.74, 0.82) : 0;
     }
 
-    // --- Rechargement ---
-    const r = Math.min(1, Math.max(0, anim.reload));
-    const bell = Math.sin(r * Math.PI);
-    if (r > 0) {
-      if (reloadStyle === "chargeur" && mag) {
-        // Le chargeur tombe, puis un neuf remonte en place.
-        const out = Math.min(1, r / 0.34) - Math.max(0, (r - 0.62) / 0.38);
-        mag.position.y = magY - out * 0.46;
-        mag.visible = out < 0.94;
-        leftHand.position.set(leftBase.x - out * 0.1, leftBase.y - out * 0.34, leftBase.z + out * 0.26);
-      } else {
-        // Fusil a pompe : la main gauche va chercher les cartouches sous
-        // l'arme, trois fois de suite.
-        const dip = Math.abs(Math.sin(r * Math.PI * 3)) * bell;
-        leftHand.position.set(leftBase.x, leftBase.y - dip * 0.3, leftBase.z + dip * 0.2);
-      }
-      // L'arme bascule vers l'interieur, comme quand on regarde ce qu'on fait.
-      // Elle remonte un peu au passage : baissee, elle sortait du cadre.
-      body.rotation.set(0.16 * bell, 0.34 * bell, -0.55 * bell);
-      body.position.set(-0.06 * bell, 0.04 * bell, 0.07 * bell);
-    } else {
-      if (mag) {
-        mag.position.y = magY;
-        mag.visible = true;
-      }
-      leftHand.position.copy(leftBase);
-      // Respiration : un balancement lent, presque arrete en visee.
-      const calm = 1 - anim.aim * 0.85;
-      body.rotation.set(Math.sin(anim.time * 0.9) * 0.012 * calm, Math.sin(anim.time * 0.7 + 1) * 0.016 * calm, 0);
-      // En visee, on monte l'arme pour poser la ligne de mire pile au centre
-      // de l'ecran : AIM_SIGHT_Y est la hauteur, dans le modele, ou le viseur
-      // tombe exactement sur l'axe de la camera (voir la constante).
-      body.position.set(0, Math.sin(anim.time * 1.3) * 0.004 * calm + anim.aim * (AIM_SIGHT_Y - sightY), 0);
+    // --- Pompe : un vrai aller-retour entre deux coups, cale sur la cadence ---
+    if (pump) {
+      let back = hump(cyc, 0.22, 0.42, 0.5, 0.72);
+      if (reloading && empty) back = hump(r, 0.84, 0.88, 0.9, 0.95);
+      pump.position.z = pumpZ + back * 0.15;
+      rz -= back * 0.05;
+      py -= back * 0.008;
     }
+
+    // --- Verrou : leve, tire, repousse, rabattu ; la main droite le manoeuvre ---
+    let onBolt = 0;
+    if (bolt) {
+      const c = reloading ? clamp01((r - BOLT_T0) / BOLT_LEN) : cyc;
+      const lift = hump(c, 0.18, 0.3, 0.76, 0.86);
+      const back = hump(c, 0.32, 0.5, 0.55, 0.74);
+      bolt.rotation.z = lift * 1.1;
+      bolt.position.z = boltZ + back * 0.11;
+      onBolt = hump(c, 0.06, 0.18, 0.86, 0.97);
+      if (onBolt > 0) {
+        // Le pommeau du levier, la ou la main vient le saisir.
+        knob.set(
+          bolt.position.x + 0.062 * Math.cos(bolt.rotation.z),
+          bolt.position.y + 0.062 * Math.sin(bolt.rotation.z),
+          bolt.position.z + 0.06,
+        );
+        knob.y -= 0.045;
+        knob.z += 0.035;
+      }
+      rz += onBolt * 0.08;
+    }
+
+    // --- Main gauche et munitions ---
+    let holding = false;
+    handPos.copy(leftBase);
+    handRot.copy(leftRot);
+    if (mag) {
+      mag.position.copy(magRest);
+      mag.visible = !(empty && reloadStyle === "projectile");
+    }
+    if (reloading) {
+      if (reloadStyle === "chargeur") {
+        if (magKeys.length > 0) samplePath(magKeys, r);
+        if (mag && r > 0.16 && r < 0.63) {
+          // Le chargeur suit la main : l'ancien sort, le neuf remonte. Il
+          // disparait tout en bas, hors champ, le temps de l'echange.
+          mag.position.set(
+            magRest.x + handPos.x - magGrip.x,
+            magRest.y + handPos.y - magGrip.y,
+            magRest.z + handPos.z - magGrip.z,
+          );
+          mag.visible = handPos.y - magGrip.y > -0.3;
+        }
+        // Le chargeur neuf claque en place : l'arme sursaute un peu.
+        const jolt = hump(r, 0.6, 0.63, 0.64, 0.7);
+        py += 0.015 * jolt;
+        rx += 0.05 * jolt;
+      } else {
+        const plan = dipPlan(reloadStyle, shells, magSize, planTmp);
+        holding = dip(r, plan.n, plan.t0, plan.len);
+        if (reloadStyle === "projectile" && mag) {
+          // Pas de cartouche en main : c'est le carreau ou la roquette qui voyage.
+          holding = false;
+          const tCarry = plan.t0 + 0.45 * plan.len;
+          const tSeat = plan.t0 + 0.85 * plan.len;
+          if (r >= tCarry) {
+            mag.visible = true;
+            if (r < tSeat) {
+              mag.position.set(
+                magRest.x + handPos.x - dipPort.x,
+                magRest.y + handPos.y - dipPort.y,
+                magRest.z + handPos.z - dipPort.z,
+              );
+            }
+          }
+        }
+      }
+    }
+    leftHand.position.copy(handPos);
+    leftHand.rotation.set(handRot.x, handRot.y, handRot.z);
+    if (carry) carry.visible = holding;
+
+    // --- Main droite : sur la poignee, sauf pour manoeuvrer le verrou ---
     rightHand.position.copy(rightBase);
+    rightHand.rotation.set(rightRot.x, rightRot.y, rightRot.z + onBolt * 0.35);
+    if (onBolt > 0) rightHand.position.lerp(knob, onBolt);
     if (id === "poings") {
       // Le coup part en avant et un peu vers le centre, puis revient en garde.
-      rightHand.position.set(rightBase.x - cycle * 0.12, rightBase.y + cycle * 0.06, rightBase.z - cycle * 0.34);
+      const punch = Math.sin((1 - rec) * Math.PI);
+      rightHand.position.set(rightBase.x - punch * 0.12, rightBase.y + punch * 0.06, rightBase.z - punch * 0.34);
       leftHand.position.set(leftBase.x, leftBase.y + Math.sin(anim.time * 3) * 0.01, leftBase.z);
     }
+
+    // --- Pose de l'arme : respiration et visee au repos, bascule en rechargement ---
+    const calm = 1 - anim.aim * 0.85;
+    const still = 1 - tilt;
+    body.rotation.set(
+      Math.sin(anim.time * 0.9) * 0.012 * calm * still + 0.16 * tilt + rx,
+      Math.sin(anim.time * 0.7 + 1) * 0.016 * calm * still + 0.34 * tilt,
+      -0.55 * tilt + rz,
+    );
+    // En visee, on monte l'arme pour poser la ligne de mire pile au centre
+    // de l'ecran : AIM_SIGHT_Y est la hauteur, dans le modele, ou le viseur
+    // tombe exactement sur l'axe de la camera (voir la constante). Elle
+    // remonte un peu en rechargement : baissee, elle sortait du cadre.
+    body.position.set(
+      -0.06 * tilt,
+      (Math.sin(anim.time * 1.3) * 0.004 * calm + anim.aim * (AIM_SIGHT_Y - sightY)) * still + 0.04 * tilt + py,
+      0.07 * tilt,
+    );
   }
   update({ time: 0, recoil: 0, reload: 0, aim: 0, sprint: 0 });
 
   return {
     group,
     flash,
+    ejectPort,
+    casing,
+    ejectOnShot,
+    flashLight: muzzle.light,
+    reloadStyle,
+    cycleCues,
+    reloadCues,
+    fireFlash,
     update,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       for (const o of owned) o.dispose();
+      releaseFlashTextures();
     },
   };
 }

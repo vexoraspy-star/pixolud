@@ -92,6 +92,7 @@ import type { NetEvent, PartyLink } from "@/lib/backroomsNet";
 import { VOICE_LOUD, type VoiceHub } from "@/lib/backroomsVoice";
 import { NOISE_RADIUS, pruneNoises, wallsBetween, type Noise, type NoiseKind } from "@/lib/manorNoise";
 import { createBrain, thinkMonster, type BrainState, type MapQuery, type SpeedMode } from "@/lib/manorAI";
+import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
 import Game3DSettings from "./Game3DSettings";
 import BackroomsDevPanel, {
   BACKROOMS_DEV_OFF,
@@ -1329,6 +1330,46 @@ export default function BackroomsScene({
     scene.add(wanderer.group);
     if (bacteria) scene.add(bacteria.group);
     if (smiler) scene.add(smiler.group);
+    // Corps de la Bacterie en vrai modele anime (Mesh2Motion CC0, etire dans
+    // Blender). Il se charge en fond : le corps dessine en code reste affiche
+    // en attendant, ou si le fichier ne charge pas.
+    let bacteriaModel: AnimatedModel | null = null;
+    let bacteriaClip = "";
+    let lastScreamPulse = -1;
+    if (bacteria) {
+      createAnimatedModel("bacterie", 2.35)
+        .then((m) => {
+          if (disposed) {
+            m.dispose();
+            return;
+          }
+          m.tint(() => true, 0x1d191b);
+          // Pour l'instant, la tete lisse et sans visage du modele (la tete en
+          // code se posait mal : les animations ont des pistes d'echelle).
+          bacteria.body.visible = false;
+          bacteria.group.add(m.root);
+          m.play("Rode", { randomStart: true });
+          bacteriaModel = m;
+        })
+        .catch(() => {
+          /* Le corps en code reste affiche. */
+        });
+    }
+    /** Choisit l'animation du corps selon ce que fait la Bacterie. */
+    function animateBacteriaModel(delta: number, speed: number, lunge: number, scream: number, brainState: string) {
+      const m = bacteriaModel;
+      if (!m) return;
+      const clip = lunge > 0.45 ? "Attaque" : speed > 2.2 ? "Course" : speed > 0.12 ? "Rode" : brainState === "enqueter" || brainState === "fouiller" ? "Ecoute" : "Tapie";
+      const rate = clip === "Course" ? THREE.MathUtils.clamp(speed / 4.2, 0.75, 1.6) : clip === "Rode" ? THREE.MathUtils.clamp(speed / 1.1, 0.6, 1.8) : 1;
+      m.play(clip, { fade: clip === "Attaque" ? 0.12 : 0.3, speed: rate, syncPhase: (clip === "Rode" || clip === "Course") && (bacteriaClip === "Rode" || bacteriaClip === "Course") });
+      bacteriaClip = clip;
+      // Le cri : une seule fois par hurlement, par-dessus la marche (haut du corps).
+      if (scream > 0.6 && elapsed - lastScreamPulse > 1.2) {
+        lastScreamPulse = elapsed;
+        m.pulse("Cri", 0.85);
+      }
+      m.update(delta);
+    }
     const entity = {
       x: (data.entityStart?.x ?? 0) + 0.5,
       z: (data.entityStart?.y ?? 0) + 0.5,
@@ -2054,6 +2095,7 @@ export default function BackroomsScene({
           bacteria.group.position.set(camera.position.x + fx * dist, floorY(player.z) - 0.2 * rush, camera.position.z + fz * dist);
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
+          animateBacteriaModel(delta, 5, 1, 1, "poursuivre");
         } else if (deathCause === "souriant" && smiler) {
           smiler.group.position.set(camera.position.x + fx * dist, camera.position.y - 1.45, camera.position.z + fz * dist);
           smiler.group.rotation.y = player.yaw;
@@ -2623,7 +2665,7 @@ export default function BackroomsScene({
           lunge: entity.lunge,
           scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
         });
-        if (entity.active && runReleased && !introHold) {
+        animateBacteriaModel(delta, renderSpeed, entity.lunge, THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1), state);        if (entity.active && runReleased && !introHold) {
           if (elapsed >= nextClickAt && distM < 26) {
             nextClickAt = elapsed + 1.1 + rng() * 1.8;
             playBacteriaClicks(audio.ctx, audio.master, spatial(entity.x, entity.z, 26, 1.1));

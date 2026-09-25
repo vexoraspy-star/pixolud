@@ -531,6 +531,25 @@ export function matchReward(win: boolean, kills: number): { coins: number; xp: n
   };
 }
 
+/**
+ * Prime des series (« Doublé ! », « En feu »...) : quelques pieces, et un
+ * plafond par partie. Un match a mort gagne rapporte deja pres de 300 pieces :
+ * la prime reste une petite recompense, pas une nouvelle source de revenus
+ * (le casier doit rester un objectif).
+ */
+export const STREAK_COINS_CAP = 50;
+
+/**
+ * Pieces d'une annonce. `multi` : eliminations rapprochees (2 = double...),
+ * `streak` : eliminations sans mourir quand elle atteint un palier (3, 5, 8),
+ * 0 sinon.
+ */
+export function streakCoins(multi: number, streak: number): number {
+  const m = multi >= 5 ? 15 : multi === 4 ? 10 : multi === 3 ? 6 : multi === 2 ? 3 : 0;
+  const s = streak >= 8 ? 20 : streak >= 5 ? 10 : streak >= 3 ? 5 : 0;
+  return m + s;
+}
+
 // ---------------------------------------------------------------- boutique
 
 export type ShopKind = "skin" | "camo" | "dance";

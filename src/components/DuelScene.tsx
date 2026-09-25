@@ -22,7 +22,7 @@ import {
   type DuelTheme,
 } from "@/lib/duel";
 import { buildDuelDecor } from "@/lib/duelDecor";
-import { RARITY, SKINS, type SkinId } from "@/lib/duelProfile";
+import { RARITY, SKINS, streakCoins, type SkinId } from "@/lib/duelProfile";
 import { createGridPather } from "@/lib/duelPath";
 import {
   buildIsland,
@@ -50,13 +50,15 @@ import {
   rollLootWeapon,
   shopIndexFromKey,
   shopKeyLabel,
+  type MechCue,
+  type WeaponAnim,
   type WeaponId,
   type WeaponLook,
   type WeaponModel,
   type WeaponSpec,
 } from "@/lib/duelWeapons";
 import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier";
-import { createDuelEffects } from "@/lib/duelEffects";
+import { createDuelEffects, type CasingKind } from "@/lib/duelEffects";
 import {
   makeArenaWallTexture,
   makeArenaFloorTexture,
@@ -81,13 +83,38 @@ import {
   playCrossbow,
   playBuild,
   playBreak,
+  playWeaponFoley,
+  playCasingTink,
+  playGrenadePin,
+  playGrenadeThrow,
+  playGrenadeBounce,
+  playGrenadeBlast,
+  playSmokePop,
+  playStreak,
 } from "@/lib/duelAudio";
+import {
+  BLAST_RADIUS,
+  GRENADES,
+  NADE_CARRY_MAX,
+  THROW_LOFT,
+  THROW_SPEED,
+  aimNadeAt,
+  blastDamage,
+  createAimArc,
+  createGrenades,
+  createSmokeClouds,
+  type GrenadeKind,
+  type LiveNade,
+  type NadeBody,
+  type NadeWorld,
+} from "@/lib/duelGrenades";
 import { loadLayout3D, loadQuality3D, loadSensitivity3D, type Quality3D } from "@/lib/settings3d";
 import {
   BOT_LEVELS,
   DEFAULT_DUEL_OPTIONS,
   loadDuelOptions,
   saveDuelOptions,
+  type BotLevel,
   type DuelOptions,
 } from "@/lib/duelOptions";
 import DuelCrosshair from "./DuelCrosshair";
@@ -127,7 +154,21 @@ export interface MatchExtra {
   training?: TrainingResult;
   /** Une triche du mode admin a servi : pas de recompense. */
   cheated?: boolean;
+  /** Pieces gagnees par les series (plafonnees par DuelGame). */
+  streakCoins?: number;
 }
+
+/** Annonce de serie a l'ecran : eliminations rapprochees et/ou serie sans mourir. */
+interface StreakBanner {
+  id: number;
+  multi: string | null;
+  streak: string | null;
+}
+
+/** Eliminations rapprochees : au plus ce delai entre deux, en secondes. */
+const MULTI_KILL_WINDOW = 4;
+const MULTI_NAMES = ["Doublé !", "Triplé !", "Quadruplé !", "Carnage !"];
+const STREAK_NAMES: Record<number, string> = { 3: "En feu", 5: "Inarrêtable", 8: "Légendaire" };
 
 interface KillFeedEntry {
   id: number;
@@ -181,6 +222,11 @@ interface Slot {
 const MAX_SLOTS = 3;
 /** Temps pour sortir une autre arme : on ne tire pas pendant le geste. */
 const SWAP_SECONDS = 0.32;
+/** Premiere partie du geste : l'ancienne arme descend ; la nouvelle monte ensuite. */
+const SWAP_DOWN = 0.14;
+/** Lueur du tir sur les murs proches, et sur l'arme elle-meme (intensites de crete). */
+const MUZZLE_LIGHT_POWER = 4;
+const VM_FLASH_POWER = 0.35;
 /** Armes de poing : en Economie, elles ont leur propre emplacement. */
 const isSidearm = (id: WeaponId) => id === "pistolet" || id === "revolver";
 
@@ -351,6 +397,21 @@ export default function DuelScene({
   const dancesRef = useRef<DanceId[]>(dances);
   /** 1v1 construction : mode construction (touche F) et materiaux. */
   const [buildHud, setBuildHud] = useState<{ on: boolean; mats: number }>({ on: false, mats: 0 });
+  /** Grenades : stock, et celle qu'on tient en visant. */
+  const [nadeHud, setNadeHud] = useState<{ grenade: number; fumigene: number; aiming: GrenadeKind | null }>({
+    grenade: training ? 0 : (mode.grenades?.grenade ?? 0),
+    fumigene: training ? 0 : (mode.grenades?.fumigene ?? 0),
+    aiming: null,
+  });
+  /** Touche de la grenade : A en AZERTY, Q en QWERTY (la touche libre a cote du deplacement). */
+  const [nadeKey, setNadeKey] = useState("A");
+  /** Eclair d'une explosion proche, voile d'un nuage de fumee, grenade ennemie a cote. */
+  const [blastFlash, setBlastFlash] = useState(0);
+  const [smokeVeil, setSmokeVeil] = useState(0);
+  const [nadeWarn, setNadeWarn] = useState(false);
+  const [streakBanner, setStreakBanner] = useState<StreakBanner | null>(null);
+  /** Les grenades existent dans ce mode (au depart, ou au sol en battle royale). */
+  const nadesInMode = !training && (Boolean(mode.grenades) || mode.arena === "zone");
 
   const onMatchEndRef = useRef(onMatchEnd);
   // La boucle 3D lit les reglages a chaque image : une ref, pas un etat, pour
@@ -369,6 +430,9 @@ export default function DuelScene({
     teleport: (x: number, z: number) => void;
     emote: (id: DanceId) => void;
     quit: () => void;
+    /** Bouton tactile : appuyer pour viser, relacher pour lancer. */
+    nadeDown: () => void;
+    nadeUp: () => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
@@ -402,6 +466,7 @@ export default function DuelScene({
       const saved = loadDuelOptions();
       setOptions(saved);
       optionsRef.current = saved;
+      setNadeKey(loadLayout3D() === "qwerty" ? "Q" : "A");
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -618,6 +683,32 @@ export default function DuelScene({
     const fill = new THREE.DirectionalLight(lightPlan.fill, 0.5);
     fill.position.set(-14, 18, -10);
     scene.add(fill);
+    // Lueur du tir : UNE lumiere partagee (4 lumieres dans la scene en tout),
+    // presente des le depart et pilotee par son intensite. L'ajouter ou la
+    // retirer en pleine partie ferait recompiler tous les materiaux (une
+    // saccade d'une seconde). En qualite « performance », on s'en passe.
+    const muzzleLight = quality === "performance" ? null : new THREE.PointLight(0xffb45a, 0, 7, 2);
+    if (muzzleLight) scene.add(muzzleLight);
+
+    // --- Arme tenue : une seconde scene, dessinee par-dessus le decor ---
+    // Enfant de la camera, l'arme traversait les murs quand on s'y collait
+    // (le canon du sniper depasse de 60 cm le corps du joueur). Elle vit
+    // maintenant dans sa propre scene, rendue apres un effacement de la
+    // profondeur : plus rien ne peut passer devant elle. Sa camera reste a
+    // l'origine, donc le repere de cette scene EST le repere de la vue.
+    const vmScene = new THREE.Scene();
+    const vmCamera = new THREE.PerspectiveCamera(BASE_FOV, camera.aspect, 0.01, 10);
+    // Memes lumieres que le decor, tournees a chaque image dans le repere de
+    // la vue : l'arme reste eclairee par le « soleil » de la carte.
+    const vmHemi = new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.power);
+    const vmKey = new THREE.DirectionalLight(lightPlan.key, 0.9);
+    const vmFill = new THREE.DirectionalLight(lightPlan.fill, 0.5);
+    // L'eclair eclaire aussi le canon et la main qui le tient.
+    const vmFlashLight = new THREE.PointLight(0xffb45a, 0, 1.6, 1);
+    vmScene.add(vmHemi, vmKey, vmFill, vmFlashLight);
+    const keyDir = key.position.clone().normalize();
+    const fillDir = fill.position.clone().normalize();
+    const vmInvQ = new THREE.Quaternion();
 
     const worldW = mapW * DUEL_CELL;
     const worldH = mapH * DUEL_CELL;
@@ -718,7 +809,34 @@ export default function DuelScene({
         : null;
     if (decor) scene.add(decor.group);
 
-    const effects = createDuelEffects(scene);
+    const effects = createDuelEffects(scene, { onCasingBounce: (kind) => casingTink(kind) });
+
+    // ----------------------------------------------------------- grenades
+    // Elles rebondissent sur la meme grille que les balles et les bots (les
+    // murs construits compris : solidGrid est mis a jour en direct).
+    const nadeWorld: NadeWorld = {
+      cell: DUEL_CELL,
+      width: mapW,
+      height: mapH,
+      wallHeight: DUEL_WALL_HEIGHT,
+      ceiling: !useZone,
+      solid: (cx, cz) => solidGrid[cz * mapW + cx] === 1,
+    };
+    /** Qui a lance : le joueur, un bot, ou l'adversaire en ligne (on ne fait que la montrer). */
+    type NadeOwner = Fighter | "moi" | "distant";
+    const grenades = createGrenades<NadeOwner>(scene, nadeWorld, {
+      onBounce: (n, speed) => {
+        const p = panFor(n.body.x / DUEL_CELL, n.body.z / DUEL_CELL);
+        p.gain *= Math.min(1, speed / 7);
+        playGrenadeBounce(audio.ctx, audio.master, p);
+      },
+      onDetonate: (n) => detonateNade(n),
+    });
+    const smokeClouds = createSmokeClouds(scene, DUEL_CELL, island ? 0xdfe3e6 : 0xa4aab0);
+    const aimArc = createAimArc(scene);
+    /** Grenades en poche, par sorte (aucune a l'entrainement). */
+    const nadeStock = mode.grenades && !training ? mode.grenades : { grenade: 0, fumigene: 0 };
+    const myNades: Record<GrenadeKind, number> = { grenade: nadeStock.grenade, fumigene: nadeStock.fumigene };
 
     // ------------------------------------------------------ mur de la zone
     // Un cylindre bleu translucide : on doit voir a travers, mais savoir tout
@@ -761,9 +879,41 @@ export default function DuelScene({
     for (const id of Object.keys(WEAPONS) as WeaponId[]) {
       const wm = buildWeaponModel(id, look);
       wm.group.visible = false;
-      camera.add(wm.group);
+      vmScene.add(wm.group);
       weaponModels[id] = wm;
     }
+    /** Arme affichee : l'ancienne pendant qu'elle descend, sinon celle en main. */
+    let shownWeapon: WeaponId = me.weapon;
+    let swapFrom: WeaponId | null = null;
+    let swapFromEmpty = false;
+    let swapStart = -10;
+    // Cycle de tir (pompe, verrou) : son avancement pilote l'animation et les
+    // bruits, sans toucher a la vraie cadence.
+    let lastShotAt = -10;
+    let cycleSpan = 1;
+    let cycleOwner: WeaponId | null = null;
+    let lastCycle = 1;
+    // Rechargement : les gestes et leurs bruits, declenches au franchissement.
+    let reloadCues: MechCue[] = [];
+    let reloadShells = 0;
+    let lastReloadP = 0;
+    // Lueur du tir, fumee du canon, tintement des douilles.
+    let muzzleGlow = 0;
+    let glowPower = 0;
+    let heat = 0;
+    let smokeAcc = 0;
+    let lastTinkAt = -10;
+    // Vitesse du joueur (m/s) : les douilles en heritent.
+    let myVelX = 0;
+    let myVelZ = 0;
+    let lastMeX = me.x;
+    let lastMeZ = me.z;
+    // Objets de travail reutilises (rien d'alloue par image).
+    const vmAnim: WeaponAnim = { time: 0, recoil: 0, reload: 0, aim: 0, sprint: 0, cycle: 1, empty: false, shells: 0 };
+    const vmPoint = new THREE.Vector3();
+    const ejRight = new THREE.Vector3();
+    const ejUp = new THREE.Vector3();
+    const ejBack = new THREE.Vector3();
     // Arme un peu plus presente a l'ecran depuis qu'elle a des mains : trop
     // petite, on ne voyait ni les doigts ni la culasse qui recule.
     // --- Viseur laser (optionnel) ---
@@ -792,11 +942,34 @@ export default function DuelScene({
         g.position.copy(GUN_BASE);
         g.rotation.set(0, -0.06, 0);
         g.scale.setScalar(0.66);
-        g.visible = id === me.weapon;
+        // Pendant un changement d'arme, c'est l'ancienne qui reste a l'ecran
+        // le temps de descendre : la boucle de rendu gere la bascule.
+        g.visible = id === shownWeapon;
       }
     }
     applyWeaponTransform();
     const currentModel = () => weaponModels[me.weapon];
+
+    // Grenade tenue en visant : dans la scene de l'arme, en bas a gauche,
+    // dans un gant aux couleurs de la tenue. Elle part vers l'avant au lancer.
+    const heldNade = new THREE.Group();
+    const heldModels: Record<GrenadeKind, THREE.Group> = {
+      grenade: grenades.buildModel("grenade"),
+      fumigene: grenades.buildModel("fumigene"),
+    };
+    heldNade.add(heldModels.grenade, heldModels.fumigene);
+    const gloveGeo = new THREE.BoxGeometry(0.085, 0.075, 0.1);
+    const gloveMat = new THREE.MeshLambertMaterial({ color: look?.glove ?? 0x2b2f33 });
+    const sleeveGeo = new THREE.BoxGeometry(0.09, 0.09, 0.3);
+    const sleeveMat = new THREE.MeshLambertMaterial({ color: look?.sleeve ?? 0x3d4a3a });
+    const glove = new THREE.Mesh(gloveGeo, gloveMat);
+    glove.position.set(0.01, -0.035, 0.02);
+    const sleeve = new THREE.Mesh(sleeveGeo, sleeveMat);
+    sleeve.position.set(0.03, -0.08, 0.2);
+    sleeve.rotation.x = 0.35;
+    heldNade.add(glove, sleeve);
+    heldNade.visible = false;
+    vmScene.add(heldNade);
 
     /** L'arme tenue et l'inventaire, tels que l'interface les affiche. */
     function syncWeaponUi() {
@@ -819,12 +992,34 @@ export default function DuelScene({
      */
     function equipSlot(index: number, announce = false, saveCurrent = true) {
       if (saveCurrent && me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      const before = me.weapon;
+      const beforeEmpty = me.mag === 0 && !WEAPONS[before].melee;
       const slot = me.inv[index];
       me.cur = slot ? index : 0;
       me.weapon = slot ? slot.weapon : "poings";
       me.mag = slot ? slot.mag : 0;
       me.reloadUntil = 0;
       me.nextShotAt = Math.max(me.nextShotAt, elapsed + SWAP_SECONDS);
+      if (me.weapon !== before) {
+        // Le geste : l'arme a l'ecran descend, puis la nouvelle monte. Mort
+        // (reapparition, nouvelle manche), il n'y a rien a ranger : elle monte.
+        if (me.dead || !me.alive) {
+          swapFrom = null;
+          swapStart = elapsed - SWAP_DOWN;
+        } else {
+          // Deux changements coup sur coup (molette) : l'arme a l'ecran repart
+          // de sa hauteur actuelle au lieu de remonter d'un bond.
+          const since = elapsed - swapStart;
+          let k = 0;
+          if (swapFrom !== null && since < SWAP_DOWN) k = (since / SWAP_DOWN) ** 2;
+          else if (since < SWAP_SECONDS) k = (1 - THREE.MathUtils.clamp((since - SWAP_DOWN) / (SWAP_SECONDS - SWAP_DOWN), 0, 1)) ** 3;
+          swapFrom = shownWeapon;
+          swapFromEmpty = shownWeapon === before ? beforeEmpty : false;
+          swapStart = elapsed - SWAP_DOWN * Math.sqrt(k);
+        }
+        cycleOwner = null;
+        lastCycle = 1;
+      }
       if (isZoomed) toggleZoom(false);
       applyWeaponTransform();
       syncWeaponUi();
@@ -880,13 +1075,13 @@ export default function DuelScene({
      * violet epique, or legendaire) : on sait de loin si le detour vaut le
      * coup. Les soins sont verts, et leur icone est un petit cube.
      */
-    type LootKind = "arme" | "soin";
+    type LootKind = "arme" | "soin" | GrenadeKind;
     interface LootDrop {
       x: number;
       z: number;
       kind: LootKind;
       weapon: WeaponId;
-      /** Points de vie rendus par un soin (0 pour une arme). */
+      /** Soin : points de vie rendus. Grenades : combien il y en a. Arme : 0. */
       heal: number;
       taken: boolean;
       phase: number;
@@ -915,6 +1110,11 @@ export default function DuelScene({
           const r = lootRand();
           if (r < 0.25) addStartLoot(lx, lz, "soin", "poings", r < 0.07 ? 75 : 30);
           else addStartLoot(lx, lz, "arme", rollLootWeapon(lootRand));
+          // Un butin sur cinq a une grenade a cote (un fumigene une fois sur trois).
+          const g = lootRand();
+          if (g < 0.2) {
+            loots.push({ x: lx + 0.82, z: lz + 0.5, kind: g < 0.067 ? "fumigene" : "grenade", weapon: "poings", heal: 1, taken: false, phase: loots.length * 1.7 });
+          }
         });
       } else {
         const spots: [number, number, WeaponId][] = [
@@ -927,7 +1127,8 @@ export default function DuelScene({
       }
     }
     // Place pour les armes lachees par les elimines en cours de partie.
-    const lootCapacity = mode.loot ? loots.length + (mode.respawn ? 12 : (mode.bots + 1) * MAX_SLOTS + 12) : 1;
+    // (En battle royale, un elimine lache aussi ses grenades : deux tas de plus.)
+    const lootCapacity = mode.loot ? loots.length + (mode.respawn ? 12 : (mode.bots + 1) * (MAX_SLOTS + 2) + 12) : 1;
 
     const beamGeo = new THREE.CylinderGeometry(0.17, 0.3, 2.8, 8, 1, true);
     const beamMat = new THREE.MeshBasicMaterial({
@@ -968,6 +1169,7 @@ export default function DuelScene({
     function paintLoot(i: number) {
       const l = loots[i];
       if (l.kind === "soin") lootColor.setHex(l.heal >= 60 ? 0x3cff8a : 0xc6ffd8);
+      else if (l.kind === "grenade" || l.kind === "fumigene") lootColor.setHex(GRENADES[l.kind].loot);
       else lootColor.set(RARITY[WEAPON_RARITY[l.weapon]].color);
       for (const m of lootMeshes) m.instanceColor!.setXYZ(i, lootColor.r, lootColor.g, lootColor.b);
     }
@@ -1013,8 +1215,9 @@ export default function DuelScene({
         const wx = l.x * DUEL_CELL;
         const wz = l.z * DUEL_CELL;
         lootQuat.identity();
+        const small = l.kind !== "arme";
         lootPos.set(wx, 1.4, wz);
-        lootScale.set(1, l.kind === "soin" ? 0.6 : 1, 1);
+        lootScale.set(1, small ? 0.6 : 1, 1);
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         beamMesh.setMatrixAt(i, lootMatrix);
 
@@ -1025,11 +1228,13 @@ export default function DuelScene({
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         ringMesh.setMatrixAt(i, lootMatrix);
 
-        lootEuler.set(0, time * 1.5 + l.phase, l.kind === "soin" ? 0 : 0.25);
+        lootEuler.set(0, time * 1.5 + l.phase, small ? 0 : 0.25);
         lootQuat.setFromEuler(lootEuler);
         lootPos.set(wx, 0.62 + Math.sin(time * 2 + l.phase) * 0.09, wz);
-        // Un soin : un petit cube vert. Une arme : une silhouette allongee.
+        // Un soin : un petit cube vert. Une grenade : un cube plus petit, olive
+        // ou gris. Une arme : une silhouette allongee.
         if (l.kind === "soin") lootScale.set(0.5, 2.4, 1.9);
+        else if (small) lootScale.set(0.34, 1.6, 1.3);
         else lootScale.set(1, 1, 1);
         lootMatrix.compose(lootPos, lootQuat, lootScale);
         iconMesh.setMatrixAt(i, lootMatrix);
@@ -1136,6 +1341,17 @@ export default function DuelScene({
       drawYaw: number;
       /** Animation de deplacement tenue au moins un instant (evite les clignotements). */
       clipLockUntil: number;
+      /** Ses grenades, et quand il pourra en relancer une. */
+      nadeFrag: number;
+      nadeSmoke: number;
+      nextNadeAt: number;
+      /** Derniere position ou il a vu sa cible (en cases), et quand. */
+      lastSeenX: number;
+      lastSeenZ: number;
+      lastSeenAt: number;
+      /** Recul d'une explosion, en cases/s : il s'amortit en une demi-seconde. */
+      kbX: number;
+      kbZ: number;
     }
 
     const fighters: Fighter[] = [];
@@ -1223,6 +1439,15 @@ export default function DuelScene({
         velZ: 0,
         drawYaw: 0,
         clipLockUntil: 0,
+        nadeFrag: nadeStock.grenade,
+        nadeSmoke: nadeStock.fumigene,
+        // Pas de grenade dans les premieres secondes : on laisse le temps de se placer.
+        nextNadeAt: 12 + Math.random() * 14,
+        lastSeenX: 0,
+        lastSeenZ: 0,
+        lastSeenAt: -100,
+        kbX: 0,
+        kbZ: 0,
       });
     }
 
@@ -1585,6 +1810,7 @@ export default function DuelScene({
 
     function startMyEmote(id: DanceId) {
       if (!myAvatar || !myDancer || me.dead || !me.alive || buying()) return;
+      cancelNadeAim();
       toggleEmoteMenu(false);
       if (isZoomed) toggleZoom(false);
       myAvatar.root.position.set(me.x * DUEL_CELL, 0, me.z * DUEL_CELL);
@@ -1636,7 +1862,6 @@ export default function DuelScene({
 
     let elapsed = 0;
     let lastTime = performance.now();
-    let muzzleUntil = 0;
     let recoil = 0;
     let recoilKick = 0;
     // Montee en visee progressive : l'arme montait d'un coup au centre, ce qui
@@ -1872,7 +2097,18 @@ export default function DuelScene({
         for (const s of f.inv) s.mag = WEAPONS[s.weapon].magSize;
         f.mag = WEAPONS[f.weapon].magSize;
         botBuy(f);
+        f.nadeFrag = nadeStock.grenade;
+        f.nadeSmoke = nadeStock.fumigene;
+        f.kbX = 0;
+        f.kbZ = 0;
       });
+      // Nouvelle manche : plus rien en vol ni en fumee, et les poches refaites.
+      grenades.reset();
+      smokeClouds.reset();
+      cancelNadeAim();
+      myNades.grenade = nadeStock.grenade;
+      myNades.fumigene = nadeStock.fumigene;
+      syncNadeHud();
       setHp(DUEL_MAX_HP);
       setRound(roundNumber);
       setRoundBanner(null);
@@ -1891,7 +2127,11 @@ export default function DuelScene({
       ended = true;
       playMatchEnd(audio.ctx, audio.master, win);
       const best = fighters.reduce((m, f) => Math.max(m, f.score), 0);
-      const extra: MatchExtra = { cheated: usedCheats, training: training ? trainingResult() : undefined };
+      const extra: MatchExtra = {
+        cheated: usedCheats,
+        training: training ? trainingResult() : undefined,
+        streakCoins: streakCoinTotal,
+      };
       // Victoire : on danse (la plus belle danse possedee) avant l'ecran de fin.
       const celebrate = win && !training && !quitting;
       if (celebrate) {
@@ -1948,6 +2188,12 @@ export default function DuelScene({
       me.mag = WEAPONS[me.weapon].magSize;
       me.reloadUntil = 0;
       me.safeUntil = elapsed + SPAWN_PROTECT;
+      myKbX = 0;
+      myKbZ = 0;
+      // Chaque vie repart avec les grenades du mode (jamais moins que ce qu'on avait).
+      myNades.grenade = Math.max(myNades.grenade, nadeStock.grenade);
+      myNades.fumigene = Math.max(myNades.fumigene, nadeStock.fumigene);
+      syncNadeHud();
       playRespawn(audio.ctx, audio.master);
       setHp(DUEL_MAX_HP);
       syncWeaponUi();
@@ -1961,6 +2207,9 @@ export default function DuelScene({
       setHp(0);
       playDeath(audio.ctx, audio.master);
       damageLevel = 1;
+      // La serie « sans mourir » s'arrete la ; la grenade en main tombe avec soi.
+      lifeStreak = 0;
+      cancelNadeAim();
       effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 26);
       if (killer) {
         killer.score += 1;
@@ -2019,6 +2268,7 @@ export default function DuelScene({
           if (me.rank < GUN_GAME_ORDER.length) setOnlyWeapon(GUN_GAME_ORDER[me.rank]);
         }
         addFeed(`Tu as éliminé ${f.name}`, true);
+        announceMyKill();
       } else {
         addFeed(`${killerName} a éliminé ${f.name}`, false);
       }
@@ -2031,17 +2281,23 @@ export default function DuelScene({
           dropLoot(f.x + Math.cos(a) * 0.55, f.z + Math.sin(a) * 0.55, "arme", s.weapon);
         });
         f.inv = [];
+        // Ses grenades aussi : un petit tas par sorte, au pied du corps.
+        if (f.nadeFrag > 0) dropLoot(f.x + 0.25, f.z - 0.2, "grenade", "poings", f.nadeFrag);
+        if (f.nadeSmoke > 0) dropLoot(f.x - 0.25, f.z + 0.2, "fumigene", "poings", f.nadeSmoke);
+        f.nadeFrag = 0;
+        f.nadeSmoke = 0;
       }
       checkVictory();
       if (byMe) endRound(true);
     }
 
-    function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter) {
+    function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter, unlocked = false) {
       if (me.dead || ended || !me.alive || cheatsRef.current.god) return;
       if (elapsed < me.safeUntil) return;
-      // Le plafond ne s'applique qu'aux bots : un vrai joueur en ligne touche
-      // quand il touche, et la zone ne rate jamais.
-      if (killer?.isBot) {
+      // Le plafond ne s'applique qu'aux tirs des bots : un vrai joueur en
+      // ligne touche quand il touche, la zone ne rate jamais, et une grenade
+      // (`unlocked`) est un evenement unique qu'on doit voir venir.
+      if (killer?.isBot && !unlocked) {
         if (elapsed < hitLockUntil) return;
         hitLockUntil = elapsed + hitLockFor(engagingLast);
       }
@@ -2282,6 +2538,363 @@ export default function DuelScene({
       return touched;
     }
 
+    // ------------------------------------------------------------ grenades
+    /** Recul du joueur (cases/s), tremblement de camera, eclair et lueur d'une explosion. */
+    let myKbX = 0;
+    let myKbZ = 0;
+    let shake = 0;
+    let flashLevel = 0;
+    let blastGlow = 0;
+    const blastAt = new THREE.Vector3();
+    /** Grenade en main pendant la visee, et ce qui la tient (touche, clic molette, doigt). */
+    let nadeAiming: GrenadeKind | null = null;
+    let nadeAimKey = "";
+    let nadeLower = 0;
+    let lastThrowAt = -10;
+    /** Aucun bot ne lance deux grenades coup sur coup : un delai commun a tous. */
+    let nextBotNadeAt = 14;
+    const throwBody: NadeBody = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+    const camFwd = new THREE.Vector3();
+    let lastNadeHud = "";
+
+    function syncNadeHud() {
+      const key = `${myNades.grenade}:${myNades.fumigene}:${nadeAiming ?? ""}`;
+      if (key === lastNadeHud) return;
+      lastNadeHud = key;
+      setNadeHud({ grenade: myNades.grenade, fumigene: myNades.fumigene, aiming: nadeAiming });
+    }
+
+    /** Touche de grenade : A en AZERTY, Q en QWERTY (la lettre libre a cote du deplacement), X pour le fumigene. */
+    function nadeKindForKey(k: string): GrenadeKind | null {
+      if (k === (layout.current === "azerty" ? "a" : "q")) return "grenade";
+      if (k === "x") return "fumigene";
+      return null;
+    }
+
+    /** On peut sortir une grenade : vivant, au sol, ni en achat ni entre deux manches. */
+    function canThrowNade() {
+      return !training && !me.dead && me.alive && !ended && !buying() && roundResetAt < 0 && dropPhase === "sol";
+    }
+
+    /** Maintenir : on degoupille et on vise (l'arme s'abaisse, l'arc s'affiche). */
+    function startNadeAim(kind: GrenadeKind, source: string) {
+      if (nadeAiming || !canThrowNade()) return;
+      if (myNades[kind] <= 0 && !cheatsRef.current.infiniteAmmo) {
+        playDryFire(audio.ctx, audio.master);
+        return;
+      }
+      if (buildMode) setBuildMode(false);
+      if (isZoomed) toggleZoom(false);
+      stopMyEmote();
+      // Un rechargement en cours est abandonne : la main quitte l'arme.
+      if (me.reloadUntil > 0) {
+        me.reloadUntil = 0;
+        setReloading(false);
+      }
+      burstLeft = 0;
+      nadeAiming = kind;
+      nadeAimKey = source;
+      playGrenadePin(audio.ctx, audio.master);
+      syncNadeHud();
+    }
+
+    function cancelNadeAim() {
+      if (!nadeAiming) return;
+      nadeAiming = null;
+      nadeAimKey = "";
+      aimArc.hide();
+      syncNadeHud();
+    }
+
+    /**
+     * Depart et vitesse du lancer du joueur : de la main (devant l'oeil, un
+     * peu a droite), dans l'axe du regard legerement releve, plus l'elan.
+     */
+    function myThrow(out: NadeBody) {
+      camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      const h = Math.hypot(camFwd.x, camFwd.z);
+      const hx = h > 1e-4 ? camFwd.x / h : -Math.sin(me.yaw);
+      const hz = h > 1e-4 ? camFwd.z / h : -Math.cos(me.yaw);
+      const pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(camFwd.y, -1, 1)) + THROW_LOFT, -1.1, 1.35);
+      const c = Math.cos(pitch);
+      const s = Math.sin(pitch);
+      // La droite du regard vaut (-hz, hx).
+      let ox = me.x * DUEL_CELL + hx * 0.35 - hz * 0.12;
+      let oz = me.z * DUEL_CELL + hz * 0.35 + hx * 0.12;
+      if (isSolid(Math.floor(ox / DUEL_CELL), Math.floor(oz / DUEL_CELL))) {
+        ox = me.x * DUEL_CELL;
+        oz = me.z * DUEL_CELL;
+      }
+      out.x = ox;
+      out.y = Math.min(eyeY - 0.08, DUEL_WALL_HEIGHT - 0.2);
+      out.z = oz;
+      out.vx = hx * c * THROW_SPEED + myVelX * 0.6;
+      out.vy = s * THROW_SPEED + Math.max(0, jumpV) * 0.5;
+      out.vz = hz * c * THROW_SPEED + myVelZ * 0.6;
+    }
+
+    /** Relacher : la grenade part. */
+    function releaseNade() {
+      const kind = nadeAiming;
+      if (!kind) return;
+      nadeAiming = null;
+      nadeAimKey = "";
+      aimArc.hide();
+      const infinite = cheatsRef.current.infiniteAmmo;
+      if (!canThrowNade() || (myNades[kind] <= 0 && !infinite)) {
+        syncNadeHud();
+        return;
+      }
+      myThrow(throwBody);
+      if (!grenades.throwNade(kind, throwBody, "moi")) {
+        syncNadeHud();
+        return;
+      }
+      if (!infinite) myNades[kind] -= 1;
+      lastThrowAt = elapsed;
+      me.nextShotAt = Math.max(me.nextShotAt, elapsed + 0.45);
+      playGrenadeThrow(audio.ctx, audio.master);
+      if (!bot) {
+        link.current.send("nade", {
+          k: kind,
+          x: throwBody.x,
+          y: throwBody.y,
+          z: throwBody.z,
+          vx: throwBody.vx,
+          vy: throwBody.vy,
+          vz: throwBody.vz,
+        });
+      }
+      syncNadeHud();
+    }
+
+    /** Une grenade de l'adversaire en ligne : on la simule ici pour la voir. */
+    function remoteNade(p: Record<string, unknown>) {
+      const x = Number(p.x);
+      const y = Number(p.y);
+      const z = Number(p.z);
+      const vx = Number(p.vx);
+      const vy = Number(p.vy);
+      const vz = Number(p.vz);
+      if (![x, y, z, vx, vy, vz].every(Number.isFinite)) return;
+      throwBody.x = THREE.MathUtils.clamp(x, 0, worldW);
+      throwBody.y = THREE.MathUtils.clamp(y, 0, DUEL_WALL_HEIGHT);
+      throwBody.z = THREE.MathUtils.clamp(z, 0, worldH);
+      throwBody.vx = THREE.MathUtils.clamp(vx, -30, 30);
+      throwBody.vy = THREE.MathUtils.clamp(vy, -30, 30);
+      throwBody.vz = THREE.MathUtils.clamp(vz, -30, 30);
+      if (grenades.throwNade(p.k === "fumigene" ? "fumigene" : "grenade", throwBody, "distant")) {
+        playGrenadeThrow(audio.ctx, audio.master, panFor(throwBody.x / DUEL_CELL, throwBody.z / DUEL_CELL));
+      }
+    }
+
+    /**
+     * La meche est au bout. Fumigene : le nuage se deploie. Grenade : degats
+     * selon la distance, jamais a travers un mur plein, souffle qui pousse,
+     * eclair, tremblement et murs construits en miettes.
+     */
+    function detonateNade(n: LiveNade<NadeOwner>) {
+      const b = n.body;
+      const ex = b.x / DUEL_CELL;
+      const ez = b.z / DUEL_CELL;
+      if (n.kind === "fumigene") {
+        smokeClouds.spawn(b.x, Math.max(0, b.y - 0.1), b.z);
+        playSmokePop(audio.ctx, audio.master, panFor(ex, ez));
+        return;
+      }
+      effects.grenadeBlast(b.x, b.y + 0.35, b.z);
+      playGrenadeBlast(audio.ctx, audio.master, panFor(ex, ez));
+      pingRadar(ex, ez);
+      blastAt.set(b.x, b.y + 0.6, b.z);
+      blastGlow = 1;
+      // Les murs construits tout proches volent en eclats.
+      if (mode.build) {
+        for (let cy = Math.floor(ez - 1.6); cy <= Math.floor(ez + 1.6); cy++) {
+          for (let cx = Math.floor(ex - 1.6); cx <= Math.floor(ex + 1.6); cx++) {
+            const wall = builtAt.get(cy * mapW + cx);
+            if (wall && Math.hypot(cx + 0.5 - ex, cy + 0.5 - ez) < 1.6) damageBuild(wall, 110);
+          }
+        }
+      }
+      const owner = n.owner;
+      let touched = false;
+      for (const f of fighters) {
+        if (f.dead || !f.alive || f.air > 0.5) continue;
+        const dx = f.x - ex;
+        const dz = f.z - ez;
+        const d = Math.hypot(dx, dz);
+        if (d >= BLAST_RADIUS || !hasLineOfSight(ex, ez, f.x, f.z)) continue;
+        // Le souffle pousse tout le monde, meme celui qui a lance.
+        if (f.isBot) {
+          const push = 7 * (1 - d / BLAST_RADIUS);
+          f.kbX += (d > 0.05 ? dx / d : Math.random() - 0.5) * push;
+          f.kbZ += (d > 0.05 ? dz / d : Math.random() - 0.5) * push;
+        }
+        // Pas de degats pour son propre lanceur ; ceux de l'adversaire en ligne arrivent par le reseau.
+        if (owner === f || owner === "distant" || owner === null) continue;
+        const dmg = blastDamage(d);
+        effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
+        if (owner === "moi") {
+          touched = true;
+          if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
+          else link.current.send("hit", { damage: dmg });
+        } else {
+          damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, owner.name, owner);
+        }
+      }
+      if (touched) {
+        hitMarkerLevel = 1;
+        playHitmarker(audio.ctx, audio.master);
+      }
+      if (me.dead || !me.alive) return;
+      const dx = me.x - ex;
+      const dz = me.z - ez;
+      const d = Math.hypot(dx, dz);
+      const inView = d < BLAST_RADIUS * 2.5 && hasLineOfSight(ex, ez, me.x, me.z);
+      if (d < BLAST_RADIUS && inView) {
+        const push = 6 * (1 - d / BLAST_RADIUS);
+        if (d > 0.05) {
+          myKbX += (dx / d) * push;
+          myKbZ += (dz / d) * push;
+        }
+        // Tout pres, le souffle decolle un peu du sol.
+        if (d < BLAST_RADIUS * 0.45 && jumpY <= 0.001) jumpV = Math.max(jumpV, 2.6);
+        if (owner !== null && owner !== "moi" && owner !== "distant") {
+          const cfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
+          applyDamageToMe(blastDamage(d) * cfg.damage, ex, ez, owner, true);
+        }
+      }
+      // Tremblement : fort tout pres, encore sensible a dix cases, meme derriere un mur.
+      shake = Math.max(shake, THREE.MathUtils.clamp(1.15 - d / (BLAST_RADIUS * 2.2), 0, 1));
+      // Eclair : plein si on regarde l'explosion, adouci si elle est de cote.
+      if (inView) {
+        camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        const fl = Math.hypot(camFwd.x, camFwd.z) || 1;
+        const facing = d > 0.05 ? (-dx * camFwd.x - dz * camFwd.z) / (d * fl) : 1;
+        flashLevel = Math.max(flashLevel, (1 - d / (BLAST_RADIUS * 2.5)) * (facing > 0.3 ? 1 : 0.35));
+      }
+    }
+
+    /** Une grenade ennemie qui va partir tout pres du joueur : le HUD previent. */
+    function hostileNadeNear(): boolean {
+      if (me.dead || !me.alive) return false;
+      for (const n of grenades.live) {
+        if (!n.active || n.popped || n.kind !== "grenade" || n.owner === "moi") continue;
+        if (Math.hypot(n.body.x / DUEL_CELL - me.x, n.body.z / DUEL_CELL - me.z) < BLAST_RADIUS * 1.1) return true;
+      }
+      return false;
+    }
+
+    /** Un bot lance une grenade vers (tx, tz), en cases. */
+    function botThrowNade(f: Fighter, kind: GrenadeKind, tx: number, tz: number): boolean {
+      throwBody.x = f.x * DUEL_CELL;
+      throwBody.y = 1.45;
+      throwBody.z = f.z * DUEL_CELL;
+      if (!aimNadeAt(throwBody, tx * DUEL_CELL, tz * DUEL_CELL)) return false;
+      // Elle part de la main, un peu devant lui (sauf s'il est colle a un mur).
+      const h = Math.hypot(throwBody.vx, throwBody.vz) || 1;
+      const hx = throwBody.x + (throwBody.vx / h) * 0.4;
+      const hz = throwBody.z + (throwBody.vz / h) * 0.4;
+      if (!isSolid(Math.floor(hx / DUEL_CELL), Math.floor(hz / DUEL_CELL))) {
+        throwBody.x = hx;
+        throwBody.z = hz;
+      }
+      if (!grenades.throwNade(kind, throwBody, f)) return false;
+      if (kind === "grenade") f.nadeFrag -= 1;
+      else f.nadeSmoke -= 1;
+      f.yaw = Math.atan2(tx - f.x, tz - f.z);
+      f.anim?.pulse("Punch", 0.7);
+      f.nextShotAt = Math.max(f.nextShotAt, elapsed + 0.6);
+      f.nextNadeAt = elapsed + 20 + Math.random() * 12;
+      nextBotNadeAt = elapsed + (island ? 5 : 9) + Math.random() * 5;
+      playGrenadeThrow(audio.ctx, audio.master, panFor(f.x, f.z));
+      return true;
+    }
+
+    /**
+     * A chaque reflexion d'un bot : un fumigene pour se couvrir s'il est mal en
+     * point, ou une grenade la ou il a vu sa cible pour la derniere fois. Rare
+     * par construction : un delai par bot, un delai commun, et un tirage.
+     */
+    function botConsiderNade(f: Fighter, cfg: BotLevel) {
+      if (training || elapsed < nextBotNadeAt || elapsed < f.nextNadeAt) return;
+      if (f.nadeFrag <= 0 && f.nadeSmoke <= 0) return;
+      if (f.air > 0 || f.dance || elapsed < f.swapUntil) return;
+      // Sur l'ile, le debut de partie reste calme (voir l'engagement plus bas).
+      if (island && elapsed - dropAt < 90) return;
+      if (f.nadeSmoke > 0 && f.sees && f.hp < 45 && elapsed < f.provokedUntil) {
+        const t = targetOf(f);
+        if (t) {
+          const d = Math.hypot(t.x - f.x, t.z - f.z);
+          if (d > 3.5 && d < 16 && Math.random() < 0.3) {
+            const k = 1.8 / d;
+            botThrowNade(f, "fumigene", f.x + (t.x - f.x) * k, f.z + (t.z - f.z) * k);
+            return;
+          }
+        }
+      }
+      if (f.nadeFrag > 0 && !f.sees) {
+        const since = elapsed - f.lastSeenAt;
+        const d = Math.hypot(f.lastSeenX - f.x, f.lastSeenZ - f.z);
+        // Les meilleurs bots y pensent plus souvent, et visent mieux.
+        if (since > 0.7 && since < 4 && d > 3 && d < 7.5 && Math.random() < 0.12 * (cfg.accuracy / 0.62)) {
+          const spread = 0.4 + (1 - cfg.accuracy) * 2;
+          botThrowNade(
+            f,
+            "grenade",
+            f.lastSeenX + (Math.random() - 0.5) * 2 * spread,
+            f.lastSeenZ + (Math.random() - 0.5) * 2 * spread,
+          );
+        }
+      }
+    }
+
+    /**
+     * Une grenade qu'il a vue tomber pres de lui et qui va partir : il s'ecarte.
+     * Trois bots sur dix ne la remarquent pas, sinon une grenade ne toucherait
+     * jamais personne.
+     */
+    function nadeDangerFor(f: Fighter): LiveNade<NadeOwner> | null {
+      for (const n of grenades.live) {
+        if (!n.active || n.popped || n.kind !== "grenade" || n.fuse > 1.7) continue;
+        const gx = n.body.x / DUEL_CELL;
+        const gz = n.body.z / DUEL_CELL;
+        if (Math.abs(gx - f.x) > BLAST_RADIUS || Math.abs(gz - f.z) > BLAST_RADIUS) continue;
+        if (Math.hypot(gx - f.x, gz - f.z) > BLAST_RADIUS * 0.85) continue;
+        if ((f.id * 37 + n.seed) % 10 < 3) continue;
+        if (!hasLineOfSight(f.x, f.z, gx, gz)) continue;
+        return n;
+      }
+      return null;
+    }
+
+    // -------------------------------------------------------------- series
+    /** Eliminations sans mourir, eliminations rapprochees, et les pieces qu'elles rapportent. */
+    let lifeStreak = 0;
+    let multiCount = 0;
+    let lastMyKillAt = -100;
+    let streakCoinTotal = 0;
+    let bannerSeq = 0;
+
+    /** Une elimination du joueur : « Doublé ! », « En feu »... avec un petit son. */
+    function announceMyKill() {
+      if (training) return;
+      multiCount = elapsed - lastMyKillAt <= MULTI_KILL_WINDOW ? multiCount + 1 : 1;
+      lastMyKillAt = elapsed;
+      lifeStreak += 1;
+      const multi = multiCount >= 2 ? MULTI_NAMES[Math.min(multiCount, 5) - 2] : null;
+      const streak = STREAK_NAMES[lifeStreak] ?? null;
+      if (!multi && !streak) return;
+      streakCoinTotal += streakCoins(multi ? multiCount : 0, streak ? lifeStreak : 0);
+      const multiLevel = multi ? Math.min(multiCount, 5) - 1 : 0;
+      const streakLevel = !streak ? 0 : lifeStreak >= 8 ? 4 : lifeStreak >= 5 ? 3 : 2;
+      playStreak(audio.ctx, audio.master, Math.max(multiLevel, streakLevel));
+      bannerSeq += 1;
+      const id = bannerSeq;
+      setStreakBanner({ id, multi, streak });
+      window.setTimeout(() => setStreakBanner((b) => (b && b.id === id ? null : b)), 2300);
+    }
+
     // ------------------------------------------------------------- le tir
     /**
      * Un projectile : mur d'abord, puis chaque combattant. Le fusil a pompe
@@ -2425,19 +3038,30 @@ export default function DuelScene({
       // mitraillette chatouille.
       if (!ch.noRecoil) recoilKick += spec.recoil * 0.012;
       const model = currentModel();
-      model.flash.visible = true;
-      model.flash.rotation.z = Math.random() * Math.PI;
-      muzzleUntil = elapsed + 0.045;
+      // Eclair en etoile, lueur sur les murs et sur l'arme, chaleur du canon.
+      model.fireFlash(elapsed, aimBlend);
+      if (model.flashLight > 0) {
+        muzzleGlow = 1;
+        glowPower = model.flashLight;
+        if (muzzleLight) {
+          model.flash.getWorldPosition(vmPoint);
+          viewToWorld(vmPoint);
+          // Un peu en retrait vers l'oeil : jamais dans l'epaisseur d'un mur.
+          muzzleLight.position.copy(vmPoint).lerp(camera.position, 0.25);
+        }
+      }
+      heat = Math.min(1.6, heat + (spec.silent ? 0 : spec.auto ? 0.09 : Math.min(0.65, 0.12 + spec.recoil * 0.16)));
+      // Pompe et verrou : le geste entre deux coups suit la cadence reelle.
+      lastShotAt = elapsed;
+      cycleSpan = Math.max(0.05, spec.fireInterval * (ch.rapidFire ? 0.25 : 1));
+      cycleOwner = me.weapon;
+      lastCycle = 0;
       // L'arbalete ne s'entend pas : elle n'apparait pas sur le radar.
       if (!spec.silent) pingRadar(me.x, me.z);
 
-      // Douille ejectee a hauteur d'arme, sur la droite (pas pour un carreau ni une roquette).
-      if (!spec.silent && !spec.explosive) effects.casing(
-        me.x * DUEL_CELL + Math.sin(me.yaw - Math.PI / 2) * 0.3,
-        DUEL_EYE_HEIGHT - 0.2,
-        me.z * DUEL_CELL + Math.cos(me.yaw - Math.PI / 2) * 0.3,
-        me.yaw,
-      );
+      // Douille ejectee par la fenetre de l'arme. Pompe et verrou l'ejectent
+      // plus tard, pendant le geste ; revolver et fusil double au rechargement.
+      if (model.ejectOnShot) ejectCasings(model, 1, "cote");
 
       // Viser immobile resserre la gerbe ; courir en tirant l'ouvre.
       const movingPenalty = movingNow ? 2 : 1;
@@ -2482,7 +3106,100 @@ export default function DuelScene({
       if (spec.melee || me.dead || me.reloadUntil > 0 || me.mag >= spec.magSize) return;
       me.reloadUntil = elapsed + spec.reloadSeconds;
       setReloading(true);
-      playReload(audio.ctx, audio.master);
+      // Plus de son unique cale sur des delais fixes : chaque geste sonne
+      // quand l'animation le montre (voir la boucle), sur toute la duree.
+      reloadShells = spec.magSize - me.mag;
+      reloadCues = currentModel().reloadCues(reloadShells, me.mag === 0);
+      lastReloadP = 0;
+    }
+
+    /**
+     * Un point du repere de la vue (la scene de l'arme tenue) ramene dans le
+     * monde. Colle a un mur, le canon passerait de l'autre cote : on rapproche
+     * alors le point de l'oeil le long du meme rayon — a l'ecran, il ne bouge pas.
+     */
+    function viewToWorld(p: THREE.Vector3) {
+      p.applyMatrix4(camera.matrixWorld);
+      const ex = camera.position.x;
+      const ez = camera.position.z;
+      const dx = p.x - ex;
+      const dz = p.z - ez;
+      const h = Math.hypot(dx, dz);
+      if (h < 1e-4) return p;
+      const free = rayWallDistance(ex / DUEL_CELL, ez / DUEL_CELL, dx / h, dz / h, h / DUEL_CELL + 0.2) * DUEL_CELL - 0.12;
+      if (free < h) {
+        const s = Math.max(0.15, free) / h;
+        p.set(ex + dx * s, camera.position.y + (p.y - camera.position.y) * s, ez + dz * s);
+      }
+      return p;
+    }
+
+    /**
+     * Douilles vides : elles naissent a la fenetre d'ejection et heritent de
+     * la vitesse du tireur. « cote » : projetees a droite (culasse) ;
+     * « arriere » : sautees en l'air (fusil double) ; « chute » : lachees
+     * (barillet du revolver).
+     */
+    function ejectCasings(model: WeaponModel, count: number, style: "cote" | "arriere" | "chute") {
+      model.ejectPort.getWorldPosition(vmPoint);
+      viewToWorld(vmPoint);
+      ejRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      ejUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      ejBack.set(0, 0, 1).applyQuaternion(camera.quaternion);
+      for (let i = 0; i < count; i++) {
+        let r: number;
+        let u: number;
+        let b: number;
+        if (style === "cote") {
+          r = 1.3 + Math.random() * 0.8;
+          u = 1 + Math.random() * 0.7;
+          b = 0.2 + Math.random() * 0.3;
+        } else if (style === "arriere") {
+          r = (Math.random() - 0.5) * 0.5;
+          u = 1.1 + Math.random() * 0.5;
+          b = 0.9 + Math.random() * 0.4;
+        } else {
+          r = (Math.random() - 0.5) * 0.6;
+          u = -0.2 - Math.random() * 0.3;
+          b = (Math.random() - 0.5) * 0.4;
+        }
+        const spreadOff = (Math.random() - 0.5) * 0.03;
+        effects.casing(
+          vmPoint.x + ejRight.x * spreadOff,
+          vmPoint.y + (Math.random() - 0.5) * 0.02,
+          vmPoint.z + ejRight.z * spreadOff,
+          ejRight.x * r + ejUp.x * u + ejBack.x * b + myVelX,
+          ejRight.y * r + ejUp.y * u + ejBack.y * b + jumpV,
+          ejRight.z * r + ejUp.z * u + ejBack.z * b + myVelZ,
+          model.casing,
+        );
+      }
+    }
+
+    /** Un geste de l'arme vient d'avoir lieu : son bruit, et ses douilles. */
+    function playCue(cue: MechCue, fromReload: boolean) {
+      if (cue.sound) playWeaponFoley(audio.ctx, audio.master, cue.sound);
+      if (!cue.eject) return;
+      const model = currentModel();
+      if (!fromReload) ejectCasings(model, 1, "cote");
+      else ejectCasings(model, Math.max(1, reloadShells), model.reloadStyle === "barillet" ? "chute" : "arriere");
+    }
+
+    /** Tintement d'une douille au sol : au plus un toutes les 80 ms. */
+    function casingTink(kind: CasingKind) {
+      if (elapsed - lastTinkAt < 0.08) return;
+      lastTinkAt = elapsed;
+      playCasingTink(audio.ctx, audio.master, kind);
+    }
+
+    /** Deux passes : le decor, puis l'arme tenue par-dessus, apres effacement de la profondeur. */
+    function renderFrame() {
+      renderer.render(scene, camera);
+      if (!weaponModels[shownWeapon].group.visible && !heldNade.visible) return;
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.render(vmScene, vmCamera);
+      renderer.autoClear = true;
     }
 
     function toggleZoom(force?: boolean) {
@@ -2519,6 +3236,18 @@ export default function DuelScene({
         }
         return;
       }
+      // Clic molette : la grenade (le fumigene s'il n'en reste plus), tenue tant qu'on appuie.
+      if (e.button === 1) {
+        e.preventDefault();
+        const kind: GrenadeKind = myNades.grenade > 0 || cheatsRef.current.infiniteAmmo ? "grenade" : "fumigene";
+        startNadeAim(kind, "molette");
+        return;
+      }
+      // Clic droit pendant la visee d'une grenade : on la garde en poche.
+      if (e.button === 2 && nadeAiming) {
+        cancelNadeAim();
+        return;
+      }
       if (e.button === 0) {
         if (buildMode) buildHeld = true;
         else firing = true;
@@ -2528,6 +3257,10 @@ export default function DuelScene({
       }
     }
     function onMouseUp(e: MouseEvent) {
+      if (e.button === 1) {
+        if (nadeAimKey === "molette") releaseNade();
+        return;
+      }
       if (e.button === 2) toggleZoom(false);
       else {
         firing = false;
@@ -2540,7 +3273,7 @@ export default function DuelScene({
       // Espace : sans ca, le navigateur fait defiler la page sous le jeu a
       // chaque saut.
       if (e.code === "Space") e.preventDefault();
-      if (e.key.toLowerCase() === "r") startReload();
+      if (e.key.toLowerCase() === "r" && !nadeAiming) startReload();
       // L : allumer ou eteindre le laser sans ouvrir aucun menu.
       if (e.key.toLowerCase() === "l" && !e.repeat) {
         changeOptions({ ...optionsRef.current, laser: !optionsRef.current.laser });
@@ -2572,6 +3305,13 @@ export default function DuelScene({
       if (emoteMenuRef.current) {
         if (n >= 1 && n <= dancesRef.current.length) startMyEmote(dancesRef.current[n - 1]);
         if (e.key === "Escape") toggleEmoteMenu(false);
+        return;
+      }
+      // Grenades : A (AZERTY) ou Q (QWERTY), X pour le fumigene. On maintient
+      // pour viser, on relache pour lancer.
+      const nadeKind = e.repeat ? null : nadeKindForKey(e.key.toLowerCase());
+      if (nadeKind) {
+        startNadeAim(nadeKind, e.key.toLowerCase());
         return;
       }
       // Entrainement et triche « toutes les armes » : 1 a 9 puis 0 choisit
@@ -2612,6 +3352,7 @@ export default function DuelScene({
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
+      if (nadeAiming && nadeAimKey === e.key.toLowerCase()) releaseNade();
     }
     function onContextMenu(e: MouseEvent) {
       e.preventDefault();
@@ -2709,6 +3450,10 @@ export default function DuelScene({
       teleport: (x, z) => teleportTo(x, z),
       emote: (id) => startMyEmote(id),
       quit: () => quitMatch(),
+      nadeDown: () => startNadeAim(myNades.grenade > 0 || cheatsRef.current.infiniteAmmo ? "grenade" : "fumigene", "doigt"),
+      nadeUp: () => {
+        if (nadeAimKey === "doigt") releaseNade();
+      },
     };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
@@ -2725,6 +3470,7 @@ export default function DuelScene({
     function onBlur() {
       keys.clear();
       firing = false;
+      cancelNadeAim();
       lookPointerId = -1;
       touchRef.current.moveX = 0;
       touchRef.current.moveZ = 0;
@@ -2779,6 +3525,8 @@ export default function DuelScene({
             remote.flashUntil = elapsed + 0.05;
             remote.anim?.pulse("Gun_Shoot", 0.7);
           }
+        } else if (msg.event === "nade") {
+          remoteNade(msg.payload);
         }
       }
       const r = link.current.remote;
@@ -2832,11 +3580,16 @@ export default function DuelScene({
     /** Sur l'ile, chacun ne s'occupe que de ce qui l'entoure. */
     const SIGHT_CELLS = island ? 36 : 80;
 
+    /** Ce que voit un bot : ni a travers un mur, ni a travers un nuage de fumigene. */
+    function botSees(ax: number, az: number, bx: number, bz: number): boolean {
+      return hasLineOfSight(ax, az, bx, bz) && !smokeClouds.blocks(ax, az, bx, bz);
+    }
+
     function chooseTarget(f: Fighter) {
       // Il vient d'etre touche : il garde son agresseur tant qu'il le voit.
       if (elapsed < f.provokedUntil) {
         const t = targetOf(f);
-        if (t && hasLineOfSight(f.x, f.z, t.x, t.z)) {
+        if (t && botSees(f.x, f.z, t.x, t.z)) {
           f.sees = true;
           return;
         }
@@ -2864,7 +3617,7 @@ export default function DuelScene({
       // Les lignes de vue coutent cher : les quatre plus proches suffisent.
       for (let k = 0; k < near.length && k < 4; k++) {
         const c = near[k];
-        if (hasLineOfSight(f.x, f.z, c.x, c.z)) {
+        if (botSees(f.x, f.z, c.x, c.z)) {
           f.sees = true;
           f.targetIsMe = c.isMe;
           f.targetRef = c.ref;
@@ -2894,7 +3647,8 @@ export default function DuelScene({
       let best: LootDrop | null = null;
       let bestD = f.inv.length === 0 ? 40 : 18;
       for (const l of loots) {
-        if (l.taken) continue;
+        // Les grenades se ramassent en passant, on ne fait pas le detour.
+        if (l.taken || l.kind === "grenade" || l.kind === "fumigene") continue;
         if (l.kind === "soin" ? !needHeal : !needWeapon || f.inv.some((s) => s.weapon === l.weapon)) continue;
         const d = Math.abs(l.x - f.x) + Math.abs(l.z - f.z);
         if (d < bestD) {
@@ -2982,8 +3736,30 @@ export default function DuelScene({
           if (mode.gunGame) botSetOnly(f, GUN_GAME_ORDER[Math.min(f.rank, GUN_GAME_ORDER.length - 1)]);
           for (const s of f.inv) s.mag = WEAPONS[s.weapon].magSize;
           f.mag = WEAPONS[f.weapon].magSize;
+          f.nadeFrag = Math.max(f.nadeFrag, nadeStock.grenade);
+          f.nadeSmoke = Math.max(f.nadeSmoke, nadeStock.fumigene);
+          f.kbX = 0;
+          f.kbZ = 0;
+          f.lastSeenAt = -100;
         }
         return;
+      }
+
+      // Souffle d'une explosion : il est pousse, sans traverser les murs.
+      if (f.kbX !== 0 || f.kbZ !== 0) {
+        const nx = f.x + f.kbX * delta;
+        if (!isSolid(Math.floor(nx), Math.floor(f.z))) f.x = nx;
+        else f.kbX = 0;
+        const nz = f.z + f.kbZ * delta;
+        if (!isSolid(Math.floor(f.x), Math.floor(nz))) f.z = nz;
+        else f.kbZ = 0;
+        const k = Math.max(0, 1 - delta * 7);
+        f.kbX *= k;
+        f.kbZ *= k;
+        if (Math.abs(f.kbX) + Math.abs(f.kbZ) < 0.05) {
+          f.kbX = 0;
+          f.kbZ = 0;
+        }
       }
 
       const botCfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
@@ -2994,6 +3770,7 @@ export default function DuelScene({
         if (mode.loot) f.lootTarget = lootGoalFor(f);
         const t = targetOf(f);
         botPickWeapon(f, t ? Math.hypot(t.x - f.x, t.z - f.z) : 12);
+        botConsiderNade(f, botCfg);
       }
 
       const spec = WEAPONS[f.weapon];
@@ -3001,6 +3778,13 @@ export default function DuelScene({
       if (!target) f.sees = false;
       const dist = target ? Math.hypot(target.x - f.x, target.z - f.z) : Infinity;
       f.seenFor = f.sees ? f.seenFor + delta : 0;
+      // Il retient ou il a vu sa cible pour la derniere fois : c'est la que
+      // partira sa grenade s'il la perd de vue.
+      if (f.sees && target) {
+        f.lastSeenX = target.x;
+        f.lastSeenZ = target.z;
+        f.lastSeenAt = elapsed;
+      }
       if (f.sees && f.targetIsMe) engagingMe += 1;
 
       // Il danse sur sa victoire, sauf si quelqu'un s'approche.
@@ -3032,8 +3816,18 @@ export default function DuelScene({
       }
       if (provoked && !spec.melee) engage = Math.max(engage, spec.range * 1.6);
       const fights = target !== null && f.sees && dist <= engage;
+      const danger = nadeDangerFor(f);
 
-      if (mustReachZone && zone) {
+      if (danger) {
+        // Une grenade va partir a cote : il s'en ecarte en courant (et tire quand meme).
+        const dx = f.x - danger.body.x / DUEL_CELL;
+        const dz = f.z - danger.body.z / DUEL_CELL;
+        const d = Math.hypot(dx, dz) || 1;
+        const nx = f.x + (dx / d) * speed * 1.15 * delta;
+        const nz = f.z + (dz / d) * speed * 1.15 * delta;
+        if (!isSolid(Math.floor(nx), Math.floor(f.z))) f.x = nx;
+        if (!isSolid(Math.floor(f.x), Math.floor(nz))) f.z = nz;
+      } else if (mustReachZone && zone) {
         moveTowards(f, zone.x, zone.z, speed * 1.05, delta);
       } else if (fights && target) {
         // Distance a laquelle il se sent bien : au pompe il colle, au sniper il
@@ -3093,6 +3887,16 @@ export default function DuelScene({
       // la fin de partie oppose un sniper a des pistolets.
       for (const l of loots) {
         if (l.taken || Math.abs(f.x - l.x) > 0.9 || Math.abs(f.z - l.z) > 0.9) continue;
+        if (l.kind === "grenade" || l.kind === "fumigene") {
+          const have = l.kind === "grenade" ? f.nadeFrag : f.nadeSmoke;
+          const take = Math.min(NADE_CARRY_MAX - have, Math.max(1, l.heal));
+          if (take <= 0) continue;
+          if (l.kind === "grenade") f.nadeFrag += take;
+          else f.nadeSmoke += take;
+          l.heal -= take;
+          if (l.heal <= 0) l.taken = true;
+          continue;
+        }
         if (l.kind === "soin") {
           if (f.hp < DUEL_MAX_HP) {
             f.hp = Math.min(DUEL_MAX_HP, f.hp + l.heal);
@@ -3267,6 +4071,7 @@ export default function DuelScene({
       // ------------------------------------- battle royale : avant le sol
       if (dropPhase !== "sol") {
         currentModel().group.visible = false;
+        weaponModels[shownWeapon].group.visible = false;
         laserBeam.visible = false;
         laserDot.visible = false;
         if (dropPhase === "choix") {
@@ -3334,7 +4139,7 @@ export default function DuelScene({
             f.anim.update(delta);
           }
         }
-        renderer.render(scene, camera);
+        renderFrame();
         return;
       }
 
@@ -3345,6 +4150,24 @@ export default function DuelScene({
       if (!usedCheats && anyCheat(ch)) usedCheats = true;
       // Entrainement : la minute est ecoulee.
       if (training && !ended && elapsed >= TRAINING_START + training.seconds) finish(true);
+
+      // Gestes du rechargement : chaque bruit part quand l'avancement franchit
+      // son seuil. Avant la fin du rechargement, pour ne pas perdre le dernier.
+      const reloadP =
+        me.reloadUntil > 0 ? THREE.MathUtils.clamp(1 - (me.reloadUntil - elapsed) / spec.reloadSeconds, 0, 1) : 0;
+      if (reloadP > 0) {
+        for (const cue of reloadCues) if (lastReloadP < cue.at && cue.at <= reloadP) playCue(cue, true);
+      }
+      lastReloadP = reloadP;
+      // Cycle entre deux coups (pompe, verrou) : meme principe, sur la cadence.
+      let cycleNow = 1;
+      if (cycleOwner === me.weapon && !me.dead) {
+        cycleNow = THREE.MathUtils.clamp((elapsed - lastShotAt) / cycleSpan, 0, 1);
+        if (lastCycle < 1) {
+          for (const cue of currentModel().cycleCues) if (lastCycle < cue.at && cue.at <= cycleNow) playCue(cue, false);
+        }
+        lastCycle = cycleNow;
+      }
 
       if (me.reloadUntil > 0 && elapsed >= me.reloadUntil) {
         me.reloadUntil = 0;
@@ -3419,6 +4242,39 @@ export default function DuelScene({
         }
       }
 
+      // Souffle d'une grenade : on est pousse, sans traverser les murs.
+      if (myKbX !== 0 || myKbZ !== 0) {
+        if (!me.dead && !ch.noclip) {
+          const kx = myKbX * delta;
+          const kz = myKbZ * delta;
+          if (!circleHitsWall(me.x + kx, me.z)) me.x += kx;
+          else myKbX = 0;
+          if (!circleHitsWall(me.x, me.z + kz)) me.z += kz;
+          else myKbZ = 0;
+        }
+        const k = Math.max(0, 1 - delta * 7);
+        myKbX *= k;
+        myKbZ *= k;
+        if (Math.abs(myKbX) + Math.abs(myKbZ) < 0.05) {
+          myKbX = 0;
+          myKbZ = 0;
+        }
+      }
+      // Plus de visee de grenade si l'on ne peut plus la lancer (mort, fin de manche).
+      if (nadeAiming && !canThrowNade()) cancelNadeAim();
+
+      // Vitesse reelle du joueur, en m/s : les douilles en heritent. Un saut de
+      // plus d'une case (reapparition, teleportation) ne compte pas.
+      {
+        const mdx = me.x - lastMeX;
+        const mdz = me.z - lastMeZ;
+        lastMeX = me.x;
+        lastMeZ = me.z;
+        const jump = Math.abs(mdx) > 1 || Math.abs(mdz) > 1 || delta <= 0;
+        myVelX = jump ? 0 : (mdx * DUEL_CELL) / delta;
+        myVelZ = jump ? 0 : (mdz * DUEL_CELL) / delta;
+      }
+
       // Une arme automatique tire tant que le bouton est tenu ; une arme
       // semi-automatique part une seule fois, sur le FRONT de la pression.
       // Passer par le front plutot que par le gestionnaire de clic fait
@@ -3437,8 +4293,9 @@ export default function DuelScene({
           camera.rotation.set(me.pitch + recoilKick, me.yaw, 0);
         }
       }
-      let wantFire = (firing || touchRef.current.firing) && !myEmote && !buildMode;
-      if (canAct && ch.triggerbot && !myEmote && fighterUnderCrosshair()) wantFire = true;
+      // Une grenade en main : on ne tire pas en meme temps.
+      let wantFire = (firing || touchRef.current.firing) && !myEmote && !buildMode && !nadeAiming;
+      if (canAct && ch.triggerbot && !myEmote && !nadeAiming && fighterUnderCrosshair()) wantFire = true;
       if (spec.auto ? wantFire : wantFire && !wasFiring) fire();
       wasFiring = wantFire;
       if (burstLeft > 0 && elapsed >= burstAt) {
@@ -3460,6 +4317,22 @@ export default function DuelScene({
         for (const l of loots) {
           if (l.taken) continue;
           if (Math.hypot(me.x - l.x, me.z - l.z) >= 0.8) continue;
+          if (l.kind === "grenade" || l.kind === "fumigene") {
+            const room = NADE_CARRY_MAX - myNades[l.kind];
+            if (room <= 0) {
+              groundLoot ??= l;
+              continue;
+            }
+            const take = Math.min(room, Math.max(1, l.heal));
+            myNades[l.kind] += take;
+            l.heal -= take;
+            if (l.heal <= 0) l.taken = true;
+            playReload(audio.ctx, audio.master);
+            setPickupToast(`${GRENADES[l.kind].name} +${take}`);
+            window.setTimeout(() => setPickupToast(null), 1400);
+            syncNadeHud();
+            continue;
+          }
           if (l.kind === "soin") {
             if (me.hp >= DUEL_MAX_HP) {
               groundLoot ??= l;
@@ -3489,7 +4362,9 @@ export default function DuelScene({
       const hint = groundLoot
         ? groundLoot.kind === "soin"
           ? "Vie déjà pleine"
-          : `E : échanger contre ${WEAPONS[groundLoot.weapon].name}`
+          : groundLoot.kind === "arme"
+            ? `E : échanger contre ${WEAPONS[groundLoot.weapon].name}`
+            : `${GRENADES[groundLoot.kind].name} : ${NADE_CARRY_MAX} au maximum`
         : null;
       if (hint !== lastHint) {
         lastHint = hint;
@@ -3590,16 +4465,69 @@ export default function DuelScene({
       camera.rotation.y = me.yaw;
       camera.rotation.x = me.pitch + recoilKick;
       camera.rotation.z = moving ? Math.sin(walkPhase) * 0.008 : 0;
+      // Tremblement d'une explosion proche : quelques centimetres et une
+      // fraction de degre, qui s'eteignent en moins d'une demi-seconde.
+      if (shake > 0) {
+        const s = shake * shake;
+        camera.position.x += (Math.random() - 0.5) * 0.14 * s;
+        camera.position.y += (Math.random() - 0.5) * 0.1 * s;
+        camera.position.z += (Math.random() - 0.5) * 0.14 * s;
+        camera.rotation.x += (Math.random() - 0.5) * 0.035 * s;
+        camera.rotation.z += (Math.random() - 0.5) * 0.05 * s;
+        shake = Math.max(0, shake - delta * 2.4);
+      }
 
       const targetFov = isZoomed ? (spec.zoomFov ?? ADS_FOV) : BASE_FOV;
       if (Math.abs(camera.fov - targetFov) > 0.2) {
         camera.fov += (targetFov - camera.fov) * Math.min(1, delta * 14);
         camera.updateProjectionMatrix();
       }
+      // Les points de l'arme tenue sont convertis vers le monde avec cette matrice.
+      camera.updateMatrixWorld();
 
-      const model = currentModel();
+      // --- Camera de l'arme tenue ---
+      // Meme champ que la vue (l'arme garde la taille qu'on lui connait), mais
+      // jamais plus serre que la visee sans lunette : dans une lunette, elle
+      // grossissait d'un coup avant de disparaitre.
+      const vmFov = Math.max(camera.fov, ADS_FOV);
+      if (Math.abs(vmCamera.fov - vmFov) > 0.01) {
+        vmCamera.fov = vmFov;
+        vmCamera.updateProjectionMatrix();
+      }
+      vmInvQ.copy(camera.quaternion).invert();
+      vmHemi.position.set(0, 1, 0).applyQuaternion(vmInvQ);
+      vmKey.position.copy(keyDir).applyQuaternion(vmInvQ);
+      vmFill.position.copy(fillDir).applyQuaternion(vmInvQ);
+
+      // --- Changement d'arme : l'ancienne descend, puis la nouvelle monte ---
+      const sinceSwap = elapsed - swapStart;
+      const lowering = swapFrom !== null && sinceSwap < SWAP_DOWN;
+      const shown: WeaponId = lowering && swapFrom ? swapFrom : me.weapon;
+      if (shown !== shownWeapon) {
+        weaponModels[shownWeapon].group.visible = false;
+        shownWeapon = shown;
+      }
+      let swapK = 0;
+      if (lowering) {
+        const u = sinceSwap / SWAP_DOWN;
+        swapK = u * u;
+      } else if (sinceSwap < SWAP_SECONDS) {
+        const u = THREE.MathUtils.clamp((sinceSwap - SWAP_DOWN) / (SWAP_SECONDS - SWAP_DOWN), 0, 1);
+        swapK = (1 - u) * (1 - u) * (1 - u);
+      }
+      // Grenade en main : l'arme descend comme pour un changement d'arme, et
+      // remonte juste apres le lancer.
+      const nadeWanted = nadeAiming !== null || elapsed - lastThrowAt < 0.3;
+      nadeLower += ((nadeWanted ? 1 : 0) - nadeLower) * Math.min(1, delta * 14);
+      if (nadeLower > swapK) swapK = nadeLower;
+      const isCur = shown === me.weapon;
+
+      const model = weaponModels[shown];
       // En visee, l'arme vient au centre de l'ecran ; en sprint elle s'abaisse.
-      aimBlend += ((isZoomed ? 1 : 0) - aimBlend) * Math.min(1, delta * 14);
+      // Pendant un rechargement (hors lunette), elle reste a la hanche pour
+      // qu'on voie le geste.
+      const aimWanted = isZoomed && !(me.reloadUntil > 0 && !spec.zoomFov);
+      aimBlend += ((aimWanted ? 1 : 0) - aimBlend) * Math.min(1, delta * 14);
       const aimLerp = aimBlend;
       const doux = Math.min(1, delta * 8);
       bobAmp += ((moving ? (sprinting ? 1.6 : 1) : 0) - bobAmp) * doux;
@@ -3614,33 +4542,100 @@ export default function DuelScene({
       swayY += (THREE.MathUtils.clamp(-dPitch * 1.2, -0.04, 0.04) - swayY) * Math.min(1, delta * 10);
       // En visee, presque rien ne bouge : le point rouge doit rester au centre.
       const libre = 1 - aimLerp * 0.85;
+      const shotKick = isCur ? recoil : 0;
       model.group.position.set(
         THREE.MathUtils.lerp(GUN_BASE.x, 0, aimLerp) + (Math.sin(walkPhase) * 0.012 * bobAmp + swayX) * libre,
         THREE.MathUtils.lerp(GUN_BASE.y, -0.12, aimLerp) +
           (Math.abs(Math.cos(walkPhase)) * 0.012 * bobAmp + swayY) * libre -
-          recoil * 0.02 -
-          sprintBlend * 0.09,
-        THREE.MathUtils.lerp(GUN_BASE.z, -0.5, aimLerp) + recoil * 0.07,
+          shotKick * 0.02 -
+          sprintBlend * 0.09 -
+          swapK * 0.28,
+        THREE.MathUtils.lerp(GUN_BASE.z, -0.5, aimLerp) + shotKick * 0.07,
       );
-      model.group.rotation.x = recoil * 0.28 + sprintBlend * 0.38 + swayY * 1.5 * libre;
+      model.group.rotation.x = shotKick * 0.28 + sprintBlend * 0.38 + swayY * 1.5 * libre - swapK * 0.55;
       model.group.rotation.y = THREE.MathUtils.lerp(-0.06, 0, aimLerp) + swayX * 1.5 * libre;
-      model.group.rotation.z = sprintBlend * 0.3 + Math.sin(walkPhase) * 0.012 * bobAmp * libre;
+      model.group.rotation.z = sprintBlend * 0.3 + Math.sin(walkPhase) * 0.012 * bobAmp * libre + swapK * 0.15;
       // Dans la lunette, l'arme disparait : sinon sa hausse et son canon
       // bouchaient le centre de la vue, la ou l'on vise.
       model.group.visible = !me.dead && me.alive && !(isZoomed && spec.zoomFov && aimBlend > 0.55) && !buildMode;
-      // Pieces mobiles et mains : culasse, pompe, verrou, chargeur qui tombe.
-      const reloadProgress =
-        me.reloadUntil > 0
-          ? THREE.MathUtils.clamp(1 - (me.reloadUntil - elapsed) / spec.reloadSeconds, 0, 1)
-          : 0;
-      model.update({
-        time: elapsed,
-        recoil,
-        reload: reloadProgress,
-        aim: aimLerp,
-        sprint: sprinting ? 1 : 0,
-      });
-      if (elapsed > muzzleUntil) model.flash.visible = false;
+      // Pieces mobiles et mains : culasse, pompe, verrou, chargeur, barillet.
+      vmAnim.time = elapsed;
+      vmAnim.recoil = shotKick;
+      vmAnim.reload = isCur ? reloadP : 0;
+      vmAnim.aim = aimLerp;
+      vmAnim.sprint = sprintBlend;
+      vmAnim.cycle = isCur ? cycleNow : 1;
+      vmAnim.empty = isCur ? me.mag === 0 && !spec.melee : swapFromEmpty;
+      vmAnim.shells = reloadShells;
+      model.update(vmAnim);
+
+      // --- Grenade en main : elle monte en bas a gauche, puis part en avant ---
+      const throwT = (elapsed - lastThrowAt) / 0.22;
+      const showHeld = !me.dead && me.alive && !myEmote && (nadeAiming !== null || throwT < 1);
+      heldNade.visible = showHeld;
+      if (showHeld) {
+        heldModels.grenade.visible = nadeAiming === "grenade";
+        heldModels.fumigene.visible = nadeAiming === "fumigene";
+        const bob = Math.abs(Math.cos(walkPhase)) * 0.01 * bobAmp;
+        if (nadeAiming) {
+          // Le bras monte a mesure que l'arme descend, et respire un peu.
+          const rise = 1 - nadeLower;
+          heldNade.position.set(-0.19, -0.2 - rise * 0.22 + bob + Math.sin(elapsed * 2.6) * 0.004, -0.42);
+          heldNade.rotation.set(0.25, 0.45, 0.12);
+        } else {
+          // Le lancer : la main part vers l'avant et vers le haut, puis sort du champ.
+          const t = Math.min(1, throwT);
+          heldNade.position.set(-0.19 + t * 0.18, -0.2 + t * 0.16 - t * t * 0.3, -0.42 - t * 0.4);
+          heldNade.rotation.set(0.25 - t * 1.3, 0.45, 0.12);
+        }
+      }
+
+      // --- Lueur du tir : les murs proches et l'arme elle-meme, deux ou trois images ---
+      if (muzzleGlow > 0) {
+        if (muzzleLight) muzzleLight.intensity = quality === "performance" ? 0 : MUZZLE_LIGHT_POWER * glowPower * muzzleGlow;
+        model.flash.getWorldPosition(vmFlashLight.position);
+        vmFlashLight.intensity = VM_FLASH_POWER * glowPower * muzzleGlow;
+        muzzleGlow = Math.max(0, muzzleGlow - delta * 22);
+      } else {
+        if (muzzleLight) muzzleLight.intensity = 0;
+        vmFlashLight.intensity = 0;
+      }
+      // Lueur d'une grenade : la lumiere du tir, pretee un instant et portee
+      // plus loin (aucune lumiere en plus dans la scene).
+      if (blastGlow > 0) {
+        if (muzzleLight) {
+          muzzleLight.position.copy(blastAt);
+          muzzleLight.distance = 18;
+          muzzleLight.intensity = 60 * blastGlow * blastGlow;
+        }
+        blastGlow = Math.max(0, blastGlow - delta * 4);
+        if (blastGlow === 0 && muzzleLight) {
+          muzzleLight.distance = 7;
+          muzzleLight.intensity = 0;
+        }
+      }
+
+      // --- Fumee : apres une rafale ou un gros coup, un filet sort du canon ---
+      heat = Math.max(0, heat - delta * 0.55);
+      if (
+        heat > 0.25 &&
+        elapsed - lastShotAt > 0.14 &&
+        isCur &&
+        model.group.visible &&
+        !(isZoomed && spec.zoomFov)
+      ) {
+        smokeAcc += delta * heat * 9;
+        if (smokeAcc >= 1) {
+          model.flash.getWorldPosition(vmPoint);
+          viewToWorld(vmPoint);
+          while (smokeAcc >= 1) {
+            smokeAcc -= 1;
+            effects.smoke(vmPoint.x, vmPoint.y, vmPoint.z);
+          }
+        }
+      } else {
+        smokeAcc = 0;
+      }
 
       // --- Laser : du canon jusqu'au premier mur (ou au sol) ---
       const wantLaser = optionsRef.current.laser && !me.dead && me.alive && !isZoomed;
@@ -3654,12 +4649,13 @@ export default function DuelScene({
         if (laserDir.y < -1e-4) t = Math.min(t, -eyeY / (laserDir.y * DUEL_CELL));
         if (laserDir.y > 1e-4) t = Math.min(t, (DUEL_WALL_HEIGHT - eyeY) / (laserDir.y * DUEL_CELL));
         const reach = Math.max(0.4, t * DUEL_CELL - 0.02);
-        model.flash.getWorldPosition(laserFrom);
+        // L'arme vit dans le repere de la vue : son canon est ramene dans le monde.
+        model.flash.getWorldPosition(laserFrom).applyMatrix4(camera.matrixWorld);
         laserTo.copy(camera.position).addScaledVector(laserDir, reach);
         const length = laserFrom.distanceTo(laserTo);
         laserBeam.position.copy(laserFrom).add(laserTo).multiplyScalar(0.5);
         laserBeam.scale.set(1, Math.max(0.01, length), 1);
-        laserBeam.quaternion.setFromUnitVectors(laserUp, laserDir.clone().normalize());
+        laserBeam.quaternion.setFromUnitVectors(laserUp, laserDir);
         laserDot.position.copy(laserTo);
         // Le point garde a peu pres la meme taille a l'ecran, de pres comme de loin.
         laserDot.scale.setScalar(0.6 + length * 0.12);
@@ -3819,6 +4815,14 @@ export default function DuelScene({
 
       effects.update(delta);
 
+      // --- Grenades en vol, nuages, et l'arc de visee (apres la camera de cette image) ---
+      grenades.update(delta);
+      smokeClouds.update(delta, camera);
+      if (nadeAiming && !myEmote) {
+        myThrow(throwBody);
+        aimArc.show(throwBody, nadeWorld, GRENADES[nadeAiming].fuse, nadeAiming);
+      }
+
       // ---------------------------------------------------- envoi reseau
       if (!bot && elapsed >= nextNetAt) {
         nextNetAt = elapsed + 1 / DUEL_NET_HZ;
@@ -3852,12 +4856,19 @@ export default function DuelScene({
         link.current.send("ping", { t: lastPingSentAt });
       }
       hitMarkerLevel = Math.max(0, hitMarkerLevel - delta * 3.4);
+      flashLevel = Math.max(0, flashLevel - delta * 2.4);
       damageLevel = Math.max(0, damageLevel - delta * 1.5);
       uiTimer += delta;
       if (uiTimer > 0.05) {
         uiTimer = 0;
         setHitMarker(hitMarkerLevel);
         setDamageFlash(damageLevel);
+        // Arrondis au vingtieme : React ne redessine que si ca change vraiment.
+        setBlastFlash(Math.round(flashLevel * 20) / 20);
+        setSmokeVeil(
+          Math.round(smokeClouds.density(camera.position.x, camera.position.y, camera.position.z) * 20) / 20,
+        );
+        setNadeWarn(hostileNadeNear());
         // Ouverture du reticule : elle suit la gerbe reelle de l'arme.
         setSpread(
           Math.min(1, hitMarkerLevel * 0 + recoil * 0.7 + (movingNow ? 0.3 : 0) + (sprinting ? 0.35 : 0)),
@@ -3923,7 +4934,7 @@ export default function DuelScene({
         }
       }
 
-      renderer.render(scene, camera);
+      renderFrame();
     }
     syncWeaponUi();
     const intervalId = window.setInterval(tick, 16);
@@ -3933,6 +4944,8 @@ export default function DuelScene({
       if (!container) return;
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
+      vmCamera.aspect = camera.aspect;
+      vmCamera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
     }
     window.addEventListener("resize", handleResize);
@@ -3973,6 +4986,18 @@ export default function DuelScene({
       laserMat.dispose();
       laserDotGeo.dispose();
       laserDotMat.dispose();
+      muzzleLight?.dispose();
+      vmHemi.dispose();
+      vmKey.dispose();
+      vmFill.dispose();
+      vmFlashLight.dispose();
+      grenades.dispose();
+      smokeClouds.dispose();
+      aimArc.dispose();
+      gloveGeo.dispose();
+      gloveMat.dispose();
+      sleeveGeo.dispose();
+      sleeveMat.dispose();
       effects.dispose();
       floorGeo.dispose();
       floorMat.dispose();
@@ -4028,6 +5053,21 @@ export default function DuelScene({
           ).toFixed(2)}) 100%)`,
         }}
       />
+
+      {/* Dans un nuage de fumigene : on n'y voit presque plus rien */}
+      {smokeVeil > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: island ? `rgba(214,219,223,${(smokeVeil * 0.94).toFixed(2)})` : `rgba(150,156,162,${(smokeVeil * 0.94).toFixed(2)})` }}
+        />
+      )}
+      {/* Eclair d'une grenade qui explose en face */}
+      {blastFlash > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: `radial-gradient(circle at 50% 50%, rgba(255,244,214,${(blastFlash * 0.9).toFixed(2)}) 0%, rgba(255,190,110,${(blastFlash * 0.6).toFixed(2)}) 100%)` }}
+        />
+      )}
 
       {/* Hors zone : tout l'ecran vire au bleu froid, on ne peut pas l'ignorer. */}
       {outsideZone && (
@@ -4143,6 +5183,7 @@ export default function DuelScene({
       <Game3DSettings
         onLayout={(l) => {
           if (layoutRef.current) layoutRef.current.current = l;
+          setNadeKey(l === "qwerty" ? "Q" : "A");
         }}
         onSensitivity={(s) => {
           sensitivityRef.current = s;
@@ -4311,6 +5352,33 @@ export default function DuelScene({
 
       {/* Arme + munitions, et l'inventaire : touches 1 a 3 ou molette */}
       <div className="pointer-events-none absolute bottom-16 right-4 flex flex-col items-end gap-1.5 text-right sm:bottom-4">
+        {/* Grenades : combien il en reste, et la touche pour les lancer */}
+        {nadesInMode && (
+          <div className="flex gap-1">
+            {(["grenade", "fumigene"] as const).map((k) => {
+              const count = nadeHud[k];
+              const held = nadeHud.aiming === k;
+              return (
+                <div
+                  key={k}
+                  className={`flex h-8 items-center gap-1.5 rounded-md px-2 ring-1 ${
+                    held ? "bg-lime-500/30 ring-lime-300" : "bg-black/60 ring-white/10"
+                  } ${count === 0 && !held ? "opacity-40" : ""}`}
+                >
+                  <span
+                    className={`h-3.5 w-2.5 rounded-[3px] ${k === "grenade" ? "bg-[#6b7b34]" : "bg-[#9aa1a7]"}`}
+                    style={{ boxShadow: "inset 0 2px 0 rgba(0,0,0,0.35)" }}
+                  />
+                  <span className="text-[11px] font-black uppercase leading-none text-white">{GRENADES[k].name}</span>
+                  <span className="font-mono text-sm font-black leading-none text-lime-200">{count}</span>
+                  <span className="rounded bg-white/10 px-1 font-mono text-[9px] font-bold leading-4 text-zinc-300">
+                    {k === "grenade" ? nadeKey : "X"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {!mode.gunGame && (inventory.slots.length > 0 || island) && (
           <div className="flex gap-1">
             {Array.from({ length: 3 }).map((_, i) => {
@@ -4386,6 +5454,40 @@ export default function DuelScene({
       {pickupHint && (
         <div className="pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-lg bg-black/75 px-4 py-2 text-sm font-bold text-yellow-200 ring-1 ring-yellow-400/40">
           {pickupHint}
+        </div>
+      )}
+
+      {/* Series : eliminations rapprochees et serie sans mourir */}
+      {streakBanner && (
+        <div
+          key={streakBanner.id}
+          className="pointer-events-none absolute inset-x-0 top-[22%] flex flex-col items-center gap-1"
+          style={{ animation: "horror-act-in 2.3s ease-out forwards" }}
+        >
+          {streakBanner.multi && (
+            <p className="rounded-xl bg-black/70 px-6 py-2 text-3xl font-black uppercase italic tracking-wider text-yellow-300 drop-shadow-lg">
+              {streakBanner.multi}
+            </p>
+          )}
+          {streakBanner.streak && (
+            <p className="rounded-full bg-orange-600/85 px-4 py-1 text-sm font-black uppercase tracking-[0.2em] text-white ring-1 ring-orange-300/60">
+              🔥 {streakBanner.streak}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Grenade ennemie tout pres */}
+      {nadeWarn && (
+        <div className="pointer-events-none absolute left-1/2 top-[40%] -translate-x-1/2 rounded-full bg-red-600/85 px-3 py-1 text-xs font-black uppercase tracking-wider text-white ring-1 ring-red-300/70 animate-pulse">
+          Grenade !
+        </div>
+      )}
+
+      {/* Grenade en main : comment la lancer */}
+      {nadeHud.aiming && (
+        <div className="pointer-events-none absolute left-1/2 top-[58%] -translate-x-1/2 whitespace-nowrap rounded-lg bg-black/70 px-3 py-1.5 text-xs font-bold text-lime-200 ring-1 ring-lime-400/40">
+          {GRENADES[nadeHud.aiming].name} : relâche pour lancer{touchDevice ? "" : " · clic droit : annuler"}
         </div>
       )}
 
@@ -4601,6 +5703,20 @@ export default function DuelScene({
           >
             ⊕
           </button>
+          {nadesInMode && (
+            <button
+              type="button"
+              aria-label="Grenade : appuyer pour viser, relâcher pour lancer"
+              onPointerDown={() => sceneApiRef.current?.nadeDown()}
+              onPointerUp={() => sceneApiRef.current?.nadeUp()}
+              onPointerCancel={() => sceneApiRef.current?.nadeUp()}
+              className={`absolute bottom-[18.5rem] right-8 size-14 touch-none rounded-full border border-lime-300/40 bg-black/60 text-lg font-bold text-white active:scale-95 sm:bottom-[12rem] sm:right-7 ${
+                nadeHud.grenade + nadeHud.fumigene === 0 ? "opacity-40" : ""
+              }`}
+            >
+              💣
+            </button>
+          )}
         </>
       )}
 
@@ -4610,6 +5726,7 @@ export default function DuelScene({
           <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
             R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
+            {nadesInMode ? ` · ${nadeKey} ou clic molette : grenade · X : fumigène (maintenir pour viser, relâcher pour lancer)` : ""}
             {mode.build ? " · F : construire" : ""} · Échap : libérer la souris
           </span>
         </div>

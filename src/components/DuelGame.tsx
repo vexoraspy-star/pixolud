@@ -33,6 +33,7 @@ import {
   packPrice,
   saveProfile,
   shopItem,
+  STREAK_COINS_CAP,
   type CamoId,
   type DuelProfile,
   type ShopPack,
@@ -216,6 +217,8 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
     training?: TrainingResult;
     record?: boolean;
     cheated?: boolean;
+    /** Part des pieces venue des series (deja comprise dans `coins`). */
+    streakCoins?: number;
   } | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [options, setOptions] = useState<DuelOptions>(DEFAULT_DUEL_OPTIONS);
@@ -413,6 +416,10 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
         .on("broadcast", { event: "shot" }, ({ payload }: { payload: Record<string, unknown> }) => {
           link.current.inbox.push({ event: "shot", payload });
         })
+        // Grenade lancee par l'autre : on la simule ici pour la voir (les degats, eux, arrivent par « hit »).
+        .on("broadcast", { event: "nade" }, ({ payload }: { payload: Record<string, unknown> }) => {
+          link.current.inbox.push({ event: "nade", payload });
+        })
         // Mesure du ping : l'un envoie son horodatage, l'autre le renvoie tel quel.
         .on("broadcast", { event: "ping" }, ({ payload }: { payload: Record<string, unknown> }) => {
           link.current.inbox.push({ event: "ping", payload });
@@ -518,11 +525,13 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
           // rapporte un peu d'experience, pas de pieces.
           const saved = loadProfile();
           const base = matchReward(win, mine);
+          // Prime des series : modeste et plafonnee (voir duelProfile).
+          const streakBonus = extra?.cheated || extra?.training ? 0 : Math.min(STREAK_COINS_CAP, Math.max(0, extra?.streakCoins ?? 0));
           const reward = extra?.cheated
             ? { coins: 0, xp: 0 }
             : extra?.training
               ? { coins: 0, xp: Math.min(60, 10 + extra.training.kills * 2) }
-              : base;
+              : { coins: base.coins + streakBonus, xp: base.xp };
           const before = levelInfo(saved.xp).level;
           const next = { ...saved, coins: saved.coins + reward.coins, xp: saved.xp + reward.xp };
           changeProfile(next);
@@ -542,6 +551,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
             training: extra?.training,
             record,
             cheated: extra?.cheated,
+            streakCoins: streakBonus,
           });
           setPhase("ended");
         }}
@@ -640,6 +650,9 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
             {result.coins > 0 && (
               <span className="rounded-full bg-yellow-400/15 px-4 py-1.5 font-black text-yellow-300 ring-1 ring-yellow-400/40">
                 +{result.coins} 🪙
+                {(result.streakCoins ?? 0) > 0 && (
+                  <span className="ml-1.5 text-xs font-bold text-orange-300">dont +{result.streakCoins} de séries 🔥</span>
+                )}
               </span>
             )}
             <span className="rounded-full bg-cyan-400/15 px-4 py-1.5 font-black text-cyan-200 ring-1 ring-cyan-400/40">+{result.xp} XP</span>

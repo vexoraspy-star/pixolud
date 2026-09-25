@@ -90,6 +90,12 @@ export interface DuelMode {
   build?: boolean;
   /** Armes de depart, a la place de l'arme principale et du pistolet. */
   loadout?: WeaponId[];
+  /**
+   * Grenades de depart (et a chaque reapparition ou manche), pour le joueur
+   * comme pour les bots. Absent : aucune au depart. En battle royale, elles
+   * se ramassent au sol avec le reste du butin.
+   */
+  grenades?: { grenade: number; fumigene: number };
 }
 
 export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
@@ -108,6 +114,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     shrinkingZone: false,
     loot: false,
     online: true,
+    grenades: { grenade: 1, fumigene: 1 },
   },
   deathmatch: {
     id: "deathmatch",
@@ -124,6 +131,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     shrinkingZone: false,
     loot: true,
     online: false,
+    grenades: { grenade: 2, fumigene: 1 },
   },
   armement: {
     id: "armement",
@@ -140,6 +148,9 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     shrinkingZone: false,
     loot: false,
     online: false,
+    // Pas de grenade explosive : une elimination doit se faire avec l'arme
+    // du moment, c'est tout le principe de la course.
+    grenades: { grenade: 0, fumigene: 1 },
   },
   zone: {
     id: "zone",
@@ -182,6 +193,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
       buySeconds: 10,
       roundEndSeconds: 2.4,
     },
+    grenades: { grenade: 1, fumigene: 1 },
   },
   construction: {
     id: "construction",
@@ -201,6 +213,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     loot: false,
     online: false,
     build: true,
+    grenades: { grenade: 2, fumigene: 1 },
   },
   entrainement: {
     id: "entrainement",

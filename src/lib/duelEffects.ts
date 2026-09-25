@@ -9,7 +9,7 @@ import * as THREE from "three";
  * chaque impact a sa matiere : etincelles orange sur le beton, gerbe rouge
  * sur un corps.
  *
- * Tout est mutualise : quatre appels de rendu au total, quel que soit le
+ * Tout est mutualise : cinq appels de rendu au total, quel que soit le
  * nombre de balles en l'air. Un systeme par effet en aurait coute des
  * dizaines.
  */
@@ -18,6 +18,41 @@ const SPARK_COUNT = 260;
 const DEBRIS_COUNT = 200;
 const CASING_COUNT = 24;
 const TRACER_COUNT = 16;
+const SMOKE_COUNT = 48;
+/** Grosses volutes sombres d'une explosion de grenade. */
+const BILLOW_COUNT = 40;
+
+/** Allure d'une douille : laiton court, laiton long (fusils), ou cartouche de chasse rouge. */
+export type CasingKind = "laiton" | "long" | "coque";
+
+const CASING_LOOK: Record<CasingKind, { color: number; rad: number; len: number }> = {
+  laiton: { color: 0xc9a227, rad: 1, len: 1 },
+  long: { color: 0xd1a93c, rad: 0.95, len: 1.6 },
+  coque: { color: 0xa82a20, rad: 1.3, len: 1.25 },
+};
+
+export interface DuelEffectsOptions {
+  /** Premier rebond d'une douille au sol : c'est la que la scene joue le tintement. */
+  onCasingBounce?: (kind: CasingKind) => void;
+}
+
+/** Bouffee de fumee : un disque doux, dessine au canvas. */
+function makeSmokeTexture(): THREE.CanvasTexture {
+  const S = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext("2d")!;
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.9)");
+  g.addColorStop(0.45, "rgba(255,255,255,0.45)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 interface Particle {
   vx: number;
@@ -50,20 +85,27 @@ export interface DuelEffects {
   sparks(x: number, y: number, z: number, count?: number, tint?: [number, number, number]): void;
   /** Gerbe de sang : uniquement sur un corps touche. */
   blood(x: number, y: number, z: number, count?: number): void;
-  /** Douille ejectee sur le cote, qui rebondit au sol. */
-  casing(x: number, y: number, z: number, yaw: number): void;
+  /**
+   * Douille ejectee de la fenetre de l'arme, avec sa vitesse de depart (deja
+   * additionnee de celle du tireur) ; elle rebondit au sol puis s'efface.
+   */
+  casing(x: number, y: number, z: number, vx: number, vy: number, vz: number, kind?: CasingKind): void;
+  /** Filet de fumee qui s'echappe du canon apres une rafale. */
+  smoke(x: number, y: number, z: number): void;
   /** Trait de balle, efface tout seul. */
   tracer(from: THREE.Vector3, to: THREE.Vector3, color: number, thin?: boolean): void;
   /** Boule de feu de roquette : elle gonfle, palit et disparait. */
   explosion(x: number, y: number, z: number, radius: number): void;
   /** Eclats d'un panneau de construction brise. */
   shatter(x: number, y: number, z: number): void;
+  /** Grenade : boule de feu, eclats, terre projetee et volutes de fumee noire. */
+  grenadeBlast(x: number, y: number, z: number): void;
   update(delta: number): void;
   dispose(): void;
 }
 
-export function createDuelEffects(scene: THREE.Scene): DuelEffects {
-  const owned: (THREE.BufferGeometry | THREE.Material)[] = [];
+export function createDuelEffects(scene: THREE.Scene, options: DuelEffectsOptions = {}): DuelEffects {
+  const owned: { dispose(): void }[] = [];
 
   // --- Etincelles : melange additif, elles brillent dans la penombre ---
   const sparkPool = makePool(SPARK_COUNT);
@@ -111,13 +153,16 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
   for (let i = 0; i < SPARK_COUNT; i++) sparkPos[i * 3 + 1] = BURIED;
   for (let i = 0; i < DEBRIS_COUNT; i++) debrisPos[i * 3 + 1] = BURIED;
 
-  // --- Douilles : petits cylindres laiton qui tombent et roulent ---
+  // --- Douilles : petits cylindres (laiton, ou rouges pour le fusil a pompe)
+  // qui tombent et roulent. La couleur passe par instanceColor : un seul
+  // appel de rendu pour toutes.
   const casingGeo = new THREE.CylinderGeometry(0.017, 0.017, 0.055, 5);
-  const casingMat = new THREE.MeshLambertMaterial({ color: 0xc9a227 });
+  const casingMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   owned.push(casingGeo, casingMat);
   const casingMesh = new THREE.InstancedMesh(casingGeo, casingMat, CASING_COUNT);
   casingMesh.frustumCulled = false;
   casingMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  casingMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CASING_COUNT * 3).fill(1), 3);
   scene.add(casingMesh);
   const casings = Array.from({ length: CASING_COUNT }, () => ({
     x: 0,
@@ -129,8 +174,73 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
     spin: 0,
     rot: 0,
     life: 0,
+    kind: "laiton" as CasingKind,
+    /** Le premier contact avec le sol a deja sonne. */
+    bounced: false,
   }));
   let casingCursor = 0;
+
+  // --- Fumee du canon : des disques doux, gris, qui montent et palissent ---
+  // Couleur a quatre composantes : l'alpha de chaque bouffee baisse seul.
+  const smokePos = new Float32Array(SMOKE_COUNT * 3);
+  const smokeCol = new Float32Array(SMOKE_COUNT * 4);
+  const smokeGeo = new THREE.BufferGeometry();
+  smokeGeo.setAttribute("position", new THREE.BufferAttribute(smokePos, 3));
+  smokeGeo.setAttribute("color", new THREE.BufferAttribute(smokeCol, 4));
+  const smokeTex = makeSmokeTexture();
+  const smokeMat = new THREE.PointsMaterial({
+    size: 0.13,
+    map: smokeTex,
+    sizeAttenuation: true,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+  });
+  owned.push(smokeGeo, smokeMat, smokeTex);
+  const smokePoints = new THREE.Points(smokeGeo, smokeMat);
+  smokePoints.frustumCulled = false;
+  scene.add(smokePoints);
+  const smokes = Array.from({ length: SMOKE_COUNT }, () => ({
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    life: 0,
+    maxLife: 1,
+    alpha: 0,
+    gray: 0.8,
+  }));
+  let smokeCursor = 0;
+  for (let i = 0; i < SMOKE_COUNT; i++) smokePos[i * 3 + 1] = BURIED;
+
+  // --- Volutes d'explosion : memes disques doux, en beaucoup plus gros ---
+  const billowPos = new Float32Array(BILLOW_COUNT * 3);
+  const billowCol = new Float32Array(BILLOW_COUNT * 4);
+  const billowGeo = new THREE.BufferGeometry();
+  billowGeo.setAttribute("position", new THREE.BufferAttribute(billowPos, 3));
+  billowGeo.setAttribute("color", new THREE.BufferAttribute(billowCol, 4));
+  const billowMat = new THREE.PointsMaterial({
+    size: 1.7,
+    map: smokeTex,
+    sizeAttenuation: true,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+  });
+  owned.push(billowGeo, billowMat);
+  const billowPoints = new THREE.Points(billowGeo, billowMat);
+  billowPoints.frustumCulled = false;
+  scene.add(billowPoints);
+  const billows = Array.from({ length: BILLOW_COUNT }, () => ({
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    life: 0,
+    maxLife: 1,
+    alpha: 0,
+    gray: 0.3,
+  }));
+  let billowCursor = 0;
+  for (let i = 0; i < BILLOW_COUNT; i++) billowPos[i * 3 + 1] = BURIED;
 
   // --- Traceurs : une seule boite instanciee, orientee par balle ---
   const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -293,20 +403,39 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
       // entre « une tache rouge » et « quelque chose a ete arrache ».
       emit(debrisPool, debrisPos, debrisCol, x, y, z, Math.ceil(count / 3), 1.3, 11, 0.9, 0.34, 0.03, 0.04);
     },
-    casing(x, y, z, yaw) {
-      const c = casings[casingCursor];
+    casing(x, y, z, vx, vy, vz, kind = "laiton") {
+      const i = casingCursor;
+      const c = casings[i];
       casingCursor = (casingCursor + 1) % CASING_COUNT;
       c.x = x;
       c.y = y;
       c.z = z;
-      // Ejectee vers la droite de l'arme, avec un peu de hauteur.
-      const right = yaw - Math.PI / 2;
-      c.vx = Math.sin(right) * (1.5 + Math.random() * 0.9);
-      c.vz = Math.cos(right) * (1.5 + Math.random() * 0.9);
-      c.vy = 1.6 + Math.random() * 0.8;
+      c.vx = vx;
+      c.vy = vy;
+      c.vz = vz;
       c.spin = 12 + Math.random() * 14;
       c.rot = Math.random() * Math.PI;
       c.life = 2.4;
+      c.kind = kind;
+      c.bounced = false;
+      tmpColor.setHex(CASING_LOOK[kind].color);
+      casingMesh.instanceColor!.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
+      casingMesh.instanceColor!.needsUpdate = true;
+    },
+    smoke(x, y, z) {
+      const i = smokeCursor;
+      const s = smokes[i];
+      smokeCursor = (smokeCursor + 1) % SMOKE_COUNT;
+      smokePos[i * 3] = x + (Math.random() - 0.5) * 0.03;
+      smokePos[i * 3 + 1] = y;
+      smokePos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.03;
+      s.vx = (Math.random() - 0.5) * 0.16;
+      s.vz = (Math.random() - 0.5) * 0.16;
+      s.vy = 0.18 + Math.random() * 0.14;
+      s.maxLife = 0.9 + Math.random() * 0.45;
+      s.life = s.maxLife;
+      s.alpha = 0.2 + Math.random() * 0.1;
+      s.gray = 0.74 + Math.random() * 0.12;
     },
     tracer(from, to, color, thin = false) {
       const i = tracerCursor;
@@ -341,6 +470,36 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
       emit(debrisPool, debrisPos, debrisCol, x, y, z, 34, 3.2, 9, 0.9, 0.62, 0.46, 0.28);
       emit(sparkPool, sparkPos, sparkCol, x, y, z, 12, 3, 6, 0.3, 0.9, 0.8, 0.6);
     },
+    grenadeBlast(x, y, z) {
+      const b = blasts[blastCursor];
+      blastCursor = (blastCursor + 1) % BLAST_COUNT;
+      b.mesh.position.set(x, y, z);
+      b.radius = 2.4;
+      b.life = b.maxLife;
+      b.mesh.visible = true;
+      // Eclats brulants, puis metal sombre et terre qui retombent.
+      emit(sparkPool, sparkPos, sparkCol, x, y, z, 90, 11, 7, 0.5, 1, 0.66, 0.26);
+      emit(debrisPool, debrisPos, debrisCol, x, y, z, 50, 8, 12, 1, 0.2, 0.19, 0.18);
+      emit(debrisPool, debrisPos, debrisCol, x, y, z, 30, 4, 10, 1.3, 0.36, 0.3, 0.22);
+      // Volutes noires qui montent et s'etalent.
+      for (let n = 0; n < 12; n++) {
+        const i = billowCursor;
+        const s = billows[i];
+        billowCursor = (billowCursor + 1) % BILLOW_COUNT;
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * 0.9;
+        billowPos[i * 3] = x + Math.cos(a) * r;
+        billowPos[i * 3 + 1] = y + Math.random() * 0.8;
+        billowPos[i * 3 + 2] = z + Math.sin(a) * r;
+        s.vx = Math.cos(a) * (0.6 + Math.random() * 1.2);
+        s.vz = Math.sin(a) * (0.6 + Math.random() * 1.2);
+        s.vy = 0.5 + Math.random() * 0.9;
+        s.maxLife = 1.6 + Math.random() * 1.2;
+        s.life = s.maxLife;
+        s.alpha = 0.55 + Math.random() * 0.2;
+        s.gray = 0.18 + Math.random() * 0.14;
+      }
+    },
     update(delta) {
       for (const b of blasts) {
         if (b.life <= 0) continue;
@@ -372,6 +531,11 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
         c.z += c.vz * delta;
         c.rot += c.spin * delta;
         if (c.y < 0.02) {
+          // Le premier vrai choc contre le sol fait tinter la douille.
+          if (!c.bounced && c.vy < -0.6) {
+            c.bounced = true;
+            options.onCasingBounce?.(c.kind);
+          }
           c.y = 0.02;
           c.vy *= -0.3;
           c.vx *= 0.55;
@@ -381,12 +545,77 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
         tmpPos.set(c.x, c.y, c.z);
         tmpEuler.set(c.rot, c.rot * 0.7, 0);
         tmpQuat.setFromEuler(tmpEuler);
-        tmpScale.set(1, 1, 1);
+        // Elle retrecit ses derniers instants au lieu de disparaitre d'un coup.
+        const look = CASING_LOOK[c.kind];
+        const fade = Math.min(1, c.life / 0.25);
+        tmpScale.set(look.rad * fade, look.len * fade, look.rad * fade);
         scratch.compose(tmpPos, tmpQuat, tmpScale);
         casingMesh.setMatrixAt(i, c.life > 0 ? scratch : hidden);
         casingsDirty = true;
       }
       if (casingsDirty) casingMesh.instanceMatrix.needsUpdate = true;
+
+      let smokeDirty = false;
+      for (let i = 0; i < SMOKE_COUNT; i++) {
+        const s = smokes[i];
+        if (s.life <= 0) continue;
+        smokeDirty = true;
+        s.life -= delta;
+        if (s.life <= 0) {
+          smokePos[i * 3 + 1] = BURIED;
+          smokeCol[i * 4 + 3] = 0;
+          continue;
+        }
+        // La fumee chaude monte de plus en plus vite, freinee par l'air.
+        s.vy += 0.12 * delta;
+        const drag = Math.max(0, 1 - delta * 0.9);
+        s.vx *= drag;
+        s.vz *= drag;
+        smokePos[i * 3] += s.vx * delta;
+        smokePos[i * 3 + 1] += s.vy * delta;
+        smokePos[i * 3 + 2] += s.vz * delta;
+        const age = s.maxLife - s.life;
+        const k = s.life / s.maxLife;
+        smokeCol[i * 4] = s.gray;
+        smokeCol[i * 4 + 1] = s.gray;
+        smokeCol[i * 4 + 2] = s.gray;
+        smokeCol[i * 4 + 3] = s.alpha * k * Math.min(1, age / 0.06);
+      }
+      if (smokeDirty) {
+        smokeGeo.attributes.position.needsUpdate = true;
+        smokeGeo.attributes.color.needsUpdate = true;
+      }
+
+      let billowDirty = false;
+      for (let i = 0; i < BILLOW_COUNT; i++) {
+        const s = billows[i];
+        if (s.life <= 0) continue;
+        billowDirty = true;
+        s.life -= delta;
+        if (s.life <= 0) {
+          billowPos[i * 3 + 1] = BURIED;
+          billowCol[i * 4 + 3] = 0;
+          continue;
+        }
+        // Le souffle les pousse, l'air les freine, la chaleur les fait monter.
+        const drag = Math.max(0, 1 - delta * 1.6);
+        s.vx *= drag;
+        s.vz *= drag;
+        s.vy = s.vy * drag + 0.25 * delta;
+        billowPos[i * 3] += s.vx * delta;
+        billowPos[i * 3 + 1] += s.vy * delta;
+        billowPos[i * 3 + 2] += s.vz * delta;
+        const age = s.maxLife - s.life;
+        const k = s.life / s.maxLife;
+        billowCol[i * 4] = s.gray;
+        billowCol[i * 4 + 1] = s.gray;
+        billowCol[i * 4 + 2] = s.gray;
+        billowCol[i * 4 + 3] = s.alpha * k * Math.min(1, age / 0.12);
+      }
+      if (billowDirty) {
+        billowGeo.attributes.position.needsUpdate = true;
+        billowGeo.attributes.color.needsUpdate = true;
+      }
 
       let tracersDirty = false;
       for (let i = 0; i < TRACER_COUNT; i++) {
@@ -404,6 +633,8 @@ export function createDuelEffects(scene: THREE.Scene): DuelEffects {
       scene.remove(sparkPoints);
       scene.remove(debrisPoints);
       scene.remove(casingMesh);
+      scene.remove(smokePoints);
+      scene.remove(billowPoints);
       scene.remove(tracerMesh);
       for (const b of blasts) scene.remove(b.mesh);
       for (const o of owned) o.dispose();

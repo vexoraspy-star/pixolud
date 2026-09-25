@@ -21,13 +21,14 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * jeux gardent alors leur modele dessine en code.
  */
 
-export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat" | "colosse";
+export type ModelId = "zombie-a" | "zombie-b" | "soldat-swat" | "colosse" | "bacterie";
 
 const MODEL_URL: Record<ModelId, string> = {
   "zombie-a": "/models/zombie-a.glb",
   "zombie-b": "/models/zombie-b.glb",
   "soldat-swat": "/models/soldat-swat.glb",
   colosse: "/models/colosse.glb",
+  bacterie: "/models/bacterie.glb",
 };
 
 const cache = new Map<ModelId, Promise<GLTF>>();
