@@ -93,6 +93,7 @@ import { VOICE_LOUD, type VoiceHub } from "@/lib/backroomsVoice";
 import { NOISE_RADIUS, pruneNoises, wallsBetween, type Noise, type NoiseKind } from "@/lib/manorNoise";
 import { createBrain, thinkMonster, type BrainState, type MapQuery, type SpeedMode } from "@/lib/manorAI";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
+import { buildMonster, isLookingAt, type Monster } from "@/lib/backroomsMonsters";
 import Game3DSettings from "./Game3DSettings";
 import BackroomsDevPanel, {
   BACKROOMS_DEV_OFF,
@@ -1341,6 +1342,10 @@ export default function BackroomsScene({
     // --- Entites ---
     const bacteria = def.entity === "bacterie" ? buildBacteria() : null;
     const smiler = def.entity === "souriant" ? buildSmiler() : null;
+    // Nouveaux niveaux : Voleur de peau, Chiens, Fetards (branchement minimal,
+    // meme intelligence que la Bacterie).
+    const monster: Monster | null = def.entity === "voleur" || def.entity === "chiens" || def.entity === "fetards" ? buildMonster(def.entity) : null;
+    if (monster) scene.add(monster.group);
     const wanderer = buildWanderer();
     wanderer.setOpacity(0);
     scene.add(wanderer.group);
@@ -1397,7 +1402,7 @@ export default function BackroomsScene({
       z: (data.entityStart?.y ?? 0) + 0.5,
       yaw: 0,
       walk: 0,
-      active: def.entity === "bacterie",
+      active: def.entity === "bacterie" || monster !== null,
       path: null as number[] | null,
       pathIndex: 0,
       goalKey: -1,
@@ -1418,6 +1423,7 @@ export default function BackroomsScene({
       // Niveau ! : elle part du point de depart, mais n'apparait qu'au signal.
       if (def.id === "niveau-run") bacteria.group.visible = false;
     }
+    if (monster) monster.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
 
     // --- Main et lampe ---
     scene.add(camera);
@@ -2191,6 +2197,10 @@ export default function BackroomsScene({
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
           animateBacteriaModel(delta, 5, 1, 1, "poursuivre");
+        } else if (deathCause === "bacterie" && monster) {
+          monster.group.position.set(camera.position.x + fx * dist, floorY(player.z), camera.position.z + fz * dist);
+          monster.group.rotation.y = player.yaw;
+          monster.animate({ time: elapsed, delta, speed: 5, state: "poursuivre", lunge: 1, scream: 1, headYaw: 0, watched: false });
         } else if (deathCause === "souriant" && smiler) {
           smiler.group.position.set(camera.position.x + fx * dist, camera.position.y - 1.45, camera.position.z + fz * dist);
           smiler.group.rotation.y = player.yaw;
@@ -2718,7 +2728,7 @@ export default function BackroomsScene({
           // Captures : l'hote seul en decide, pour tout le monde.
           for (const t of targets) {
             if (Math.hypot(t.x - entity.x, t.z - entity.z) * CS >= CAPTURE) continue;
-            const cause: DeathCause = bacteria ? "bacterie" : "souriant";
+            const cause: DeathCause = bacteria || monster ? "bacterie" : "souriant";
             if (t.id === selfKey) killPlayer(cause);
             else {
               const av = avatars.get(t.id);
@@ -2762,6 +2772,7 @@ export default function BackroomsScene({
         state = net.state as BrainState;
         netEntitySpeed = net.speed;
         if (bacteria) bacteria.group.visible = net.visible;
+        if (monster) monster.group.visible = net.visible;
       }
 
       // Affichage et sons, pareils pour l'hote et les invites.
@@ -2794,6 +2805,20 @@ export default function BackroomsScene({
             playEntityStep(audio.ctx, audio.master, spatial(entity.x, entity.z, 22, 1.2));
           }
         }
+      }
+      if (monster) {
+        monster.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
+        monster.group.rotation.y = entity.yaw;
+        monster.animate({
+          time: elapsed,
+          delta,
+          speed: renderSpeed,
+          state,
+          lunge: entity.lunge,
+          scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
+          headYaw: 0,
+          watched: isLookingAt(player.x, player.z, player.yaw, entity.x, entity.z),
+        });
       }
       if (smiler) {
         if (isHost) {
@@ -3210,6 +3235,7 @@ export default function BackroomsScene({
       // et les detruire sous lui levait une erreur.
       const disposeGpu = () => {
         bacteria?.dispose();
+        monster?.dispose();
         smiler?.dispose();
         wanderer.dispose();
         handRig.dispose();
