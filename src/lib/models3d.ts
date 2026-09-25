@@ -112,11 +112,23 @@ function mergeSkinnedParts(scene: THREE.Object3D) {
   for (const p of parts) p.parent!.remove(p);
 }
 
+/**
+ * Retire les pistes d'echelle qui valent 1 partout. Blender les exporte pour
+ * chaque os quand il echantillonne une animation : elles ne changent rien a
+ * l'image, mais remettraient a 1 un os reduit par hideBone a chaque image.
+ */
+function stripNeutralScaleTracks(clips: THREE.AnimationClip[]) {
+  for (const clip of clips) {
+    clip.tracks = clip.tracks.filter((t) => !t.name.endsWith(".scale") || t.values.some((v) => Math.abs(v - 1) > 1e-4));
+  }
+}
+
 export function preloadModel(id: ModelId): Promise<GLTF> {
   let p = cache.get(id);
   if (!p) {
     p = new GLTFLoader().loadAsync(MODEL_URL[id]).then((gltf) => {
       mergeSkinnedParts(gltf.scene);
+      stripNeutralScaleTracks(gltf.animations);
       return gltf;
     });
     // Un echec ne doit pas rester en cache : la partie suivante reessaiera.
@@ -141,7 +153,10 @@ export function preloadExtraClips(id: ModelId): Promise<THREE.AnimationClip[]> {
   if (!url) return Promise.resolve([]);
   let p = extraCache.get(id);
   if (!p) {
-    p = new GLTFLoader().loadAsync(url).then((gltf) => gltf.animations);
+    p = new GLTFLoader().loadAsync(url).then((gltf) => {
+      stripNeutralScaleTracks(gltf.animations);
+      return gltf.animations;
+    });
     p.catch(() => extraCache.delete(id));
     extraCache.set(id, p);
   }

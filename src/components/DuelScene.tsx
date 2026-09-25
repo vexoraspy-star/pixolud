@@ -431,7 +431,7 @@ export default function DuelScene({
     emote: (id: DanceId) => void;
     quit: () => void;
     /** Bouton tactile : appuyer pour viser, relacher pour lancer. */
-    nadeDown: () => void;
+    nadeDown: (kind?: GrenadeKind) => void;
     nadeUp: () => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -3450,7 +3450,9 @@ export default function DuelScene({
       teleport: (x, z) => teleportTo(x, z),
       emote: (id) => startMyEmote(id),
       quit: () => quitMatch(),
-      nadeDown: () => startNadeAim(myNades.grenade > 0 || cheatsRef.current.infiniteAmmo ? "grenade" : "fumigene", "doigt"),
+      // Au doigt, chaque bouton a sa sorte ; sans precision : la grenade, ou le fumigene s'il n'en reste plus.
+      nadeDown: (kind) =>
+        startNadeAim(kind ?? (myNades.grenade > 0 || cheatsRef.current.infiniteAmmo ? "grenade" : "fumigene"), "doigt"),
       nadeUp: () => {
         if (nadeAimKey === "doigt") releaseNade();
       },
@@ -5707,14 +5709,29 @@ export default function DuelScene({
             <button
               type="button"
               aria-label="Grenade : appuyer pour viser, relâcher pour lancer"
-              onPointerDown={() => sceneApiRef.current?.nadeDown()}
+              onPointerDown={() => sceneApiRef.current?.nadeDown("grenade")}
               onPointerUp={() => sceneApiRef.current?.nadeUp()}
               onPointerCancel={() => sceneApiRef.current?.nadeUp()}
               className={`absolute bottom-[18.5rem] right-8 size-14 touch-none rounded-full border border-lime-300/40 bg-black/60 text-lg font-bold text-white active:scale-95 sm:bottom-[12rem] sm:right-7 ${
-                nadeHud.grenade + nadeHud.fumigene === 0 ? "opacity-40" : ""
+                nadeHud.grenade === 0 ? "opacity-40" : ""
               }`}
             >
               💣
+            </button>
+          )}
+          {/* Le fumigene a son bouton : au doigt, on ne pouvait le lancer qu'une fois les grenades epuisees. */}
+          {nadesInMode && (
+            <button
+              type="button"
+              aria-label="Fumigène : appuyer pour viser, relâcher pour lancer"
+              onPointerDown={() => sceneApiRef.current?.nadeDown("fumigene")}
+              onPointerUp={() => sceneApiRef.current?.nadeUp()}
+              onPointerCancel={() => sceneApiRef.current?.nadeUp()}
+              className={`absolute bottom-[18.5rem] right-[5.5rem] size-12 touch-none rounded-full border border-zinc-300/40 bg-black/60 text-base font-bold text-white active:scale-95 sm:bottom-[16rem] sm:right-8 ${
+                nadeHud.fumigene === 0 ? "opacity-40" : ""
+              }`}
+            >
+              💨
             </button>
           )}
         </>

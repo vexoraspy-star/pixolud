@@ -793,8 +793,8 @@ export default function BackroomsGame({
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed opacity-85">
             Tu as traversé le sol par accident. Derrière : de la moquette humide, des néons qui bourdonnent, et des
-            couloirs jaunes sur plusieurs étages qui ne mènent nulle part. Trouve la sortie de chaque niveau — souvent
-            en haut des escaliers. Ne reste pas dans le noir.
+            couloirs jaunes, parfois sur plusieurs étages, qui ne mènent nulle part. Trouve la sortie de chaque niveau
+            — quand il y a un étage, elle est souvent en haut des escaliers. Ne reste pas dans le noir.
           </p>
 
           <div className="mt-8 flex flex-col items-start gap-3">

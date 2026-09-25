@@ -317,14 +317,14 @@ function citrouilleCote(p: Pinceau): void {
   const { rect, random } = p;
   for (let x = 0; x < N; x++) {
     const k = (x + 3) % 8;
-    rect(x, 0, 1, N, k === 0 ? "#a95f1a" : k === 1 || k === 7 ? "#c9792a" : k === 3 || k === 4 ? "#eba044" : "#dc8d2e");
+    rect(x, 0, 1, N, k === 0 ? "#bd661b" : k === 1 || k === 7 ? "#e0852c" : k === 3 || k === 4 ? "#fbb24c" : "#f09a32");
   }
   for (let n = 0; n < 16; n++) {
     const x = Math.floor(random() * 32), y = Math.floor(random() * 30);
     const k = (x + 3) % 8;
-    if (k > 1 && k < 7) rect(x, y, 1, 2, "#f2b05a");
+    if (k > 1 && k < 7) rect(x, y, 1, 2, "#ffc56a");
   }
-  rect(0, 0, N, 1, "#b86d1f"); rect(0, 1, N, 1, "#c97a26"); rect(0, 31, N, 1, "#a95f1a");
+  rect(0, 0, N, 1, "#b86d1f"); rect(0, 1, N, 1, "#c97a26"); rect(0, 31, N, 1, "#bd661b");
 }
 
 /** Visage sculpte de la citrouille-lanterne (dessine deux fois : creux, puis lumiere). */

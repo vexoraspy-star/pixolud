@@ -58,6 +58,8 @@ export type NetEvent =
   /** Bruit d'un joueur, pour l'IA de l'hote. */
   | { type: "noise"; x: number; z: number; radius: number }
   | { type: "blackout"; on: boolean }
+  /** L'hote annonce une coupure imminente : les neons clignotent 2,2 s chez tout le monde. */
+  | { type: "blackout-warn" }
   /** L'hote annonce qu'un joueur est pris. */
   | { type: "caught"; id: string; cause: DeathCause }
   /** Quelqu'un a franchi la sortie : tout le groupe passe au niveau suivant. */

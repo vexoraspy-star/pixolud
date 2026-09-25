@@ -174,6 +174,7 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
     let beatIndex = -1;
     let hatchDone = false;
     let watcherShown = false;
+    let stingerTimer = 0;
 
     function tick() {
       const now = performance.now();
@@ -237,7 +238,7 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
         if (!watcherShown) {
           watcherShown = true;
           playWhisper(audio.ctx, audio.master, { pan: -0.4, gain: 1.1 });
-          window.setTimeout(() => playStinger(audio.ctx, audio.master, { pan: -0.3 }), 900);
+          stingerTimer = window.setTimeout(() => playStinger(audio.ctx, audio.master, { pan: -0.3 }), 900);
         }
       }
 
@@ -261,6 +262,8 @@ export default function HorrorEnding({ onDone }: { onDone: () => void }) {
 
     return () => {
       window.clearInterval(intervalId);
+      // Le cri differe ne doit pas sonner sur un contexte deja ferme.
+      window.clearTimeout(stingerTimer);
       window.removeEventListener("resize", handleResize);
       narrator.stop();
       audio.stop();

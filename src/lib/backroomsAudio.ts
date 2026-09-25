@@ -11,8 +11,13 @@ export interface Spatial {
   gain?: number;
 }
 
+/** Contexte ferme (scene quittee) ou factice (Web Audio indisponible) : on ne joue rien. */
+function dead(ctx: AudioContext): boolean {
+  return ctx.state === "closed";
+}
+
 function out(ctx: AudioContext, master: AudioNode, opts?: Spatial): AudioNode {
-  if (!opts) return master;
+  if (!opts || dead(ctx)) return master;
   const g = ctx.createGain();
   g.gain.value = opts.gain ?? 1;
   if (opts.pan !== undefined && typeof ctx.createStereoPanner === "function") {
@@ -34,6 +39,7 @@ function noiseBurst(
   shape: (t: number) => number,
   filter?: { type: BiquadFilterType; freq: number; q?: number },
 ) {
+  if (dead(ctx)) return;
   const size = Math.max(1, Math.floor(ctx.sampleRate * seconds));
   const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
   const data = buffer.getChannelData(0);
@@ -67,6 +73,7 @@ function tone(
   attack = 0.02,
   delay = 0,
 ) {
+  if (dead(ctx)) return;
   const now = ctx.currentTime + delay;
   const osc = ctx.createOscillator();
   osc.type = type;
@@ -112,10 +119,33 @@ export interface BackroomsAudio {
   stop: () => void;
 }
 
+/**
+ * Bande-son muette quand le navigateur refuse le Web Audio : un faux contexte
+ * "ferme", que toutes les fonctions play* ignorent. Le jeu reste jouable.
+ */
+function silentAudio(): BackroomsAudio {
+  const noop = () => {};
+  const ctx = {
+    state: "closed",
+    currentTime: 0,
+    sampleRate: 44100,
+    resume: () => Promise.resolve(),
+    suspend: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+  } as unknown as AudioContext;
+  const master = { gain: { value: 0 }, connect: noop, disconnect: noop } as unknown as GainNode;
+  return { ctx, master, setTension: noop, setPower: noop, stop: noop };
+}
+
 export function createBackroomsAudio(lighting: LightingKind, flavor: AudioFlavor = null): BackroomsAudio {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const Ctor = window.AudioContext || (window as any).webkitAudioContext;
-  const ctx: AudioContext = new Ctor();
+  let ctx: AudioContext;
+  try {
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return silentAudio();
+    ctx = new Ctor();
+  } catch {
+    return silentAudio();
+  }
   const master = ctx.createGain();
   master.gain.value = 0.34;
   master.connect(ctx.destination);
@@ -568,6 +598,7 @@ export function playElevator(ctx: AudioContext, master: GainNode) {
 
 /** Le sourire qui glousse dans le noir : bruit en bande etroite, rythme d'enfant. */
 export function playSmilerGiggle(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  if (dead(ctx)) return;
   const dest = out(ctx, master, opts);
   const base = 900 + Math.random() * 300;
   for (let i = 0; i < 5; i++) {
@@ -597,6 +628,7 @@ export function playBacteriaClicks(ctx: AudioContext, master: GainNode, opts?: S
 }
 
 export function playBacteriaScreech(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  if (dead(ctx)) return;
   const dest = out(ctx, master, opts);
   const now = ctx.currentTime;
   for (const f of [520, 553, 780, 1170]) {
@@ -668,6 +700,7 @@ export function playNoclip(ctx: AudioContext, master: GainNode) {
 
 /** Capture : sature, sans attaque douce. */
 export function playDeath(ctx: AudioContext, master: GainNode) {
+  if (dead(ctx)) return;
   const now = ctx.currentTime;
   noiseBurst(ctx, master, 1.3, 1, (t) => Math.pow(1 - t, 0.7));
   for (const f of [700, 742, 990, 1485]) {

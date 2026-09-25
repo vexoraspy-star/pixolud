@@ -91,10 +91,36 @@ export interface ManorAudio {
   stop: () => void;
 }
 
+/**
+ * Web Audio refuse de s'ouvrir (desactive, ou trop de contextes ouverts sur
+ * iOS) : contexte hors ligne jamais rendu. Les sons se construisent
+ * normalement mais restent muets, au lieu de faire planter toute la partie.
+ */
+function mutedContext(): AudioContext {
+  const offline = new OfflineAudioContext(1, 128, 22050);
+  // La scene appelle resume/suspend/close : sans effet ici.
+  Object.assign(offline, {
+    resume: () => Promise.resolve(),
+    suspend: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+  });
+  return offline as unknown as AudioContext;
+}
+
+function openContext(): AudioContext {
+  try {
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (Ctor) return new Ctor();
+  } catch {
+    // on retombe sur le contexte muet
+  }
+  return mutedContext();
+}
+
 export function createAudio(): ManorAudio {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const Ctor = window.AudioContext || (window as any).webkitAudioContext;
-  const ctx: AudioContext = new Ctor();
+  const ctx: AudioContext = openContext();
 
   const master = ctx.createGain();
   master.gain.value = 0.32;

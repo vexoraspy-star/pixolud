@@ -31,6 +31,7 @@ export default function Game3DSettings({
   brightness,
   onVoice,
   onQuality,
+  onOpenChange,
   className = "",
 }: {
   onLayout?: (value: Layout3D) => void;
@@ -42,6 +43,8 @@ export default function Game3DSettings({
   onVoice?: (value: boolean) => void;
   /** Omettre pour masquer le reglage (les jeux qui ajustent deja tout seuls n'en ont pas besoin). */
   onQuality?: (value: Quality3D) => void;
+  /** Facultatif : prevenu quand le panneau s'ouvre ou se ferme (pour mettre un jeu solo en pause). */
+  onOpenChange?: (open: boolean) => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -90,7 +93,11 @@ export default function Game3DSettings({
     <div className={`absolute right-3 top-3 z-30 flex flex-col items-end gap-2 ${className}`}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          onOpenChange?.(next);
+        }}
         aria-label="Réglages"
         className="flex size-9 items-center justify-center rounded-full bg-black/70 text-lg text-white backdrop-blur transition hover:bg-black/90"
       >

@@ -67,9 +67,11 @@ import Game3DSettings from "./Game3DSettings";
 import {
   loadBrightness3D,
   loadLayout3D,
+  loadQuality3D,
   loadSensitivity3D,
   saveBrightness3D,
   type Layout3D as Layout,
+  type Quality3D,
 } from "@/lib/settings3d";
 import {
   makeManorWallTexture,
@@ -535,6 +537,8 @@ export default function HorrorScene({
   const [questOpen, setQuestOpen] = useState(true);
 
   const layoutRef = useRef<Layout>("azerty");
+  /** Copie affichable de la disposition clavier, pour le bandeau des touches. */
+  const [layout, setLayout] = useState<Layout>("azerty");
   const sensitivityRef = useRef(1.5);
   const heldRef = useRef({
     forward: false,
@@ -562,6 +566,9 @@ export default function HorrorScene({
     selectSlot: (index: number) => void;
     /** Reprendre apres une pause, meme si le navigateur a rate l'evenement de retour. */
     resume: () => void;
+    /** Panneau de reglages ouvert ou ferme : la partie solo se met en pause. */
+    setSettingsOpen: (open: boolean) => void;
+    applyQuality: (value: Quality3D) => void;
     readNote: (id: string) => void;
     /** Mode dev : se placer sur une case, sauter a l'etape suivante, tout recevoir. */
     devTeleport: (x: number, z: number) => void;
@@ -572,6 +579,7 @@ export default function HorrorScene({
   useEffect(() => {
     const t = setTimeout(() => {
       layoutRef.current = loadLayout3D();
+      setLayout(layoutRef.current);
       sensitivityRef.current = loadSensitivity3D();
       setLoadedBrightness(loadBrightness3D());
       // Une tablette fait plus de 640 px de large : seul le type de pointeur
@@ -794,13 +802,17 @@ export default function HorrorScene({
     camera.position.set(player.x * CELL_SIZE, EYE_HEIGHT, player.z * CELL_SIZE);
     camera.rotation.y = player.yaw;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Reglage "Qualite" partage entre les jeux 3D : en "performance", pas
+    // d'anticrenelage (au prochain lancement) et resolution plafonnee a 1.
+    let quality: Quality3D = loadQuality3D();
+    const renderer = new THREE.WebGLRenderer({ antialias: quality !== "performance" });
     renderer.setSize(container.clientWidth, container.clientHeight);
     // Plafond 1.5 : au-dela, sur un ecran haute densite on dessine 4x plus de
     // pixels pour une difference a peine visible dans un manoir aussi sombre.
-    const PIXEL_RATIO_CAP = Math.min(window.devicePixelRatio || 1, 1.5);
+    const PIXEL_RATIO_MAX = Math.min(window.devicePixelRatio || 1, 1.5);
+    const pixelCap = () => (quality === "performance" ? Math.min(1, PIXEL_RATIO_MAX) : PIXEL_RATIO_MAX);
     const PIXEL_RATIO_FLOOR = 0.6;
-    let pixelRatio = PIXEL_RATIO_CAP;
+    let pixelRatio = pixelCap();
     renderer.setPixelRatio(pixelRatio);
     container.appendChild(renderer.domElement);
 
@@ -1792,7 +1804,30 @@ export default function HorrorScene({
       toggleCrouch,
       applyHeldItem,
       selectSlot,
-      resume,
+      resume: () => {
+        resume();
+        requestLock();
+      },
+      setSettingsOpen: (open: boolean) => {
+        if (open) {
+          if (pauseForMenu(false)) settingsPaused = true;
+        } else if (settingsPaused) {
+          // Pause due aux seuls reglages : on repart des la fermeture.
+          resume();
+        }
+      },
+      applyQuality: (value: Quality3D) => {
+        quality = value;
+        // Resolution : tout de suite. Anticrenelage : au prochain lancement.
+        // En "eleve", on ne remonte pas au-dela de ce que la resolution
+        // adaptative a deja retire pour tenir la cadence.
+        const lowered = value === "performance" || resolutionChangedAt > -Infinity;
+        const next = lowered ? Math.min(pixelRatio, pixelCap()) : pixelCap();
+        if (next !== pixelRatio) {
+          pixelRatio = next;
+          renderer.setPixelRatio(pixelRatio);
+        }
+      },
       readNote: (id: string) => {
         const note = MANOR_NOTES.find((n) => n.id === id);
         if (note) setReadingNote(note);
@@ -1961,6 +1996,8 @@ export default function HorrorScene({
     /** Reprendre la partie : l'evenement de retour sur l'onglet n'arrive pas toujours. */
     function resume() {
       if (document.hidden || contextIsLost) return;
+      menuPaused = false;
+      settingsPaused = false;
       if (pausedRef.current) {
         pausedRef.current = false;
         setPaused(false);
@@ -1968,6 +2005,52 @@ export default function HorrorScene({
       lastTime = performance.now();
       audio.ctx.resume().catch(() => {});
     }
+
+    // Pause "menu" : souris liberee par Echap, ou reglages ouverts. Avant, la
+    // chose continuait de chasser pendant qu'on reglait la sensibilite. Elle
+    // ne se leve qu'au clic (bouton « Reprendre » ou clic sur l'image), pas au
+    // simple retour sur l'onglet.
+    let menuPaused = false;
+    let settingsPaused = false;
+    /** Souris liberee expres (pave, poches, guide, mort) : pas de pause. */
+    let unlockOnPurpose = false;
+    const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    function pauseForMenu(showOverlay: boolean): boolean {
+      if (ended || endedRef.current || pausedRef.current || contextIsLost) return false;
+      if (dyingSince >= 0 || devOpenRef.current) return false;
+      menuPaused = true;
+      pausedRef.current = true;
+      // Pour les reglages, pas de voile noir : il masquerait le panneau.
+      if (showOverlay) setPaused(true);
+      releaseEverything();
+      audio.ctx.suspend().catch(() => {});
+      return true;
+    }
+    function releaseLock() {
+      if (document.pointerLockElement !== renderer.domElement) return;
+      unlockOnPurpose = true;
+      try {
+        document.exitPointerLock?.();
+      } catch {
+        unlockOnPurpose = false;
+      }
+    }
+    function requestLock() {
+      if (coarsePointer || document.pointerLockElement === renderer.domElement) return;
+      try {
+        renderer.domElement.requestPointerLock?.()?.catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+    let wasLocked = false;
+    function onPointerLockChange() {
+      const locked = document.pointerLockElement === renderer.domElement;
+      if (wasLocked && !locked && !unlockOnPurpose) pauseForMenu(true);
+      unlockOnPurpose = false;
+      wasLocked = locked;
+    }
+    document.addEventListener("pointerlockchange", onPointerLockChange);
 
     function applyLook(dx: number, dy: number) {
       if (keypadOpenRef.current) return;
@@ -2535,11 +2618,7 @@ export default function HorrorScene({
       if (pickup) {
         takePickup(pickup);
       } else if (doorLocked && distanceToDoor() < DOOR_REACH) {
-        try {
-          document.exitPointerLock?.();
-        } catch {
-          // ignore
-        }
+        releaseLock();
         keys.clear();
         setKeypadOpen(true);
       } else if (keyDoor) {
@@ -2558,13 +2637,11 @@ export default function HorrorScene({
         if (e.key === "Escape" || e.key.toLowerCase() === "h") setGuideOpen(false);
         return;
       }
+      // Partie en pause (Echap, onglet quitte) : le clavier ne joue plus a sa place.
+      if (pausedRef.current) return;
       if (e.key.toLowerCase() === "h" && !keypadOpenRef.current) {
         releaseEverything();
-        try {
-          document.exitPointerLock?.();
-        } catch {
-          // ignore
-        }
+        releaseLock();
         setGuideOpen(true);
         return;
       }
@@ -2580,11 +2657,7 @@ export default function HorrorScene({
         setBagOpen(open);
         if (open) {
           releaseEverything();
-          try {
-            document.exitPointerLock?.();
-          } catch {
-            // ignore
-          }
+          releaseLock();
         }
         return;
       }
@@ -2636,7 +2709,7 @@ export default function HorrorScene({
         setPaused(true);
         releaseEverything();
         audio.ctx.suspend().catch(() => {});
-      } else {
+      } else if (!menuPaused) {
         resume();
       }
     }
@@ -2644,7 +2717,7 @@ export default function HorrorScene({
     // fenetre masquee puis rendue, veille), « visibilitychange » peut ne pas
     // arriver. La partie restait alors gelee derriere un ecran noir.
     function onReturn() {
-      if (pausedRef.current && !document.hidden) resume();
+      if (pausedRef.current && !document.hidden && !menuPaused) resume();
     }
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onReturn);
@@ -2679,6 +2752,15 @@ export default function HorrorScene({
     let slowChecks = 0;
     let resolutionChangedAt = -Infinity;
     let batteryUiTimer = 0;
+    // Vecteurs de travail reutilises : rien n'est alloue a chaque image.
+    const tmpForward = new THREE.Vector3();
+    const tmpRight = new THREE.Vector3();
+    const tmpMove = new THREE.Vector3();
+    const tmpDir = new THREE.Vector3();
+    /** Direction du regard au sol (lacet seul) : (-sin, 0, -cos). */
+    function yawForward(out: THREE.Vector3): THREE.Vector3 {
+      return out.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    }
 
     function step() {
       const now = performance.now();
@@ -2718,10 +2800,7 @@ export default function HorrorScene({
       if (dyingSince >= 0) {
         const t = (elapsed - dyingSince) / DEATH_SEQUENCE_SECONDS;
         const rush = Math.min(1, t * 2.1);
-        const dirToPlayer = new THREE.Vector3(0, 0, -1).applyAxisAngle(
-          new THREE.Vector3(0, 1, 0),
-          player.yaw,
-        );
+        const dirToPlayer = yawForward(tmpForward);
         const targetDist = THREE.MathUtils.lerp(2.1, 0.3, rush);
         // Elle se redresse de toute sa hauteur en arrivant : la tete finit
         // AU-DESSUS de la camera, et c'est ce qui fait qu'on leve les yeux.
@@ -2799,9 +2878,9 @@ export default function HorrorScene({
       crouchLevel += ((crouching ? 1 : 0) - crouchLevel) * Math.min(1, delta * 9);
 
       if (fwd !== 0 || strafe !== 0) {
-        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-        const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-        const move = new THREE.Vector3().addScaledVector(forward, fwd).addScaledVector(right, strafe);
+        const forward = yawForward(tmpForward);
+        const right = tmpRight.set(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+        const move = tmpMove.set(0, 0, 0).addScaledVector(forward, fwd).addScaledVector(right, strafe);
         if (move.lengthSq() > 0) {
           const dev = devRef.current;
           const gait = crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : MOVE_SPEED;
@@ -3018,7 +3097,7 @@ export default function HorrorScene({
       }
 
       flashlight.position.copy(camera.position);
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const dir = tmpDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
       flashTarget.position.copy(camera.position).add(dir);
       playerGlow.position.copy(camera.position);
       // La lampe grésille quand elle est proche, et lâche carrément quand
@@ -3274,7 +3353,7 @@ export default function HorrorScene({
 
       // Poupees : la tete suit le joueur, et on les ramasse au contact.
       {
-        const look = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+        const look = yawForward(tmpForward);
         dolls.update({ playerX: player.x, playerZ: player.z, lookX: look.x, lookZ: look.z, time: elapsed });
       }
       for (let i = 0; i < DOLL_SPOTS.length; i++) {
@@ -3458,7 +3537,7 @@ export default function HorrorScene({
       // assez longues pour que tu doutes de les avoir vues.
       if (!monster.active && elapsed >= nextGlimpseAt && glimpseUntil < 0) {
         nextGlimpseAt = elapsed + 26 + Math.random() * 20;
-        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+        const forward = yawForward(tmpForward);
         for (let attempt = 0; attempt < 30; attempt++) {
           const [cx, cy] = openCells[Math.floor(Math.random() * openCells.length)];
           const gx = cx + 0.5;
@@ -3777,11 +3856,7 @@ export default function HorrorScene({
           ghost.setOpacity(0);
           ghostMode = "none";
           playDeathScream(audio.ctx, audio.master);
-          try {
-            document.exitPointerLock?.();
-          } catch {
-            // ignore
-          }
+          releaseLock();
         } else if (distToMonster < NEAR_MISS_RADIUS && !isHiding && elapsed >= nextNearMissAllowedAt) {
           nextNearMissAllowedAt = elapsed + NEAR_MISS_COOLDOWN;
           flashLevel = Math.max(flashLevel, 0.7);
@@ -4027,6 +4102,7 @@ export default function HorrorScene({
       renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
       renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
       apiRef.current = null;
       for (const box of musicBoxes) box.sound.stop();
@@ -4245,6 +4321,7 @@ export default function HorrorScene({
         className="top-28"
         onLayout={(l) => {
           layoutRef.current = l;
+          setLayout(l);
         }}
         onSensitivity={(s) => {
           sensitivityRef.current = s;
@@ -4256,6 +4333,8 @@ export default function HorrorScene({
         // Le jeu n'a plus de voix : le reglage ne sert qu'aux cinematiques,
         // et Game3DSettings l'enregistre deja lui-meme.
         onVoice={() => {}}
+        onQuality={(q) => apiRef.current?.applyQuality(q)}
+        onOpenChange={(open) => apiRef.current?.setSettingsOpen(open)}
         brightness={loadedBrightness}
       />
 
@@ -5070,7 +5149,7 @@ export default function HorrorScene({
 
       {!isTouch && (
         <p className="pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-600">
-          ZQSD · Maj courir · C s&apos;accroupir · F lampe · E interagir · 1-5 objets · clic utiliser · Tab poches
+          {layout === "qwerty" ? "WASD" : "ZQSD"} · Maj courir · C s&apos;accroupir · F lampe · E interagir · 1-5 objets · clic utiliser · Tab poches · H guide · Échap pause
         </p>
       )}
 

@@ -103,8 +103,10 @@ import {
   loadBrightness3D,
   loadLayout3D,
   loadSensitivity3D,
+  loadQuality3D,
   saveBrightness3D,
   type Layout3D,
+  type Quality3D,
 } from "@/lib/settings3d";
 
 export type DeathCause = "souriant" | "bacterie" | "lucidite";
@@ -225,6 +227,8 @@ const THINK_INTERVAL = 0.1;
 const REPATH = 0.45;
 /** Carton de titre du niveau, et temps de grace de l'entite au debut. */
 const INTRO_SECONDS = 4.2;
+/** Duree du clignotement des neons avant une coupure. */
+const BLACKOUT_WARN_SECONDS = 2.2;
 const NOCLIP_SECONDS = 1.6;
 /** Metres par case du Manoir : les rayons de bruit y ont ete regles. */
 const MANOR_CELL = 1.7;
@@ -453,6 +457,8 @@ export default function BackroomsScene({
     drink: () => void;
     toggleCrouch: () => void;
     resume: () => void;
+    setSettingsOpen: (open: boolean) => void;
+    applyQuality: (q: Quality3D) => void;
     devTeleport: (x: number, z: number) => void;
     devAdvance: () => void;
   } | null>(null);
@@ -493,14 +499,24 @@ export default function BackroomsScene({
     scene.fog = new THREE.Fog(def.fog.color, def.fog.near, def.fog.far);
     const fog = scene.fog as THREE.Fog;
 
-    const camera = new THREE.PerspectiveCamera(72, container.clientWidth / container.clientHeight, 0.05, 140);
+    // Rien n'est visible au-dela du brouillard : inutile de le dessiner.
+    // Exception : le sourire du Souriant ignore le brouillard (il doit rester
+    // visible au bout d'un couloir noir), on lui garde un peu plus de portee.
+    // (Le vol du mode developpeur repousse cette limite, voir la boucle.)
+    const VIEW_FAR = def.entity === "souriant" ? Math.max(60, def.fog.far + 6) : def.fog.far + 6;
+    const camera = new THREE.PerspectiveCamera(72, container.clientWidth / container.clientHeight, 0.05, VIEW_FAR);
     camera.rotation.order = "YXZ";
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Reglage "Qualite" partage : en "performance", pas d'anticrenelage,
+    // resolution plafonnee a 1 et moins de lampes. L'anticrenelage et les
+    // lampes ne changent qu'au niveau suivant (scene recreee).
+    let quality: Quality3D = loadQuality3D();
+    const renderer = new THREE.WebGLRenderer({ antialias: quality !== "performance" });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    const PIXEL_RATIO_CAP = Math.min(window.devicePixelRatio || 1, 1.5);
+    const PIXEL_RATIO_MAX = Math.min(window.devicePixelRatio || 1, 1.5);
     const PIXEL_RATIO_FLOOR = 0.6;
-    let pixelRatio = PIXEL_RATIO_CAP;
+    const pixelCap = () => (quality === "performance" ? Math.min(1, PIXEL_RATIO_MAX) : PIXEL_RATIO_MAX);
+    let pixelRatio = pixelCap();
     renderer.setPixelRatio(pixelRatio);
     container.appendChild(renderer.domElement);
     const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -1109,7 +1125,7 @@ export default function BackroomsScene({
     // Reserve de lumieres : un nombre FIXE de lampes, deplacees sur les
     // luminaires les plus proches du joueur. Des centaines de neons a
     // l'ecran, cinq lumieres calculees, et aucune recompilation de shader.
-    const POOL = def.lighting === "neons" ? 5 : 4;
+    const POOL = quality === "performance" ? 3 : def.lighting === "neons" ? 5 : 4;
     const pool = Array.from({ length: POOL }, () => {
       const light = new THREE.PointLight(def.lamp.color, 0, def.lamp.range, 1.4);
       scene.add(light);
@@ -1460,6 +1476,8 @@ export default function BackroomsScene({
     let powerTarget = 1;
     let blackoutWarnAt = def.blackouts ? 38 + rng() * 20 : Infinity;
     let blackoutStartAt = Infinity;
+    /** Invite en groupe : fin du clignotement d'avertissement annonce par l'hote (-1 : aucun). */
+    let guestWarnEnd = -1;
     let blackoutEndAt = Infinity;
     let devFlyHeight = 0;
     let devSnapTimer = 0;
@@ -1633,6 +1651,15 @@ export default function BackroomsScene({
       if (def.objective === "vannes") return valvesDone >= def.goalCount;
       return true;
     }
+    // Minuteries ponctuelles (sons differes), annulees quand on quitte la scene.
+    const pendingTimers = new Set<number>();
+    function later(ms: number, fn: () => void) {
+      const id = window.setTimeout(() => {
+        pendingTimers.delete(id);
+        fn();
+      }, ms);
+      pendingTimers.add(id);
+    }
     function completeLevel(broadcast = true) {
       if (noclipSince >= 0 || dyingSince >= 0 || ended) return;
       if (broadcast) link?.sendEvent({ type: "complete" });
@@ -1643,9 +1670,9 @@ export default function BackroomsScene({
       } else {
         playDoorOpen(audio.ctx, audio.master);
       }
-      window.setTimeout(() => {
+      later(500, () => {
         if (!ended) playNoclip(audio.ctx, audio.master);
-      }, 500);
+      });
     }
 
     function interact() {
@@ -1711,6 +1738,7 @@ export default function BackroomsScene({
 
     function startBlackout(spawn: boolean) {
       blackoutStartAt = Math.min(blackoutStartAt, elapsed);
+      guestWarnEnd = -1;
       powerTarget = 0;
       setBlackout(true);
       playBlackout(audio.ctx, audio.master);
@@ -1728,9 +1756,9 @@ export default function BackroomsScene({
         brain.state = "errer";
         brain.goal = null;
       }
-      window.setTimeout(() => {
+      later(900, () => {
         if (!ended) playSmilerGiggle(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 0.8));
-      }, 900);
+      });
       showHint("Coupure. Éteins ta lampe : dans le noir, la lumière l'attire.", 4);
     }
     function endBlackout() {
@@ -1784,6 +1812,12 @@ export default function BackroomsScene({
             noises = pruneNoises(noises, elapsed);
           }
           break;
+        case "blackout-warn":
+          if (!isHost && def.blackouts && blackoutStartAt === Infinity && guestWarnEnd < 0) {
+            guestWarnEnd = elapsed + BLACKOUT_WARN_SECONDS;
+            playFlicker(audio.ctx, audio.master);
+          }
+          break;
         case "blackout":
           if (!isHost) {
             if (ev.on) startBlackout(false);
@@ -1814,12 +1848,40 @@ export default function BackroomsScene({
 
     function resume() {
       if (document.hidden || contextIsLost) return;
+      menuPaused = false;
+      settingsPaused = false;
       if (pausedRef.current) {
         pausedRef.current = false;
         setPaused(false);
       }
       lastTime = performance.now();
       audio.ctx.resume().catch(() => {});
+    }
+
+    // Pause "menu" en solo : souris liberee (Echap) ou reglages ouverts. Elle ne
+    // se leve qu'au clic, pas au simple retour sur l'onglet. En groupe le monde
+    // est partage : jamais de pause. Sur ecran tactile la souris n'est jamais
+    // capturee, donc la pause par Echap ne s'y declenche pas.
+    const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    let menuPaused = false;
+    let settingsPaused = false;
+    function pauseForMenu(): boolean {
+      if (link || ended || pausedRef.current || contextIsLost) return false;
+      if (dyingSince >= 0 || noclipSince >= 0 || devOpenRef.current) return false;
+      menuPaused = true;
+      pausedRef.current = true;
+      setPaused(true);
+      releaseEverything();
+      audio.ctx.suspend().catch(() => {});
+      return true;
+    }
+    function requestLock() {
+      if (coarsePointer || document.pointerLockElement === renderer.domElement) return;
+      try {
+        renderer.domElement.requestPointerLock?.()?.catch(() => {});
+      } catch {
+        // ignore
+      }
     }
 
     apiRef.current = {
@@ -1830,7 +1892,27 @@ export default function BackroomsScene({
       toggleLamp,
       drink,
       toggleCrouch,
-      resume,
+      resume: () => {
+        resume();
+        requestLock();
+      },
+      setSettingsOpen: (open: boolean) => {
+        if (open) {
+          if (!coarsePointer && pauseForMenu()) settingsPaused = true;
+        } else if (settingsPaused) {
+          // Pause due aux seuls reglages (jeu a la souris sans capture) : on repart.
+          resume();
+        }
+      },
+      applyQuality: (q: Quality3D) => {
+        quality = q;
+        // Resolution : tout de suite. Lampes et anticrenelage : au niveau suivant.
+        const next = q === "performance" ? Math.min(pixelRatio, pixelCap()) : pixelCap();
+        if (next !== pixelRatio) {
+          pixelRatio = next;
+          renderer.setPixelRatio(pixelRatio);
+        }
+      },
       devTeleport: (x: number, z: number) => {
         if (!devLiveRef.current || !Number.isFinite(x) || !Number.isFinite(z)) return;
         let tx = Math.floor(x);
@@ -1950,12 +2032,18 @@ export default function BackroomsScene({
         setPaused(true);
         releaseEverything();
         audio.ctx.suspend().catch(() => {});
-      } else {
+      } else if (!menuPaused) {
         resume();
       }
     }
     function onReturn() {
-      if (pausedRef.current && !document.hidden) resume();
+      if (pausedRef.current && !document.hidden && !menuPaused) resume();
+    }
+    let wasLocked = false;
+    function onPointerLockChange() {
+      const locked = document.pointerLockElement === renderer.domElement;
+      if (wasLocked && !locked) pauseForMenu();
+      wasLocked = locked;
     }
     let contextIsLost = false;
     function onContextLost(e: Event) {
@@ -1984,6 +2072,7 @@ export default function BackroomsScene({
     window.addEventListener("focus", onReturn);
     window.addEventListener("pageshow", onReturn);
     document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
     const initialVisibility = window.setTimeout(() => {
       if (document.hidden) onVisibility();
     }, 0);
@@ -2155,6 +2244,11 @@ export default function BackroomsScene({
       if (moving && firstMoveAt < 0) firstMoveAt = elapsed;
 
       const wantsSprint = keys.has("shift") || held.sprint;
+      // Courir en etant accroupi : on se releve d'abord, comme dans les autres jeux.
+      if (wantsSprint && moving && crouching && !devRef.current.fly && dyingSince < 0) {
+        crouching = false;
+        setCrouched(false);
+      }
       const sprinting = wantsSprint && moving && !crouching && !exhausted;
       if (sprinting) {
         if (!devRef.current.infinite) staminaLevel = Math.max(0, staminaLevel - def.staminaDrain * delta);
@@ -2362,12 +2456,24 @@ export default function BackroomsScene({
       // --- Coupures de courant (niveaux 1 et 3) ---
       if (def.blackouts) {
         if (elapsed >= blackoutWarnAt && blackoutStartAt === Infinity) {
-          blackoutStartAt = elapsed + 2.2;
+          blackoutStartAt = elapsed + BLACKOUT_WARN_SECONDS;
           playFlicker(audio.ctx, audio.master);
+          // Les invites clignotent aussi : sinon la coupure leur tombe dessus sans prevenir.
+          link?.sendEvent({ type: "blackout-warn" });
         }
         if (elapsed < blackoutStartAt && blackoutStartAt !== Infinity) {
           // Avertissement : tout clignote.
           powerTarget = Math.sin(elapsed * 30) > 0 ? 1 : 0.15;
+        }
+        if (guestWarnEnd >= 0) {
+          // Invite : meme clignotement, en attendant l'annonce de l'hote.
+          if (elapsed < guestWarnEnd) {
+            powerTarget = Math.sin(elapsed * 30) > 0 ? 1 : 0.15;
+          } else {
+            guestWarnEnd = -1;
+            // Annonce en retard (ou perdue) : on rallume en attendant.
+            if (blackoutStartAt === Infinity) powerTarget = 1;
+          }
         }
         if (isHost && elapsed >= blackoutStartAt && blackoutEndAt === Infinity) {
           blackoutEndAt = elapsed + 15 + rng() * 8;
@@ -2520,7 +2626,13 @@ export default function BackroomsScene({
                 noises,
                 noiseWalls: noises.map((n) => wallsBetween(n.x, n.z, entity.x, entity.z, isSolid)),
                 forceChase: def.id === "niveau-run",
-                pressure: def.objective === "vannes" ? valvesDone / def.goalCount : 0.4,
+                // Elle se rapproche a mesure que l'objectif avance (vannes, fusibles, badges).
+                pressure:
+                  def.objective === "vannes"
+                    ? valvesDone / def.goalCount
+                    : def.objective === "fusibles" && def.goalCount > 0
+                      ? fuses / def.goalCount
+                      : 0.4,
               },
               mapQuery,
               rng,
@@ -2715,7 +2827,8 @@ export default function BackroomsScene({
       // --- Lucidite ---
       if (def.sanityDrain > 0 && !spectating) {
         const dark = lightHere < 0.25 && !lamp;
-        const drain = def.sanityDrain * (dark ? 2.4 : 1) + (threat > 0.4 ? 1.6 : 0);
+        // Rien ne baisse pendant le carton titre : l'entite aussi est figee.
+        const drain = elapsed < INTRO_SECONDS ? 0 : def.sanityDrain * (dark ? 2.4 : 1) + (threat > 0.4 ? 1.6 : 0);
         sanityLevel = devRef.current.infinite ? 100 : Math.max(0, sanityLevel - drain * delta);
         if (sanityLevel <= 0) killPlayer("lucidite");
         const lost = 1 - sanityLevel / 100;
@@ -2859,6 +2972,11 @@ export default function BackroomsScene({
         hemi.intensity = 3 * brightness;
       } else if (fog.near !== def.fog.near) {
         fog.near = def.fog.near;
+      }
+      const wantFar = devRef.current.fly ? 600 : VIEW_FAR;
+      if (camera.far !== wantFar) {
+        camera.far = wantFar;
+        camera.updateProjectionMatrix();
       }
       handRig.group.visible = !devRef.current.fly && !spectating;
 
@@ -3056,6 +3174,8 @@ export default function BackroomsScene({
       window.clearInterval(intervalId);
       window.clearTimeout(initialVisibility);
       window.clearTimeout(lampSync);
+      for (const id of pendingTimers) window.clearTimeout(id);
+      pendingTimers.clear();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
@@ -3063,6 +3183,7 @@ export default function BackroomsScene({
       window.removeEventListener("focus", onReturn);
       window.removeEventListener("pageshow", onReturn);
       document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
       document.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onCanvasClick);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
@@ -3244,6 +3365,8 @@ export default function BackroomsScene({
           apiRef.current?.applyBrightness(b);
         }}
         brightness={brightnessLoaded}
+        onQuality={(q) => apiRef.current?.applyQuality(q)}
+        onOpenChange={(open) => apiRef.current?.setSettingsOpen(open)}
       />
 
       {/* En bas a gauche : objectif et signal. */}
@@ -3415,8 +3538,9 @@ export default function BackroomsScene({
         </p>
       )}
 
+      {/* z-20 : sous le bouton des reglages (z-30), qu'on doit pouvoir ouvrir en pause. */}
       {paused && !contextLost && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/90" style={{ color: accent }}>
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/90" style={{ color: accent }}>
           <span className="text-2xl tracking-[0.4em]">⏸ PAUSE</span>
           <button type="button" onClick={() => apiRef.current?.resume()} className="border px-5 py-2 text-sm tracking-widest" style={{ borderColor: accent }}>
             REPRENDRE
