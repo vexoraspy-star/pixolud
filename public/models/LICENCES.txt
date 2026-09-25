@@ -18,7 +18,7 @@ Mannequin, squelette et animations : Mesh2Motion (licence CC0 1.0),
 https://github.com/Mesh2Motion/mesh2motion-app. Corps etire et decharne le
 24/09/2026 dans Blender (bras, jambes et cou allonges, membres affines),
 7 animations choisies et renommees (Rode, Course, Tapie, Ecoute, Attaque, Cri,
-Rampe). La tete est dessinee en code dans le jeu.
+Rampe). Tete du mannequin retiree : le jeu y pose une tete dessinee en code.
 
 soldat-danses.glb — les 20 danses animees du Duel
 -------------------------------------------------

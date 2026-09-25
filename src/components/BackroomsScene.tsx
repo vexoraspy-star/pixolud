@@ -1360,8 +1360,14 @@ export default function BackroomsScene({
             return;
           }
           m.tint(() => true, 0x1d191b);
-          // Pour l'instant, la tete lisse et sans visage du modele (la tete en
-          // code se posait mal : les animations ont des pistes d'echelle).
+          // Le modele n'a pas de tete (retiree dans Blender) : on y pose la
+          // tete dessinee en code (crane, dents, machoire qui claque), qui suit
+          // l'os de la tete dans toutes les animations.
+          const pivot = new THREE.Group();
+          if (m.attach("head", pivot)) {
+            bacteria.head.position.set(0, -0.02, 0.02);
+            pivot.add(bacteria.head);
+          }
           bacteria.body.visible = false;
           bacteria.group.add(m.root);
           m.play("Rode", { randomStart: true });
@@ -2777,7 +2783,8 @@ export default function BackroomsScene({
           lunge: entity.lunge,
           scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
         });
-        animateBacteriaModel(delta, renderSpeed, entity.lunge, THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1), state);        if (entity.active && runReleased && !introHold) {
+        animateBacteriaModel(delta, renderSpeed, entity.lunge, THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1), state);
+        if (entity.active && runReleased && !introHold) {
           if (elapsed >= nextClickAt && distM < 26) {
             nextClickAt = elapsed + 1.1 + rng() * 1.8;
             playBacteriaClicks(audio.ctx, audio.master, spatial(entity.x, entity.z, 26, 1.1));
