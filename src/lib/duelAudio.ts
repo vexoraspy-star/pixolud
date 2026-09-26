@@ -382,3 +382,106 @@ export function playMatchEnd(ctx: AudioContext, master: GainNode, win: boolean) 
     window.setTimeout(() => tone(ctx, master, "triangle", f, f, 0.35, 0.3, 0.01), i * 150);
   });
 }
+
+// ---------------------------------------------------------------- couteaux
+// Tout est synthetise, comme le reste : un souffle filtre dont la frequence
+// glisse fait le sifflement d'une lame, un choc grave et mouille fait la
+// chair, deux notes metalliques tres courtes font l'acier sur la pierre.
+
+/**
+ * Souffle dont le filtre balaie f0 -> f1 -> f2 : le son d'un objet fin qui
+ * fend l'air. L'enveloppe monte puis retombe (la lame passe pres de l'oreille).
+ */
+function whoosh(
+  ctx: AudioContext,
+  dest: AudioNode,
+  seconds: number,
+  gain: number,
+  f0: number,
+  f1: number,
+  f2: number,
+  q = 1.4,
+  delay = 0,
+) {
+  const size = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+  const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < size; i++) {
+    const t = i / size;
+    data[i] = (Math.random() * 2 - 1) * Math.pow(Math.sin(Math.PI * t), 1.6) * (1 - t * 0.35);
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const f = ctx.createBiquadFilter();
+  f.type = "bandpass";
+  f.Q.value = q;
+  const now = ctx.currentTime + delay;
+  f.frequency.setValueAtTime(f0, now);
+  f.frequency.linearRampToValueAtTime(f1, now + seconds * 0.45);
+  f.frequency.exponentialRampToValueAtTime(Math.max(40, f2), now + seconds);
+  const g = ctx.createGain();
+  g.gain.value = gain;
+  src.connect(f);
+  f.connect(g);
+  g.connect(dest);
+  src.start(now);
+}
+
+/** La lame fend l'air : bref et aigu pour le coup rapide, plus ample pour le coup lourd. */
+export function playKnifeSwing(ctx: AudioContext, master: GainNode, heavy = false, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  if (heavy) {
+    whoosh(ctx, dest, 0.3, 0.5, 500, 1900, 700, 1.1);
+    whoosh(ctx, dest, 0.22, 0.18, 2600, 5200, 2400, 3, 0.04);
+  } else {
+    whoosh(ctx, dest, 0.17, 0.42, 900, 3200, 1300, 1.5);
+    whoosh(ctx, dest, 0.12, 0.14, 3800, 6400, 3000, 3.5, 0.02);
+  }
+}
+
+/** La lame entre dans la chair : un choc sourd, un bruit mouille, et c'est tout. */
+export function playKnifeFlesh(ctx: AudioContext, master: GainNode, heavy = false, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  const k = heavy ? 1.35 : 1;
+  tone(ctx, dest, "sine", 150 * (heavy ? 0.85 : 1), 55, 0.13 * k, 0.42 * k, 0.003);
+  noise(ctx, dest, 0.08 * k, 0.5 * k, (t) => Math.pow(1 - t, 2.4), { type: "lowpass", freq: 950 });
+  // Le « schlac » : une bande etroite qui s'eteint vite.
+  noise(ctx, dest, 0.07 * k, 0.34 * k, (t) => Math.pow(1 - t, 3) * (0.6 + 0.4 * Math.sin(t * 60)), { type: "bandpass", freq: 420, q: 3 }, 0.012);
+  noise(ctx, dest, 0.05, 0.12, (t) => Math.pow(1 - t, 3), { type: "highpass", freq: 2600 }, 0.004);
+}
+
+/** La lame ripe sur un mur : deux notes d'acier tres breves et un grattement. */
+export function playKnifeWall(ctx: AudioContext, master: GainNode, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  noise(ctx, dest, 0.045, 0.4, (t) => Math.pow(1 - t, 3), { type: "highpass", freq: 3400 });
+  tone(ctx, dest, "triangle", 3150, 2700, 0.2, 0.13, 0.001);
+  tone(ctx, dest, "triangle", 4750, 4300, 0.13, 0.07, 0.001, 0.004);
+  noise(ctx, dest, 0.14, 0.16, (t) => (1 - t) * (0.5 + 0.5 * Math.sin(t * 90)), { type: "bandpass", freq: 1900, q: 2 }, 0.015);
+}
+
+/** Les gestes du couteau tenu en main (voir duelKnives). */
+export type KnifeFoley = "sortie" | "clac" | "tour" | "frottement";
+
+export function playKnifeFoley(ctx: AudioContext, master: GainNode, sound: KnifeFoley) {
+  switch (sound) {
+    case "sortie":
+      // La lame glisse hors de l'etui, puis l'acier chante un instant.
+      whoosh(ctx, master, 0.22, 0.14, 2200, 5200, 3600, 2.5);
+      tone(ctx, master, "triangle", 3350, 3180, 0.42, 0.045, 0.004, 0.16);
+      tone(ctx, master, "sine", 5100, 4950, 0.3, 0.02, 0.004, 0.17);
+      break;
+    case "clac":
+      // Loquet du papillon : deux pieces de metal qui se referment.
+      tone(ctx, master, "square", 1900, 1400, 0.03, 0.11, 0.001);
+      noise(ctx, master, 0.03, 0.22, (t) => Math.pow(1 - t, 3), { type: "highpass", freq: 3000 });
+      tone(ctx, master, "triangle", 2900, 2700, 0.07, 0.04, 0.001, 0.012);
+      break;
+    case "tour":
+      whoosh(ctx, master, 0.13, 0.1, 900, 2400, 1000, 1.8);
+      break;
+    case "frottement":
+      // Le pouce glisse sur le plat de la lame.
+      noise(ctx, master, 0.32, 0.07, (t) => Math.sin(Math.PI * t), { type: "bandpass", freq: 2600, q: 4 });
+      break;
+  }
+}
