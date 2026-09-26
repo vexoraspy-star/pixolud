@@ -1875,8 +1875,10 @@ export function buildDecor(opts: {
       const p = wallPose(spot, 0);
       const b = p.base;
       put(bTile, p.x, b + 0.45, p.z, p.yaw, 0, 0.28, 0.7, 0.9, 0.56);
-      // La planche flechit un peu vers le bout.
-      put(bBoard, p.x, b + 0.93, p.z, p.yaw, 0, 1.15, 0.5, 0.06, 1.9, 0.025);
+      // La planche flechit un peu vers le bout. Elle traverse la margelle
+      // (une case) et avance d'environ 80 cm au-dessus de l'eau.
+      const boardLen = CS + 0.6;
+      put(bBoard, p.x, b + 0.93, p.z, p.yaw, 0, 0.2 + boardLen / 2, 0.5, 0.06, boardLen, 0.025);
       for (const s of [-1, 1]) {
         put(bRail, p.x, b + 1.27, p.z, p.yaw, s * 0.3, 0.5, 0.02, 0.7, 0.02);
         put(bRail, p.x, b + 1.62, p.z, p.yaw, s * 0.3, 0.27, 0.02, 0.5, 0.02, Math.PI / 2, 0);

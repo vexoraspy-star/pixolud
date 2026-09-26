@@ -272,6 +272,9 @@ const HUD_ACCENT: Partial<Record<LevelId, string>> = {
 
 /** Premier conseil, a la fin du carton titre, dans les niveaux des nouveaux monstres. */
 const INTRO_HINT: Partial<Record<LevelId, string>> = {
+  "niveau-0": "Tu n'es pas seul. Il ne bouge pas quand tu le regardes… alors retourne-toi souvent.",
+  "niveau-3": "Quand le courant saute, ils sortent. Ils ne voient rien : ne fais pas de bruit.",
+  "niveau-4": "Quelqu'un a préparé une fête entre les bureaux. S'il te fait coucou… cours.",
   "niveau-5": "Quelqu'un porte un visage qui n'est pas le sien. Tant que tu le regardes, il ne bouge pas.",
   "niveau-6": "Ils ne voient rien. Ils entendent tout. Avance accroupi, et ne cours pas.",
   "niveau-fun": "Si quelqu'un te fait coucou… cours.",
@@ -1839,6 +1842,15 @@ export default function BackroomsScene({
     // Salles marquantes sombres (neons morts, chaise seule) : l'ambiance baisse quand on y entre.
     let zoneDark = 0;
     let ambientShown = 1;
+    /** 0 a 1 : les lampes hors de la salle sombre ou l'on se trouve s'effacent. */
+    let roomDim = 0;
+    /** Code de zone de la derniere salle sombre ou l'on est entre. */
+    let darkRoomCode = 0;
+    /** Code de zone (salle marquante) de la case de chaque luminaire. */
+    const fixtureZone = new Uint8Array(Math.max(1, data.lights.length));
+    data.lights.forEach((l, k) => {
+      fixtureZone[k] = data.zones[l.y * W + l.x] ?? 0;
+    });
     let nextVoiceNoiseAt = 0;
     let micShown = 0;
     let spectating = false;

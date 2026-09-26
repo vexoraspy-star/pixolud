@@ -78,9 +78,9 @@ export const LEVELS: LevelDef[] = [
     id: "niveau-0",
     number: "0",
     name: "Le Hall",
-    tagline: "Moquette humide, papier peint jaune, et le bourdonnement des néons. Pour toujours.",
+    tagline: "Moquette humide, papier peint jaune, et quelqu'un qui ne bouge que quand tu tournes le dos.",
     objective: "sortie",
-    entity: "aucune",
+    entity: "voleur",
     lighting: "neons",
     cellSize: 2,
     wallHeight: 2.8,
@@ -92,9 +92,10 @@ export const LEVELS: LevelDef[] = [
     crouch: 1.6,
     staminaDrain: 20,
     staminaRegen: 14,
-    entityWander: 0,
-    entityInvestigate: 0,
-    entityChase: 0,
+    // Le Hall reste le niveau d'apprentissage : le Voleur y est plus lent.
+    entityWander: 1.2,
+    entityInvestigate: 2,
+    entityChase: 3.6,
     sanityDrain: 0.32,
     fog: { color: 0x8a7b3c, near: 6, far: 34 },
     hemi: { sky: 0xfff1b0, ground: 0x6b5a1e, intensity: 1.05 },
@@ -167,9 +168,9 @@ export const LEVELS: LevelDef[] = [
     id: "niveau-3",
     number: "3",
     name: "Centrale électrique",
-    tagline: "Brique noircie, machines qui grondent et courant qui saute. Dans le noir, quelque chose sourit.",
+    tagline: "Brique noircie, machines qui grondent et courant qui saute. Dans le noir, quelque chose gratte à quatre pattes.",
     objective: "vannes",
-    entity: "souriant",
+    entity: "chiens",
     lighting: "secours",
     blackouts: true,
     cellSize: 2.2,
@@ -198,9 +199,9 @@ export const LEVELS: LevelDef[] = [
     id: "niveau-4",
     number: "4",
     name: "Bureaux abandonnés",
-    tagline: "Des open-spaces sans fin et des écrans allumés pour personne. Quelque chose rôde entre les box.",
+    tagline: "Des open-spaces sans fin et des écrans allumés pour personne. Quelqu'un a organisé un pot de départ… pour toi.",
     objective: "fusibles",
-    entity: "bacterie",
+    entity: "fetards",
     lighting: "neons",
     cellSize: 2,
     wallHeight: 2.9,
@@ -2279,23 +2280,23 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
 
   // La salle a la chaise reste vide : ni sortie, ni objet a ramasser, ni decor seme.
   const lonelyChair = (i: number) => zones[i] !== 0 && zoneKind(zones, i) === "chaise-seule";
+  // Pas de porte de sortie sur la margelle du bassin profond : le plongeoir
+  // (pose par le decor contre l'un de ses murs) pourrait la masquer.
+  const noExitHere = (i: number) => zones[i] !== 0 && (lonelyChair(i) || zoneKind(zones, i) === "bassin-profond");
 
   // --- Sortie : une porte dans un mur, parmi les cases les plus eloignees ---
   let exit: WallSpot = { x: start.x, y: start.y, dir: "N" };
   if (runEnd) {
     exit = { x: runEnd.x, y: runEnd.y, dir: runEnd.x === 1 ? "W" : "E" };
   } else {
-    const far = reachable
-      .filter(
-        (i) =>
-          distance[i] >= maxDist * 0.82 &&
-          !water[i] &&
-          !lonelyChair(i) &&
-          !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows),
-      )
-      .map((i) => ({ x: i % w, y: Math.floor(i / w) }))
+    const farAll = reachable
+      .filter((i) => distance[i] >= maxDist * 0.82 && !water[i] && !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows))
+      .map((i) => ({ i, x: i % w, y: Math.floor(i / w) }))
       .map((c) => ({ ...c, dirs: wallDirs(cells, w, h, c.x, c.y) }))
       .filter((c) => c.dirs.length > 0);
+    // Hors de ces deux salles, sauf si elles seules sont assez loin.
+    const farOk = farAll.filter((c) => !noExitHere(c.i));
+    const far = farOk.length > 0 ? farOk : farAll;
     const pick = far[Math.floor(rng() * far.length)] ?? { x: start.x, y: start.y, dirs: ["N" as Dir] };
     exit = { x: pick.x, y: pick.y, dir: pick.dirs[Math.floor(rng() * pick.dirs.length)] };
   }
