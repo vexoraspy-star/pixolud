@@ -106,13 +106,13 @@ export const GAMES_3D: Game3D[] = [
     slug: "backrooms",
     title: "Backrooms",
     description:
-      "Tu as traversé le sol par accident. Des couloirs jaunes à perte de vue, le bourdonnement des néons, et sept niveaux dont il faut trouver la sortie : le Hall, la Zone habitable, la Tuyauterie, la Centrale, les Bureaux, les Piscines… et un couloir où il ne reste qu'à courir.",
+      "Tu as traversé le sol par accident. Des couloirs jaunes à perte de vue, le bourdonnement des néons, et dix niveaux dont il faut trouver la sortie : le Hall, la Zone habitable, la Tuyauterie, la Centrale, les Bureaux, les Piscines, un couloir où il ne reste qu'à courir, un hôtel où quelqu'un porte un visage volé, le noir complet… et une fête où tout le monde sourit.",
     emoji: "🟨",
     gradient: "from-yellow-600 to-stone-900",
     genre: "Horreur",
     players: "Solo ou groupe de 4",
-    duration: "25 à 45 min",
-    highlights: ["Groupe avec code et vocal", "Elles entendent ta voix", "7 niveaux", "Style caméscope VHS"],
+    duration: "40 à 70 min",
+    highlights: ["Groupe avec code et vocal", "Elles entendent ta voix", "10 niveaux", "Style caméscope VHS"],
     featured: true,
   },
 ];

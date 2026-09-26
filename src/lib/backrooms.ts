@@ -390,7 +390,10 @@ export const CELL_PILLAR = 2;
 export const CELL_RACK = 3;
 export const CELL_PROP = 4;
 
-/** Salles marquantes imprimees dans la grille des niveaux 5, 6 et Fun. */
+/**
+ * Salles marquantes imprimees dans la grille : celles des niveaux 5, 6 et Fun,
+ * puis sept salles ajoutees aux niveaux 0, 1, 2, 4, 37 et 5 (voir EXTRA_ROOMS).
+ */
 export type RoomKind =
   | "chambres"
   | "bal"
@@ -401,9 +404,25 @@ export type RoomKind =
   | "gateau"
   | "ballons"
   | "piste"
-  | "guirlandes";
+  | "guirlandes"
+  // Niveau 0 : une chaise seule sous un seul neon ; une grande salle aux neons tous morts.
+  | "chaise-seule"
+  | "neons-morts"
+  // Niveau 1 : un labyrinthe de caisses empilees.
+  | "caisses"
+  // Niveau 2 : la salle des vannes geantes.
+  | "vannes"
+  // Niveau 4 : une salle de reunion.
+  | "reunion"
+  // Niveau 37 : un bassin profond, une margelle seche tout autour.
+  | "bassin-profond"
+  // Niveau 5 : le hall de reception, son comptoir et ses colonnes.
+  | "reception";
 
-/** Ordre fixe : la zone d'une case vaut l'index de sa salle ici, plus un (0 = aucune salle). */
+/**
+ * Ordre fixe : la zone d'une case vaut l'index de sa salle ici, plus un (0 = aucune salle).
+ * Toute nouvelle salle s'ajoute A LA FIN, sans jamais reordonner les precedentes.
+ */
 export const ROOM_KINDS: readonly RoomKind[] = [
   "chambres",
   "bal",
@@ -415,6 +434,13 @@ export const ROOM_KINDS: readonly RoomKind[] = [
   "ballons",
   "piste",
   "guirlandes",
+  "chaise-seule",
+  "neons-morts",
+  "caisses",
+  "vannes",
+  "reunion",
+  "bassin-profond",
+  "reception",
 ];
 
 /** Rectangle interieur d'une salle marquante, bornes incluses, en cases. */
@@ -440,7 +466,17 @@ function zoneCode(kind: RoomKind): number {
  * Objets pleins (cases CELL_PROP) : ils bloquent le passage et la vue comme un
  * mur, mais ont leur propre forme, dessinee par le decor.
  */
-export type PropKind = "colonne" | "gateau" | "chaudiere" | "lit" | "chariot" | "table";
+export type PropKind =
+  | "colonne"
+  | "gateau"
+  | "chaudiere"
+  | "lit"
+  | "chariot"
+  | "table"
+  | "chaise"
+  | "caisse"
+  | "vanne-geante"
+  | "comptoir";
 
 export interface PropItem {
   kind: PropKind;
@@ -450,8 +486,13 @@ export interface PropItem {
   x1: number;
   y1: number;
   /**
-   * 0 a 3. Lit : mur de la tete de lit ; chaudiere : face de la porte du
-   * foyer (index dans PROP_DIRS). Gateau, table, chariot : teinte.
+   * 0 a 3. Index dans PROP_DIRS pour les objets orientes : lit, mur de la
+   * tete de lit ; chaudiere, face de la porte du foyer ; chaise, cote vers
+   * lequel on regarde une fois assis ; vanne geante, face du volant ;
+   * comptoir, cote des clients. Gateau, table, chariot : teinte. Caisse :
+   * hauteur de la pile (0 = une caisse... 3 = quatre) et teinte.
+   * Chaise, caisse, vanne geante et colonne tiennent sur une case ; table et
+   * comptoir sur une rangee de plusieurs cases.
    */
   variant: number;
 }
@@ -701,13 +742,13 @@ export interface LevelData {
   stairs: { x0: number; x1: number }[];
   decor: DecorItem[];
   /**
-   * Bassins du niveau 37 et salle inondee du niveau 6 : 1 = eau peu profonde
-   * (on y marche, lentement).
+   * Bassins du niveau 37 (dont le bassin profond) et salle inondee du niveau
+   * 6 : 1 = eau peu profonde (on y marche, lentement).
    */
   water: Uint8Array;
   /** Salle marquante de chaque case : 0 aucune, sinon index dans ROOM_KINDS + 1 (voir zoneKind). */
   zones: Uint8Array;
-  /** Salles marquantes (niveaux 5, 6 et Fun), vides ailleurs. */
+  /** Salles marquantes (vides aux niveaux 3 et « ! »). */
   rooms: RoomMark[];
   /** Objets pleins (cases CELL_PROP), dessines par le decor. */
   props: PropItem[];
@@ -1320,14 +1361,270 @@ function connectPlan(plan: FloorPlan, w: number, h: number) {
   if (first >= 0) ensureConnected(plan.cells, w, h, first % w, Math.floor(first / w));
 }
 
+// ---------------------------------------------------------------------------
+// Les sept salles ajoutees aux anciens niveaux (et au hall de l'hotel)
+// ---------------------------------------------------------------------------
+//
+// Meme principe que les salles des niveaux 5, 6 et Fun, avec deux generateurs
+// de plus : `srng` pour les gabarits, `orng` pour les objets pleins. Ils sont
+// tires apres le reste de l'etage : l'ossature d'une graine ne bouge pas, les
+// salles s'impriment par-dessus.
+
+/** Salles ajoutees, niveau par niveau, de la plus grande a la plus petite. */
+const EXTRA_ROOMS: Partial<Record<LevelId, RoomKind[]>> = {
+  "niveau-0": ["neons-morts", "chaise-seule"],
+  "niveau-1": ["caisses"],
+  "niveau-2": ["vannes"],
+  "niveau-4": ["reunion"],
+  "niveau-37": ["bassin-profond"],
+  "niveau-5": ["reception"],
+};
+
+/** Cotes de la ceinture d'une salle perces d'au moins une ouverture. */
+function doorSides(cells: Uint8Array, w: number, r: RoomMark): Dir[] {
+  const open = (x: number, y: number) => cells[y * w + x] === CELL_OPEN;
+  const out: Dir[] = [];
+  let n = false;
+  let s = false;
+  let e = false;
+  let o = false;
+  for (let x = r.x0; x <= r.x1; x++) {
+    if (open(x, r.y0 - 1)) n = true;
+    if (open(x, r.y1 + 1)) s = true;
+  }
+  for (let y = r.y0; y <= r.y1; y++) {
+    if (open(r.x1 + 1, y)) e = true;
+    if (open(r.x0 - 1, y)) o = true;
+  }
+  if (n) out.push("N");
+  if (s) out.push("S");
+  if (e) out.push("E");
+  if (o) out.push("W");
+  return out;
+}
+
+/** Imprime le gabarit d'une salle ajoutee (murs, portes, piliers), sans ses objets. */
+function stampExtra(plan: FloorPlan, w: number, h: number, kind: RoomKind, srng: () => number): RoomMark | null {
+  const spotFor = (rw: number, rh: number, minW: number, minH: number) => findRoomSpot(plan, w, h, rw, rh, minW, minH, srng);
+  switch (kind) {
+    case "chaise-seule": {
+      // Petite, carree, une seule porte : la chaise est au centre exact.
+      const spot = spotFor(5, 5, 5, 5);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 1, 1) : null;
+    }
+    case "neons-morts": {
+      const spot = spotFor(randInt(srng, 14, 18), randInt(srng, 10, 12), 10, 8);
+      if (!spot) return null;
+      const room = stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 3, 2);
+      // Quelques piliers, comme ailleurs dans le Hall : on ne voit jamais le fond.
+      for (let y = room.y0 + 3; y <= room.y1 - 3; y += 4) {
+        for (let x = room.x0 + 3; x <= room.x1 - 3; x += 4) if (srng() < 0.55) plan.cells[y * w + x] = CELL_PILLAR;
+      }
+      return room;
+    }
+    case "caisses": {
+      const spot = spotFor(randInt(srng, 13, 15), randInt(srng, 11, 13), 9, 7);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 3, 2) : null;
+    }
+    case "vannes": {
+      const spot = spotFor(randInt(srng, 9, 11), randInt(srng, 7, 8), 7, 6);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 2, 1) : null;
+    }
+    case "reunion": {
+      const spot = spotFor(randInt(srng, 9, 11), 7, 7, 7);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 2, 1) : null;
+    }
+    case "bassin-profond": {
+      const spot = spotFor(randInt(srng, 10, 12), randInt(srng, 8, 10), 8, 7);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 3, 2) : null;
+    }
+    case "reception": {
+      const spot = spotFor(randInt(srng, 11, 13), randInt(srng, 8, 9), 9, 7);
+      return spot ? stampRoom(plan, w, h, kind, spot.x0, spot.y0, spot.rw, spot.rh, srng, 3, 2) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Imprime toutes les salles ajoutees demandees sur cet etage ; renvoie celles qui ont trouve leur place. */
+function stampExtras(plan: FloorPlan, w: number, h: number, kinds: readonly RoomKind[], srng: () => number): RoomMark[] {
+  const out: RoomMark[] = [];
+  for (const kind of kinds) {
+    const room = stampExtra(plan, w, h, kind, srng);
+    if (room) out.push(room);
+  }
+  return out;
+}
+
+/**
+ * Meuble une salle ajoutee. L'etage doit deja etre d'un seul tenant :
+ * placeProp refuse tout objet qui couperait un passage.
+ */
+function furnishExtra(plan: FloorPlan, w: number, h: number, room: RoomMark, orng: () => number) {
+  const { x0, y0, x1, y1 } = room;
+  const rw = x1 - x0 + 1;
+  const rh = y1 - y0 + 1;
+  const dirIndex = (d: Dir) => PROP_DIRS.indexOf(d);
+  switch (room.kind) {
+    case "chaise-seule": {
+      // Une chaise au centre, tournee vers la porte : elle attend quelqu'un.
+      const face = doorSides(plan.cells, w, room)[0] ?? PROP_DIRS[randInt(orng, 0, 3)];
+      placeProp(plan, w, h, "chaise", x0 + Math.floor(rw / 2), y0 + Math.floor(rh / 2), 1, 1, dirIndex(face));
+      break;
+    }
+    case "caisses": {
+      // Labyrinthe parfait sur les cases paires de la salle (les allees), les
+      // caisses sur les autres, puis des breches pour faire des boucles. Si la
+      // salle a une largeur paire, la derniere colonne reste une allee.
+      const nx = Math.floor((rw - 1) / 2) + 1;
+      const ny = Math.floor((rh - 1) / 2) + 1;
+      const lastX = (nx - 1) * 2;
+      const lastY = (ny - 1) * 2;
+      const aisle = new Uint8Array(rw * rh);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) aisle[2 * j * rw + 2 * i] = 1;
+      const seen = new Uint8Array(nx * ny);
+      const first = randInt(orng, 0, nx * ny - 1);
+      const stack: number[] = [first];
+      seen[first] = 1;
+      while (stack.length > 0) {
+        const cur = stack[stack.length - 1];
+        const ci = cur % nx;
+        const cj = (cur - ci) / nx;
+        const options: number[] = [];
+        for (const [dx, dy] of Object.values(DIRS)) {
+          const ni = ci + dx;
+          const nj = cj + dy;
+          if (ni < 0 || nj < 0 || ni >= nx || nj >= ny || seen[nj * nx + ni]) continue;
+          options.push(nj * nx + ni);
+        }
+        if (options.length === 0) {
+          stack.pop();
+          continue;
+        }
+        const next = options[Math.floor(orng() * options.length)];
+        const ni = next % nx;
+        const nj = (next - ni) / nx;
+        seen[next] = 1;
+        aisle[(cj + nj) * rw + (ci + ni)] = 1;
+        stack.push(next);
+      }
+      for (let ry = 0; ry <= lastY; ry++) {
+        for (let rx = 0; rx <= lastX; rx++) {
+          if (aisle[ry * rw + rx]) continue;
+          // Les poteaux (deux coordonnees impaires) restent toujours pleins.
+          const post = rx % 2 === 1 && ry % 2 === 1;
+          const variant = randInt(orng, 0, 3);
+          if (!post && orng() < 0.18) continue;
+          placeProp(plan, w, h, "caisse", x0 + rx, y0 + ry, 1, 1, variant);
+        }
+      }
+      break;
+    }
+    case "vannes": {
+      // Deux rangees de vannes geantes, volant tourne vers l'allee du milieu
+      // (une seule rangee si la salle est trop basse).
+      const rows = rh >= 7 ? [y0 + 2, y1 - 2] : [y0 + Math.floor(rh / 2)];
+      rows.forEach((y, k) => {
+        const face: Dir = rows.length === 1 ? (orng() < 0.5 ? "N" : "S") : k === 0 ? "S" : "N";
+        for (let x = x0 + 2; x <= x1 - 2; x += 3) placeProp(plan, w, h, "vanne-geante", x, y, 1, 1, dirIndex(face));
+      });
+      break;
+    }
+    case "reunion": {
+      // La grande table au milieu, des chaises tout autour (quelques-unes
+      // manquent), une a chaque bout. Le tableau au mur est pose par le decor.
+      const cy = y0 + Math.floor((rh - 1) / 2);
+      const inset = rw >= 9 ? 3 : 2;
+      const tx0 = x0 + inset;
+      const tx1 = x1 - inset;
+      if (tx1 < tx0 || !placeProp(plan, w, h, "table", tx0, cy, tx1 - tx0 + 1, 1, randInt(orng, 0, 3))) break;
+      for (let x = tx0; x <= tx1; x++) {
+        if (orng() < 0.8) placeProp(plan, w, h, "chaise", x, cy - 1, 1, 1, dirIndex("S"));
+        if (orng() < 0.8) placeProp(plan, w, h, "chaise", x, cy + 1, 1, 1, dirIndex("N"));
+      }
+      if (orng() < 0.75) placeProp(plan, w, h, "chaise", tx0 - 1, cy, 1, 1, dirIndex("E"));
+      if (orng() < 0.75) placeProp(plan, w, h, "chaise", tx1 + 1, cy, 1, 1, dirIndex("W"));
+      break;
+    }
+    case "reception": {
+      // Le comptoir court le long d'un grand mur sans porte, une rangee
+      // devant lui (le personnel passe derriere par les deux bouts) ; deux
+      // paires de colonnes dans le hall, et parfois un chariot a bagages.
+      const doors = doorSides(plan.cells, w, room);
+      const free = (["N", "S", "E", "W"] as Dir[]).filter((d) => !doors.includes(d));
+      const long = free.filter((d) => (rw >= rh ? d === "N" || d === "S" : d === "E" || d === "W"));
+      const pool = long.length > 0 ? long : free.length > 0 ? free : (["N"] as Dir[]);
+      const back = pool[Math.floor(orng() * pool.length)];
+      const along = back === "N" || back === "S" ? rw : rh;
+      const depth = back === "N" || back === "S" ? rh : rw;
+      // (a le long du mur du fond, d en s'en eloignant) -> case de la grille.
+      const at = (a: number, d: number): [number, number] =>
+        back === "N" ? [x0 + a, y0 + d] : back === "S" ? [x0 + a, y1 - d] : back === "W" ? [x0 + d, y0 + a] : [x1 - d, y0 + a];
+      const opposite: Record<Dir, Dir> = { N: "S", S: "N", E: "W", W: "E" };
+      if (along >= 7) {
+        const [ax, ay] = at(2, 1);
+        const [bx, by] = at(along - 3, 1);
+        const cx0 = Math.min(ax, bx);
+        const cy0 = Math.min(ay, by);
+        placeProp(plan, w, h, "comptoir", cx0, cy0, Math.abs(bx - ax) + 1, Math.abs(by - ay) + 1, dirIndex(opposite[back]));
+      }
+      const depths = depth - 2 > 3 ? [3, depth - 2] : [3];
+      for (const d of depths) {
+        for (const a of [1, along - 2]) {
+          const [cx, cy] = at(a, d);
+          placeProp(plan, w, h, "colonne", cx, cy, 1, 1, 0);
+        }
+      }
+      if (orng() < 0.5) {
+        const [cx, cy] = at(randInt(orng, 3, Math.max(3, along - 4)), randInt(orng, 3, Math.max(3, depth - 2)));
+        if (surroundedByOpen(plan.cells, w, h, cx, cy)) placeProp(plan, w, h, "chariot", cx, cy, 1, 1, randInt(orng, 0, 3));
+      }
+      break;
+    }
+    default:
+      // Neons morts, bassin profond : rien de plein (piliers deja poses, eau posee plus tard).
+      break;
+  }
+}
+
+function furnishExtras(plan: FloorPlan, w: number, h: number, rooms: readonly RoomMark[], orng: () => number) {
+  for (const room of rooms) furnishExtra(plan, w, h, room, orng);
+}
+
+/**
+ * Habille un etage genere a l'ancienne (grille seule) des salles ajoutees :
+ * gabarits, reliage, puis objets. Sans salle a poser, l'etage est rendu tel quel.
+ */
+function withExtraRooms(cells: Uint8Array, w: number, h: number, kinds: readonly RoomKind[], srng: () => number, orng: () => number): FloorPlan {
+  const plan: FloorPlan = { cells, zones: new Uint8Array(w * h), rooms: [], props: [] };
+  if (kinds.length === 0) return plan;
+  const marks = stampExtras(plan, w, h, kinds, srng);
+  if (marks.length === 0) return plan;
+  connectPlan(plan, w, h);
+  furnishExtras(plan, w, h, marks, orng);
+  return plan;
+}
+
 /**
  * Niveau 5 : un hotel. Des couloirs etroits en grille, des chambres fermees
  * (les portes numerotees sont posees par le decor), quelques chambres
  * ouvertes et des salons. Sur chaque etage, un grand couloir de chambres
  * presque sans croisement ; au rez, la salle de bal a colonnes ; a l'etage,
- * la chaufferie et ses chaudieres.
+ * la chaufferie et ses chaudieres. Le hall de reception (salle ajoutee,
+ * `extras`) est imprime apres eux, avec ses propres generateurs.
  */
-function genHotel(w: number, h: number, rng: () => number, trng: () => number, prng: () => number, floor: number): FloorPlan {
+function genHotel(
+  w: number,
+  h: number,
+  rng: () => number,
+  trng: () => number,
+  prng: () => number,
+  floor: number,
+  extras: readonly RoomKind[],
+  srng: () => number,
+  orng: () => number,
+): FloorPlan {
   const plan = newPlan(w, h, CELL_WALL);
   const { cells, zones } = plan;
   const cols: number[] = [];
@@ -1418,6 +1715,7 @@ function genHotel(w: number, h: number, rng: () => number, trng: () => number, p
     const spot = findRoomSpot(plan, w, h, randInt(trng, 9, 11), randInt(trng, 7, 8), 8, 7, trng);
     if (spot) boilerRoom = stampRoom(plan, w, h, "chaufferie", spot.x0, spot.y0, spot.rw, spot.rh, trng, 2, 1);
   }
+  const extraRooms = stampExtras(plan, w, h, extras, srng);
   connectPlan(plan, w, h);
 
   // --- Objets pleins ---
@@ -1458,6 +1756,7 @@ function genHotel(w: number, h: number, rng: () => number, trng: () => number, p
     if (zones[y * w + x] !== 0 || !surroundedByOpen(cells, w, h, x, y)) continue;
     placeProp(plan, w, h, "chariot", x, y, 1, 1, randInt(prng, 0, 3));
   }
+  furnishExtras(plan, w, h, extraRooms, orng);
   return plan;
 }
 
@@ -1650,7 +1949,9 @@ function themedLights(ctx: {
         continue;
       }
       if (walls.length === 0) {
-        // Salon, grande piece : un plafonnier de loin en loin.
+        // Salon, grande piece : un plafonnier de loin en loin. Le hall de
+        // reception a ses lustres, poses plus bas.
+        if (kind === "reception") continue;
         if (x % 3 === 0 && y % 3 === 0) lights.push({ x, y, state: state(0.12, 0.1), fixture: "ampoule", tint: 0xffd49a });
         continue;
       }
@@ -1664,6 +1965,26 @@ function themedLights(ctx: {
       for (let x = r.x0 + 2; x <= r.x1 - 2; x += 4) {
         if (cells[y * w + x] === CELL_OPEN) lights.push({ x, y, state: state(0.06, 0.1), fixture: "lustre", tint: 0xffe2a8 });
       }
+    }
+    // Le hall de reception : deux lustres dans l'axe de la piece, dont un qui
+    // tremble toujours un peu.
+    for (const r of ctx.rooms) {
+      if (r.kind !== "reception") continue;
+      const horizontal = r.x1 - r.x0 >= r.y1 - r.y0;
+      const cx = Math.floor((r.x0 + r.x1) / 2);
+      const cy = Math.floor((r.y0 + r.y1) / 2);
+      const spots: [number, number][] = horizontal
+        ? [
+            [cx - 2, cy],
+            [cx + 2, cy],
+          ]
+        : [
+            [cx, cy - 2],
+            [cx, cy + 2],
+          ];
+      spots.forEach(([x, y], k) => {
+        if (cells[y * w + x] === CELL_OPEN) lights.push({ x, y, state: k === 0 ? 0 : 2, fixture: "lustre", tint: 0xffe2a8 });
+      });
     }
   } else if (ctx.lighting === "noir") {
     const taken = new Set<number>();
@@ -1765,6 +2086,9 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   // (prng) ont leur propre generateur, pour ne jamais decaler le reste.
   const trng = mulberry32((seed ^ 0x7a11e5) + def.width * 131);
   const prng = mulberry32((seed ^ 0x9209b3) + def.width * 197);
+  // Les sept salles ajoutees apres coup : gabarits (srng) et objets (orng) a part.
+  const srng = mulberry32((seed ^ 0x5a1e57) + def.width * 211);
+  const orng = mulberry32((seed ^ 0x0b7ec7) + def.width * 227);
   /** Plans des etages generes avec des salles marquantes : rez d'abord, puis etage. */
   const plans: FloorPlan[] = [];
   const keep = (plan: FloorPlan) => {
@@ -1772,25 +2096,29 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     return plan.cells;
   };
   const genFloor = (fw: number, fh: number) => {
+    // Les salles ajoutees vont au rez ; celles qui n'y ont pas trouve de place
+    // retentent leur chance a l'etage.
+    const extras = (EXTRA_ROOMS[def.id] ?? []).filter((k) => !plans.some((p) => p.rooms.some((r) => r.kind === k)));
+    const withRooms = (floorCells: Uint8Array) => keep(withExtraRooms(floorCells, fw, fh, extras, srng, orng));
     switch (def.id) {
       case "niveau-1":
-        return genWarehouse(fw, fh, rng);
+        return withRooms(genWarehouse(fw, fh, rng));
       case "niveau-2":
-        return genPipes(fw, fh, rng);
+        return withRooms(genPipes(fw, fh, rng));
       case "niveau-3":
         return genPlant(fw, fh, rng);
       case "niveau-4":
-        return genOffice(fw, fh, rng);
+        return withRooms(genOffice(fw, fh, rng));
       case "niveau-37":
-        return genPools(fw, fh, rng);
+        return withRooms(genPools(fw, fh, rng));
       case "niveau-5":
-        return keep(genHotel(fw, fh, rng, trng, prng, plans.length));
+        return keep(genHotel(fw, fh, rng, trng, prng, plans.length, extras, srng, orng));
       case "niveau-6":
         return keep(genDark(fw, fh, rng, trng));
       case "niveau-fun":
         return keep(genParty(fw, fh, rng, trng, prng));
       default:
-        return genHall(fw, fh, rng);
+        return withRooms(genHall(fw, fh, rng));
     }
   };
 
@@ -1899,6 +2227,19 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   if (def.id === "niveau-37") {
     const target = Math.round(reachable.length * 0.17);
     let filled = 0;
+    // Le bassin profond d'abord : toute la salle sauf une margelle seche
+    // d'une case tout autour (le plongeoir s'y pose). Il compte dans le total.
+    for (const r of rooms) {
+      if (r.kind !== "bassin-profond") continue;
+      for (let y = r.y0 + 1; y <= r.y1 - 1; y++) {
+        for (let x = r.x0 + 1; x <= r.x1 - 1; x++) {
+          const i = y * w + x;
+          if (cells[i] !== CELL_OPEN || distance[i] < 0) continue;
+          water[i] = 1;
+          filled++;
+        }
+      }
+    }
     for (let tries = 0; tries < 500 && filled < target; tries++) {
       const pw = randInt(rng, 3, 7);
       const ph = randInt(rng, 3, 6);
@@ -1909,7 +2250,8 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
       for (let y = y0; y < y0 + ph && ok; y++) {
         for (let x = x0; x < x0 + pw; x++) {
           const i = y * w + x;
-          if (cells[i] !== CELL_OPEN || distance[i] < 0 || water[i]) {
+          // Jamais de flaque ordinaire dans une salle marquante : la margelle du bassin reste seche.
+          if (cells[i] !== CELL_OPEN || distance[i] < 0 || water[i] || zones[i] !== 0) {
             ok = false;
             break;
           }
@@ -1935,13 +2277,22 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     }
   }
 
+  // La salle a la chaise reste vide : ni sortie, ni objet a ramasser, ni decor seme.
+  const lonelyChair = (i: number) => zones[i] !== 0 && zoneKind(zones, i) === "chaise-seule";
+
   // --- Sortie : une porte dans un mur, parmi les cases les plus eloignees ---
   let exit: WallSpot = { x: start.x, y: start.y, dir: "N" };
   if (runEnd) {
     exit = { x: runEnd.x, y: runEnd.y, dir: runEnd.x === 1 ? "W" : "E" };
   } else {
     const far = reachable
-      .filter((i) => distance[i] >= maxDist * 0.82 && !water[i] && !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows))
+      .filter(
+        (i) =>
+          distance[i] >= maxDist * 0.82 &&
+          !water[i] &&
+          !lonelyChair(i) &&
+          !(stairRows > 0 && Math.floor(i / w) >= groundRows && Math.floor(i / w) < groundRows + stairRows),
+      )
       .map((i) => ({ x: i % w, y: Math.floor(i / w) }))
       .map((c) => ({ ...c, dirs: wallDirs(cells, w, h, c.x, c.y) }))
       .filter((c) => c.dirs.length > 0);
@@ -1957,10 +2308,27 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
     return r < deadChance ? 1 : r < deadChance + flickerChance ? 2 : 0;
   };
   if (def.lighting === "neons") {
+    // Salle aux neons morts : ils sont la, mais tous eteints. Salle a la
+    // chaise : aucun, sauf celui pose au-dessus d'elle. La ceinture de murs
+    // (et ses portes) compte avec la salle.
+    const darkRooms = rooms.filter((r) => r.kind === "neons-morts" || r.kind === "chaise-seule");
+    const darkAt = (x: number, y: number): RoomKind | null => {
+      for (const r of darkRooms) if (x >= r.x0 - 1 && x <= r.x1 + 1 && y >= r.y0 - 1 && y <= r.y1 + 1) return r.kind;
+      return null;
+    };
     for (let y = 1; y < h - 1; y += 3) {
       for (let x = 1; x < w - 1; x += 2) {
-        if (cells[y * w + x] === CELL_OPEN && !inStairwell(y)) lights.push({ x, y, state: lightState(0.07, 0.06) });
+        if (cells[y * w + x] !== CELL_OPEN || inStairwell(y)) continue;
+        const state = lightState(0.07, 0.06);
+        const dark = darkRooms.length > 0 ? darkAt(x, y) : null;
+        if (dark === "chaise-seule") continue;
+        lights.push({ x, y, state: dark === "neons-morts" ? 1 : state });
       }
+    }
+    for (const r of darkRooms) {
+      if (r.kind !== "chaise-seule") continue;
+      const chair = props.find((p) => p.kind === "chaise" && p.x0 >= r.x0 && p.x1 <= r.x1 && p.y0 >= r.y0 && p.y1 <= r.y1);
+      lights.push({ x: chair ? chair.x0 : Math.floor((r.x0 + r.x1) / 2), y: chair ? chair.y0 : Math.floor((r.y0 + r.y1) / 2), state: 0 });
     }
   } else if (def.lighting === "entrepot") {
     for (let y = 2; y < h - 1; y += 4) {
@@ -2007,7 +2375,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
   const openReachable = reachable.filter((i) => {
     const x = i % w;
     const y = (i - x) / w;
-    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y) && !inStairwell(y) && !water[i];
+    return Math.abs(x - start.x) + Math.abs(y - start.y) > 3 && !(x === exit.x && y === exit.y) && !inStairwell(y) && !water[i] && !lonelyChair(i);
   });
   const pickups: LevelData["pickups"] = [];
   const valves: WallSpot[] = [];
@@ -2147,7 +2515,7 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
       if (l.fixture === "baton") usedFloor.add(l.y * w + l.x);
       else if (l.fixture === "lustre" || l.fixture === "ampoule") usedCeiling.add(l.y * w + l.x);
     }
-    const pool = reachable.filter((i) => !inStairwell(Math.floor(i / w)));
+    const pool = reachable.filter((i) => !inStairwell(Math.floor(i / w)) && !lonelyChair(i));
 
     // Gyrophares du couloir de la course : reguliers, un tous les huit metres.
     if (def.id === "niveau-run") {
@@ -2232,17 +2600,62 @@ export function generateLevel(def: LevelDef, seed: number): LevelData {
               else if (roll < 0.55) onFloor("confettis", i, randInt(zrng, 0, 3));
             } else if (r.kind === "hall-noir") {
               if (zrng() < 0.22) onFloor("traces", i, randInt(zrng, 0, 3));
-            } else if (r.kind === "chaufferie") {
-              if (zrng() < 0.18) onFloor("flaque", i, randInt(zrng, 0, 3));
+            } else if (r.kind === "chaufferie" || r.kind === "vannes") {
+              if (zrng() < (r.kind === "vannes" ? 0.14 : 0.18)) onFloor("flaque", i, randInt(zrng, 0, 3));
+            } else if (r.kind === "neons-morts") {
+              // Des dalles de plafond tombees, quelques feuilles : personne n'a rallume.
+              const roll = zrng();
+              if (roll < 0.1) onCeiling("dalle", i, randInt(zrng, 0, 3));
+              else if (roll < 0.15) onFloor("papiers", i, randInt(zrng, 0, 3));
+            } else if (r.kind === "reunion") {
+              if (zrng() < 0.22) onFloor("papiers", i, randInt(zrng, 0, 3));
+            } else if (r.kind === "reception") {
+              if (zrng() < 0.05) onFloor("papiers", i, randInt(zrng, 0, 3));
+            } else if (r.kind === "caisses") {
+              if (zrng() < 0.05) onFloor("flaque", i, randInt(zrng, 0, 3));
             }
-            // Aux murs : manometres dans la chaufferie, griffures dans le hall des Chiens.
-            const wallKind: DecorKind | null = r.kind === "chaufferie" ? "manometre" : r.kind === "hall-noir" ? "griffures" : null;
+            // Aux murs : manometres dans la chaufferie et chez les vannes,
+            // griffures dans le hall des Chiens, tableaux a la reception.
+            const wallKind: DecorKind | null =
+              r.kind === "chaufferie" || r.kind === "vannes"
+                ? "manometre"
+                : r.kind === "hall-noir"
+                  ? "griffures"
+                  : r.kind === "reception"
+                    ? "tableau"
+                    : null;
             if (!wallKind) continue;
+            const chance = wallKind === "tableau" ? 0.12 : 0.3;
             for (const d of wallDirs(cells, w, h, x, y)) {
-              if (zrng() > 0.3 || usedFaces.has(faceKey(x, y, d))) continue;
+              if (zrng() > chance || usedFaces.has(faceKey(x, y, d))) continue;
               usedFaces.add(faceKey(x, y, d));
               decor.push({ kind: wallKind, x, y, dir: d, variant: randInt(zrng, 0, 3) });
             }
+          }
+        }
+        // Salle de reunion : le tableau au mur du bout de la table (sinon, au
+        // premier mur libre de la salle).
+        if (r.kind === "reunion") {
+          const table = props.find((p) => p.kind === "table" && p.x0 >= r.x0 && p.x1 <= r.x1 && p.y0 >= r.y0 && p.y1 <= r.y1);
+          const ty = table ? table.y0 : Math.floor((r.y0 + r.y1) / 2);
+          const faces: WallSpot[] = [
+            { x: r.x0, y: ty, dir: "W" },
+            { x: r.x1, y: ty, dir: "E" },
+          ];
+          for (let y = r.y0; y <= r.y1; y++) {
+            for (let x = r.x0; x <= r.x1; x++) {
+              if (x === r.x0 || x === r.x1 || y === r.y0 || y === r.y1) for (const d of wallDirs(cells, w, h, x, y)) faces.push({ x, y, dir: d });
+            }
+          }
+          const board = faces.find(
+            (f) =>
+              cells[f.y * w + f.x] === CELL_OPEN &&
+              wallDirs(cells, w, h, f.x, f.y).includes(f.dir) &&
+              !usedFaces.has(faceKey(f.x, f.y, f.dir)),
+          );
+          if (board) {
+            usedFaces.add(faceKey(board.x, board.y, board.dir));
+            decor.push({ kind: "tableau", x: board.x, y: board.y, dir: board.dir, variant: randInt(zrng, 0, 3) });
           }
         }
       }

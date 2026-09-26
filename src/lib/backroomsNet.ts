@@ -49,6 +49,15 @@ export interface NetEntityState {
   visible: boolean;
   lunge: number;
   opacity: number;
+  /**
+   * Nouveaux monstres (niveaux 5, 6 et Fun), facultatif : ce qu'il fait a
+   * l'ecran (etat du cerveau, ou « salut » pendant le coucou des Fetards).
+   */
+  pose?: string;
+  /** Voleur de peau fige : quelqu'un le regarde. */
+  frozen?: boolean;
+  /** Nombre de cris depuis le debut du niveau : chaque hausse en rejoue un chez les invites. */
+  calls?: number;
 }
 
 export type NetEvent =

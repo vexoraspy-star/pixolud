@@ -2190,3 +2190,188 @@ export function makeCheckerFloor(a = "#f4f4f4", b = "#1b1b1f", tiles = 2): THREE
   grain(ctx, S, S, 10);
   return finish(canvas);
 }
+
+// ---------------------------------------------------------------------------
+// Objets des salles marquantes (caisses, salle de reunion, reception)
+// ---------------------------------------------------------------------------
+
+/** Caisse en bois d'entrepot : planches clouees, cadre, croisillon et pochoir de zone. */
+export function makeWoodCrate(): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  ctx.fillStyle = "#3e2a14";
+  ctx.fillRect(0, 0, S, S);
+  // Planches horizontales, chacune de sa teinte, avec le fil du bois.
+  for (let y = 0; y < S; y += 32) {
+    const shade = Math.random() * 24 - 12;
+    ctx.fillStyle = `rgb(${150 + shade},${112 + shade},${66 + shade * 0.6})`;
+    ctx.fillRect(0, y + 1, S, 30);
+    ctx.strokeStyle = "rgba(70,45,15,0.3)";
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 3; k++) {
+      const gy = y + 6 + Math.random() * 20;
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(80, gy + 3, 170, gy - 3, S, gy + 1);
+      ctx.stroke();
+    }
+  }
+  // Pochoir sous le croisillon : zone et fleches.
+  ctx.fillStyle = "rgba(24,16,6,0.55)";
+  ctx.font = "bold 30px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("B-3", 86, 78);
+  ctx.font = "bold 22px monospace";
+  ctx.fillText("↑ ↑", 170, 186);
+  // Cadre et croisillon, plus sombres.
+  ctx.fillStyle = "#6b4b25";
+  ctx.fillRect(0, 0, S, 24);
+  ctx.fillRect(0, S - 24, S, 24);
+  ctx.fillRect(0, 0, 24, S);
+  ctx.fillRect(S - 24, 0, 24, S);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(24, 24, S - 48, S - 48);
+  ctx.clip();
+  ctx.translate(S / 2, S / 2);
+  ctx.rotate(-Math.PI / 4);
+  ctx.fillRect(-S * 0.75, -13, S * 1.5, 26);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(20,12,4,0.6)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, S - 2, S - 2);
+  ctx.strokeRect(24, 24, S - 48, S - 48);
+  // Clous.
+  ctx.fillStyle = "#1c1814";
+  for (const p of [12, S - 12]) {
+    for (const r of [12, S / 2, S - 12]) {
+      ctx.fillRect(p - 2, r - 2, 4, 4);
+      ctx.fillRect(r - 2, p - 2, 4, 4);
+    }
+  }
+  grain(ctx, S, S, 22);
+  return finish(canvas);
+}
+
+/**
+ * Tableau blanc de salle de reunion : cadre alu, courbe qui plonge, une
+ * liste au feutre et un mot entoure. Des traces mal effacees en dessous.
+ */
+export function makeWhiteboard(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 320;
+  const { canvas, ctx } = canvas2d(W, H);
+  ctx.fillStyle = "#eef0eb";
+  ctx.fillRect(0, 0, W, H);
+  // Fantomes d'anciennes reunions.
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = "rgba(90,100,120,0.07)";
+    ctx.beginPath();
+    ctx.ellipse(40 + Math.random() * (W - 80), 40 + Math.random() * (H - 80), 40 + Math.random() * 60, 8 + Math.random() * 14, (Math.random() - 0.5) * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#1f3f9a";
+  ctx.font = "bold 30px sans-serif";
+  ctx.fillText("OBJECTIFS", 34, 58);
+  ctx.fillStyle = "#23262b";
+  ctx.font = "21px sans-serif";
+  ["• trouver la sortie", "• rester calme", "• ne pas se retourner"].forEach((line, i) => ctx.fillText(line, 38, 104 + i * 34));
+  // Le graphique : des barres qui baissent, une fleche rouge qui plonge.
+  const ox = 300;
+  const oy = 230;
+  ctx.strokeStyle = "#23262b";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ox, 60);
+  ctx.lineTo(ox, oy);
+  ctx.lineTo(ox + 180, oy);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(31,63,154,0.75)";
+  [120, 96, 70, 40, 14].forEach((h, i) => ctx.fillRect(ox + 14 + i * 32, oy - h, 20, h));
+  ctx.strokeStyle = "#b3241c";
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(ox + 20, 92);
+  ctx.lineTo(ox + 90, 128);
+  ctx.lineTo(ox + 118, 116);
+  ctx.lineTo(ox + 168, 200);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ox + 152, 196);
+  ctx.lineTo(ox + 170, 204);
+  ctx.lineTo(ox + 172, 184);
+  ctx.stroke();
+  // Un mot entoure, en bas.
+  ctx.fillStyle = "#b3241c";
+  ctx.font = "bold 24px sans-serif";
+  ctx.fillText("SORTIE ?", 60, 270);
+  ctx.beginPath();
+  ctx.ellipse(116, 262, 78, 24, -0.05, 0, Math.PI * 2);
+  ctx.stroke();
+  // Un coup d'eponge qui a emporte la moitie d'une ligne.
+  ctx.fillStyle = "rgba(238,240,235,0.8)";
+  ctx.fillRect(150, 150, 90, 22);
+  // Cadre en aluminium.
+  ctx.strokeStyle = "#a6abb0";
+  ctx.lineWidth = 14;
+  ctx.strokeRect(7, 7, W - 14, H - 14);
+  ctx.strokeStyle = "rgba(40,44,48,0.5)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(14, 14, W - 28, H - 28);
+  grain(ctx, W, H, 6);
+  return finish(canvas);
+}
+
+/** Facade de comptoir de reception : panneau de noyer, filets de laiton, plinthe noire. Se repete le long du comptoir. */
+export function makeReceptionPanel(): THREE.CanvasTexture {
+  const W = 256;
+  const H = 200;
+  const { canvas, ctx } = canvas2d(W, H);
+  const g = ctx.createLinearGradient(0, 0, W, 0);
+  g.addColorStop(0, "#3a1c0d");
+  g.addColorStop(0.5, "#4a2612");
+  g.addColorStop(1, "#381a0c");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(15,6,2,0.3)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 30; i++) {
+    const x = Math.random() * W;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.bezierCurveTo(x + 4, H * 0.3, x - 4, H * 0.7, x + 1, H);
+    ctx.stroke();
+  }
+  // Panneau moulure, centre dans la largeur : il se raccorde a son voisin.
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.fillRect(22, 30, W - 44, H - 72);
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(22, 30, W - 44, H - 72);
+  ctx.strokeStyle = "rgba(230,160,100,0.2)";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(28, 36, W - 56, H - 84);
+  // Filets de laiton en haut et au-dessus de la plinthe.
+  ctx.fillStyle = "#c9a052";
+  ctx.fillRect(0, 8, W, 5);
+  ctx.fillRect(0, H - 34, W, 4);
+  ctx.fillStyle = "rgba(255,230,160,0.35)";
+  ctx.fillRect(0, 8, W, 1);
+  // Plinthe noire, rayee par les valises.
+  ctx.fillStyle = "#140a05";
+  ctx.fillRect(0, H - 30, W, 30);
+  ctx.strokeStyle = "rgba(120,90,50,0.3)";
+  for (let i = 0; i < 8; i++) {
+    const x = Math.random() * W;
+    ctx.beginPath();
+    ctx.moveTo(x, H - 26 + Math.random() * 8);
+    ctx.lineTo(x + 12 + Math.random() * 24, H - 18 + Math.random() * 12);
+    ctx.stroke();
+  }
+  grain(ctx, W, H, 14);
+  return finish(canvas);
+}

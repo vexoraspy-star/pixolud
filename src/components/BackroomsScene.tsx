@@ -5,13 +5,16 @@ import * as THREE from "three";
 import {
   CELL_OPEN,
   CELL_PILLAR,
+  CELL_PROP,
   CELL_RACK,
   CELL_WALL,
   DIRS,
+  fixtureBulb,
   floorYAt,
   generateLevel,
   isSolidCell,
   mulberry32,
+  zoneKind,
   type LevelDef,
   type LevelId,
   type PickupKind,
@@ -19,6 +22,8 @@ import {
 } from "@/lib/backrooms";
 import {
   makeArrowDecal,
+  makeBlackConcreteWall,
+  makeBlackFloor,
   makeBrickWall,
   makeCardboard,
   makeCeilingTiles,
@@ -31,12 +36,18 @@ import {
   makeGrating,
   makeHallCarpet,
   makeHallWallpaper,
+  makeHotelCarpet,
+  makeHotelCeiling,
+  makeHotelWallpaper,
   makeCubicleFabric,
   makeLightPanel,
   makeMachinePanel,
   makeMetalWall,
   makeOfficeCarpet,
   makeOfficeWall,
+  makePartyCarpet,
+  makePartyCeiling,
+  makePartyWallpaper,
   makePoolTile,
   makeScreenTexture,
   makeTileFloor,
@@ -64,7 +75,10 @@ import {
   playGripValve,
   playHandle,
   playHeartbeat,
+  playMonsterCall,
+  playMonsterStep,
   playNoclip,
+  playPartyMusic,
   playPowerOn,
   playRunBreath,
   playRunStart,
@@ -77,6 +91,7 @@ import {
   playValveTurn,
   playWhisper,
   type AudioFlavor,
+  type PartyMusic,
   type Surface,
 } from "@/lib/backroomsAudio";
 import {
@@ -93,7 +108,7 @@ import { VOICE_LOUD, type VoiceHub } from "@/lib/backroomsVoice";
 import { NOISE_RADIUS, pruneNoises, wallsBetween, type Noise, type NoiseKind } from "@/lib/manorNoise";
 import { createBrain, thinkMonster, type BrainState, type MapQuery, type SpeedMode } from "@/lib/manorAI";
 import { createAnimatedModel, type AnimatedModel } from "@/lib/models3d";
-import { buildMonster, isLookingAt, type Monster } from "@/lib/backroomsMonsters";
+import { buildMonster, isLookingAt, MONSTER_TRAITS, type Monster, type MonsterPose } from "@/lib/backroomsMonsters";
 import Game3DSettings from "./Game3DSettings";
 import BackroomsDevPanel, {
   BACKROOMS_DEV_OFF,
@@ -110,7 +125,8 @@ import {
   type Quality3D,
 } from "@/lib/settings3d";
 
-export type DeathCause = "souriant" | "bacterie" | "lucidite";
+/** Cause de la mort : l'entite du niveau (son `EntityKind`), ou la lucidite. */
+export type DeathCause = "souriant" | "bacterie" | "lucidite" | "voleur" | "chiens" | "fetards";
 
 export interface LevelStats {
   seconds: number;
@@ -192,6 +208,32 @@ function goalWords(id: LevelId): GoalWords {
         itemPrompt: "E — Ramasser le badge",
         openPrompt: "E — Passer les badges",
       };
+    case "niveau-5":
+      return {
+        todo: (n, t) => `Clés ${n}/${t}`,
+        todoDetail: "La porte de service ne s'ouvre qu'avec les clés du personnel.",
+        done: "Rejoins la porte de service",
+        doneDetail: "Tu as les trois clés.",
+        gotOne: (n, t) => (n < t ? `Clé ${n}/${t}.` : "Trois clés. À la porte de service."),
+        friend: (n, t) => `Un ami a trouvé une clé (${n}/${t}).`,
+        locked: (m) => `Fermée à clé. Il manque ${m} clé${plural(m)}.`,
+        lockedPrompt: "Fermée à clé",
+        itemPrompt: "E — Ramasser la clé",
+        openPrompt: "E — Ouvrir la porte de service",
+      };
+    case "niveau-fun":
+      return {
+        todo: (n, t) => `Enceintes ${n}/${t}`,
+        todoDetail: "Débranche-les pour faire taire la fête. Ils vont le remarquer.",
+        done: "Rejoins la sortie",
+        doneDetail: "La musique s'est tue. La porte est ouverte.",
+        gotOne: (n, t) => (n < t ? `Enceinte débranchée. Encore ${t - n}.` : "La dernière enceinte. Silence. La porte s'ouvre."),
+        friend: (n, t) => `Un ami a débranché une enceinte (${n}/${t}).`,
+        locked: (m) => `Fermée. Encore ${m} enceinte${plural(m)} à débrancher.`,
+        lockedPrompt: "Fermée",
+        itemPrompt: "Maintiens E — Débrancher l'enceinte",
+        openPrompt: "E — Ouvrir la porte",
+      };
     default:
       return {
         todo: (n, t) => `Fusibles ${n}/${t}`,
@@ -212,6 +254,9 @@ const AUDIO_FLAVOR: Partial<Record<LevelId, AudioFlavor>> = {
   "niveau-3": "centrale",
   "niveau-4": "bureaux",
   "niveau-37": "piscines",
+  "niveau-5": "hotel",
+  "niveau-6": "noir",
+  "niveau-fun": "fete",
 };
 
 const HUD_ACCENT: Partial<Record<LevelId, string>> = {
@@ -220,7 +265,20 @@ const HUD_ACCENT: Partial<Record<LevelId, string>> = {
   "niveau-3": "#ffcf8a",
   "niveau-4": "#dfe8ee",
   "niveau-37": "#c9f3f6",
+  "niveau-5": "#ffd2a0",
+  "niveau-6": "#bdf5c8",
+  "niveau-fun": "#ffbfe9",
 };
+
+/** Premier conseil, a la fin du carton titre, dans les niveaux des nouveaux monstres. */
+const INTRO_HINT: Partial<Record<LevelId, string>> = {
+  "niveau-5": "Quelqu'un porte un visage qui n'est pas le sien. Tant que tu le regardes, il ne bouge pas.",
+  "niveau-6": "Ils ne voient rien. Ils entendent tout. Avance accroupi, et ne cours pas.",
+  "niveau-fun": "Si quelqu'un te fait coucou… cours.",
+};
+
+/** Etat du monstre transmis au groupe et a l'animation : le coucou des Fetards s'ajoute aux etats du cerveau. */
+type MonsterDisplay = BrainState | "salut";
 const VALVE_SECONDS = 2.6;
 const CAPTURE = 0.65;
 const DEATH_SECONDS = 1.25;
@@ -486,6 +544,19 @@ export default function BackroomsScene({
     const WH = def.wallHeight;
     const rng = mulberry32(seed + 17);
     const isSolid = (x: number, y: number) => isSolidCell(cells, W, H, x, y);
+    /** Objet plein (chaise, caisse, comptoir...) : solide, mais dessine par le decor, pas un mur. */
+    const isPropCell = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && cells[y * W + x] === CELL_PROP;
+    // Objets bas (chaise, table, comptoir, lit, chariot, caisse seule) : ils
+    // bloquent le passage, pas le regard. Sans ca, le Voleur de peau vu
+    // par-dessus un comptoir ne se figeait pas, et personne ne se voyait
+    // d'un bout a l'autre d'une table.
+    const lowProp = new Uint8Array(cells.length);
+    for (const p of data.props) {
+      const low = p.kind === "chaise" || p.kind === "table" || p.kind === "comptoir" || p.kind === "lit" || p.kind === "chariot" || (p.kind === "caisse" && p.variant % 4 === 0);
+      if (!low) continue;
+      for (let y = p.y0; y <= p.y1; y++) for (let x = p.x0; x <= p.x1; x++) lowProp[y * W + x] = 1;
+    }
+    const blocksSight = (x: number, y: number) => isSolid(x, y) && !(x >= 0 && y >= 0 && x < W && y < H && lowProp[y * W + x] === 1);
     const radiusCells = PLAYER_RADIUS / CS;
     const words = goalWords(def.id);
 
@@ -572,6 +643,24 @@ export default function BackroomsScene({
       floorTex = tex(makePoolTile(false), (W * CS) / 2.4, (H * CS) / 2.4);
       ceilTex = tex(makeCeilingTiles("#e4ecea", 0), (W * CS) / 2.4, (H * CS) / 2.4);
       surface = "carrelage";
+    } else if (def.id === "niveau-5") {
+      // Hotel : damas rouge, moquette a losanges, plafond a caissons.
+      makeWall = makeHotelWallpaper;
+      floorTex = tex(makeHotelCarpet(), (W * CS) / 3, (H * CS) / 3);
+      ceilTex = tex(makeHotelCeiling(), (W * CS) / 2.4, (H * CS) / 2.4);
+      surface = "moquette";
+    } else if (def.id === "niveau-6") {
+      // Lumieres eteintes : beton noir, sol mouille, plafond qu'on ne voit pas.
+      makeWall = makeBlackConcreteWall;
+      floorTex = tex(makeBlackFloor(), (W * CS) / 4, (H * CS) / 4);
+      ceilTex = tex(makeDarkCeiling("#0d0d0f"), (W * CS) / 4, (H * CS) / 4);
+      surface = "beton";
+    } else if (def.id === "niveau-fun") {
+      // La Fete : papier peint a pois, moquette criarde, dalles pastel.
+      makeWall = makePartyWallpaper;
+      floorTex = tex(makePartyCarpet(), (W * CS) / 3, (H * CS) / 3);
+      ceilTex = tex(makePartyCeiling(), (W * CS) / 2.4, (H * CS) / 2.4);
+      surface = "moquette";
     } else {
       makeWall = makeTileWall;
       floorTex = tex(makeTileFloor(), (W * CS) / 2.4, (H * CS) / 2.4);
@@ -631,14 +720,17 @@ export default function BackroomsScene({
     }
     // On ne dessine que les murs qui touchent une case libre : l'interieur
     // des blocs pleins ne se voit jamais et coutait des milliers d'instances.
+    // Un objet plein (caisse, lit, chaise...) ne monte pas au plafond : le mur
+    // derriere lui se voit par-dessus, il compte comme une case libre.
+    const seenFrom = (c: number) => c === CELL_OPEN || c === CELL_PROP;
     const visibleWalls = wallCells.filter((i) => {
       const x = i % W;
       const y = (i - x) / W;
       return (
-        (x > 0 && cells[i - 1] === CELL_OPEN) ||
-        (x < W - 1 && cells[i + 1] === CELL_OPEN) ||
-        (y > 0 && cells[i - W] === CELL_OPEN) ||
-        (y < H - 1 && cells[i + W] === CELL_OPEN)
+        (x > 0 && seenFrom(cells[i - 1])) ||
+        (x < W - 1 && seenFrom(cells[i + 1])) ||
+        (y > 0 && seenFrom(cells[i - W])) ||
+        (y < H - 1 && seenFrom(cells[i + W]))
       );
     });
     const wallGeo = own(new THREE.BoxGeometry(CS, WH, CS));
@@ -674,9 +766,11 @@ export default function BackroomsScene({
     // --- Escaliers : de vraies marches, on monte dessus pour de bon ---
     if (multiFloor) {
       const stepColor =
-        { "niveau-1": 0x55524c, "niveau-2": 0x35302c, "niveau-3": 0x4a4038, "niveau-4": 0x6a6e70 }[def.id as string] ?? 0x8a7a42;
+        { "niveau-1": 0x55524c, "niveau-2": 0x35302c, "niveau-3": 0x4a4038, "niveau-4": 0x6a6e70, "niveau-5": 0x5e1418 }[def.id as string] ?? 0x8a7a42;
       const stepMat = own(new THREE.MeshLambertMaterial({ color: stepColor }));
-      const noseMat = own(new THREE.MeshLambertMaterial({ color: def.id === "niveau-0" ? 0x5e5128 : def.id === "niveau-4" ? 0x3a3d40 : 0x24211e }));
+      // Hotel : nez de marche en laiton, sur la moquette rouge.
+      const noseColor = def.id === "niveau-0" ? 0x5e5128 : def.id === "niveau-4" ? 0x3a3d40 : def.id === "niveau-5" ? 0x9a7a34 : 0x24211e;
+      const noseMat = own(new THREE.MeshLambertMaterial({ color: noseColor }));
       const STEPS = data.stairRows * 2;
       const stepDepth = (data.stairRows * CS) / STEPS;
       const railMat = own(new THREE.MeshLambertMaterial({ color: 0x2b2a26 }));
@@ -845,25 +939,55 @@ export default function BackroomsScene({
     // --- Bassins du niveau 37 : fond carrele bleu, margelle, eau qui ondule ---
     let waterTex: THREE.Texture | null = null;
     const hasWater = data.water.includes(1);
+    /** Case du bassin profond (niveau 37) : eau sombre, on s'y enfonce davantage. */
+    const isDeepWater = (i: number) => data.water[i] === 1 && data.zones[i] !== 0 && zoneKind(data.zones, i) === "bassin-profond";
     if (hasWater) {
       const waterCells: [number, number][] = [];
       for (let i = 0; i < cells.length; i++) if (data.water[i]) waterCells.push([i % W, Math.floor(i / W)]);
       const flat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
       const cellGeo = own(new THREE.PlaneGeometry(CS, CS));
-      const bottomMat = own(new THREE.MeshLambertMaterial({ map: tex(makePoolTile(true)), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      // Niveau 6 : pas un bassin mais une salle inondee — beton noir sous une
+      // eau croupie, et pas de margelle.
+      const flooded = def.id === "niveau-6";
+      const poolTile = tex(makePoolTile(true));
+      const bottomMat = own(
+        flooded
+          ? new THREE.MeshLambertMaterial({ color: 0x141416, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+          : new THREE.MeshLambertMaterial({ map: poolTile, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      );
       waterTex = tex(makeWaterSurface());
       const waterMat = own(
-        new THREE.MeshLambertMaterial({ map: waterTex, color: 0xc4f1f5, emissive: 0x0b3a44, transparent: true, opacity: 0.62, depthWrite: false }),
+        flooded
+          ? new THREE.MeshLambertMaterial({ map: waterTex, color: 0x4a5a56, emissive: 0x010202, transparent: true, opacity: 0.72, depthWrite: false })
+          : new THREE.MeshLambertMaterial({ map: waterTex, color: 0xc4f1f5, emissive: 0x0b3a44, transparent: true, opacity: 0.62, depthWrite: false }),
       );
-      const bottoms = new THREE.InstancedMesh(cellGeo, bottomMat, waterCells.length);
-      const surfaces = new THREE.InstancedMesh(cellGeo, waterMat, waterCells.length);
+      // Bassin profond : le sol reste plat (une seule dalle pour tout le
+      // niveau), alors on joue l'illusion — fond bleu nuit, eau presque
+      // opaque, et on ne voit plus le carrelage du fond.
+      const deepBottomMat = own(
+        new THREE.MeshLambertMaterial({ map: poolTile, color: 0x24405a, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      );
+      const deepWaterMat = own(
+        new THREE.MeshLambertMaterial({ map: waterTex, color: 0x5d98aa, emissive: 0x03141c, transparent: true, opacity: 0.86, depthWrite: false }),
+      );
+      const deepCount = waterCells.reduce((n, [x, y]) => n + (isDeepWater(y * W + x) ? 1 : 0), 0);
+      const shallowCount = waterCells.length - deepCount;
+      const bottoms = new THREE.InstancedMesh(cellGeo, bottomMat, Math.max(1, shallowCount));
+      const surfaces = new THREE.InstancedMesh(cellGeo, waterMat, Math.max(1, shallowCount));
+      const deepBottoms = new THREE.InstancedMesh(cellGeo, deepBottomMat, Math.max(1, deepCount));
+      const deepSurfaces = new THREE.InstancedMesh(cellGeo, deepWaterMat, Math.max(1, deepCount));
       const rims: { x: number; z: number; alongZ: boolean }[] = [];
-      waterCells.forEach(([x, y], k) => {
+      let si = 0;
+      let di = 0;
+      waterCells.forEach(([x, y]) => {
         const baseY = floorY(y + 0.5);
+        const deep = isDeepWater(y * W + x);
+        const k = deep ? di++ : si++;
         m4.compose(v4.set((x + 0.5) * CS, baseY + 0.006, (y + 0.5) * CS), flat, s4.set(1, 1, 1));
-        bottoms.setMatrixAt(k, m4);
+        (deep ? deepBottoms : bottoms).setMatrixAt(k, m4);
         m4.compose(v4.set((x + 0.5) * CS, baseY + WATER_Y, (y + 0.5) * CS), flat, s4.set(1, 1, 1));
-        surfaces.setMatrixAt(k, m4);
+        (deep ? deepSurfaces : surfaces).setMatrixAt(k, m4);
+        if (flooded) return;
         for (const [dx, dy] of Object.values(DIRS)) {
           const nx = x + dx;
           const ny = y + dy;
@@ -871,6 +995,11 @@ export default function BackroomsScene({
           rims.push({ x: (x + 0.5 + dx * 0.5) * CS, z: (y + 0.5 + dy * 0.5) * CS, alongZ: dx !== 0 });
         }
       });
+      bottoms.count = shallowCount;
+      surfaces.count = shallowCount;
+      deepBottoms.count = deepCount;
+      deepSurfaces.count = deepCount;
+      if (deepCount > 0) scene.add(deepBottoms, deepSurfaces);
       const rimMesh = new THREE.InstancedMesh(
         own(new THREE.BoxGeometry(CS + 0.22, 0.2, 0.22)),
         own(new THREE.MeshLambertMaterial({ color: 0xeef5f3 })),
@@ -932,7 +1061,8 @@ export default function BackroomsScene({
       for (const [x, y] of reachable) {
         if (inStairwell(y)) continue;
         for (const [dx, dy] of Object.values(DIRS)) {
-          if (!isSolid(x + dx, y + dy)) continue;
+          // Pas le long des objets pleins (vannes geantes) : les tuyaux flotteraient.
+          if (!isSolid(x + dx, y + dy) || isPropCell(x + dx, y + dy)) continue;
           faces.push({ x: (x + 0.5 + dx * 0.43) * CS, z: (y + 0.5 + dy * 0.43) * CS, along: dx !== 0 ? "z" : "x" });
         }
       }
@@ -951,12 +1081,17 @@ export default function BackroomsScene({
     }
 
     // --- Luminaires ---
-    type Fixture = { x: number; y: number; z: number; state: 0 | 1 | 2; phase: number; index: number };
+    /** `ly` : hauteur de la lumiere quand elle n'est pas juste sous l'ampoule (baton pose au sol). */
+    type Fixture = { x: number; y: number; z: number; state: 0 | 1 | 2; phase: number; index: number; ly?: number };
     const fixtures: Fixture[] = [];
     let fixtureMesh: THREE.InstancedMesh | null = null;
     const litColor = new THREE.Color(0xffffff);
     const deadColor = new THREE.Color(0x3a382f);
     const tmpColor = new THREE.Color();
+    // Eclairages des niveaux 5, 6 et Fun : chaque luminaire a sa couleur.
+    const themedLighting = def.lighting === "hotel" || def.lighting === "noir" || def.lighting === "fete";
+    /** Couleur de la lumiere de chaque luminaire (celle du niveau, ou la teinte propre du luminaire). */
+    const lightColors = data.lights.map((l) => new THREE.Color(themedLighting && l.tint !== undefined ? l.tint : def.lamp.color));
     if (def.lighting === "neons") {
       const panelTex = tex(
         def.id === "niveau-4" ? makeLightPanel("#f6fbff", "#d8e2e6") : def.id === "niveau-37" ? makeLightPanel("#ffffff", "#e0f1f1") : makeLightPanel(),
@@ -1017,6 +1152,44 @@ export default function BackroomsScene({
         fixtureMesh!.setColorAt(k, l.state === 1 ? deadColor : tmpColor.setHex(def.id === "niveau-3" ? 0xffa040 : 0xff2a18));
       });
       scene.add(cages);
+    } else if (themedLighting) {
+      // Appliques, lustres, ampoules nues, batons lumineux : le decor dessine
+      // le corps du luminaire autour du point donne par fixtureBulb ; ici,
+      // seulement ce qui s'allume (une sphere, etiree en baton au sol).
+      const bulbMat = own(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const bulbGeo = own(new THREE.SphereGeometry(1, 12, 8));
+      fixtureMesh = new THREE.InstancedMesh(bulbGeo, bulbMat, Math.max(1, data.lights.length));
+      const e = new THREE.Euler();
+      data.lights.forEach((l, k) => {
+        const kind = l.fixture ?? "ampoule";
+        const bulb = fixtureBulb(kind, WH);
+        const baseY = floorY(l.y + 0.5);
+        let x = (l.x + 0.5) * CS;
+        let z = (l.y + 0.5) * CS;
+        let yaw = 0;
+        if (kind === "applique" && l.wall) {
+          const t = faceTransform({ x: l.x, y: l.y, dir: l.wall }, CS, bulb.inset);
+          x = t.x;
+          z = t.z;
+          yaw = t.yaw;
+        } else if (kind === "baton") {
+          // Tombe de travers : un lacet tire de la case, le meme chez tout le groupe.
+          yaw = ((((l.x * 73856093) ^ (l.y * 19349663)) >>> 0) % 628) / 100;
+        }
+        const y = baseY + bulb.y;
+        if (kind === "baton") s4.set(0.024, 0.024, 0.1);
+        else if (kind === "lustre") s4.set(0.065, 0.075, 0.065);
+        else if (kind === "applique") s4.set(0.06, 0.08, 0.06);
+        else s4.set(0.07, 0.09, 0.07);
+        q4.setFromEuler(e.set(0, yaw, 0));
+        m4.compose(v4.set(x, y, z), q4, s4);
+        fixtureMesh!.setMatrixAt(k, m4);
+        fixtureMesh!.setColorAt(k, l.state === 1 ? deadColor : tmpColor.setHex(l.tint ?? def.lamp.color));
+        // Baton : la lumiere monte un peu au-dessus du sol, sinon elle n'eclairerait que le dessous du plancher.
+        const ly = kind === "baton" ? baseY + 0.35 : kind === "applique" ? y - 0.05 : y - 0.12;
+        fixtures.push({ x, y, z, state: l.state, phase: rng() * 100, index: k, ly });
+      });
+      s4.set(1, 1, 1);
     } else {
       const stripMat = own(new THREE.MeshBasicMaterial({ color: 0xffffff }));
       const stripGeo = own(new THREE.BoxGeometry(CS * 0.9, 0.06, 0.16));
@@ -1051,7 +1224,8 @@ export default function BackroomsScene({
     const glowColors = new Float32Array(Math.max(1, lit.length) * 3);
     lit.forEach((f, i) => {
       glowPositions[i * 3] = f.x;
-      glowPositions[i * 3 + 1] = f.y - (def.lighting === "neons" ? 0.1 : 0.02);
+      // Baton pose au sol (lumiere plus haute que lui) : le halo flotte juste au-dessus, pas a moitie sous le plancher.
+      glowPositions[i * 3 + 1] = f.ly !== undefined && f.ly > f.y ? f.y + 0.1 : f.y - (def.lighting === "neons" ? 0.1 : 0.02);
       glowPositions[i * 3 + 2] = f.z;
       glowColors[i * 3] = glowBase[i].r;
       glowColors[i * 3 + 1] = glowBase[i].g;
@@ -1065,11 +1239,23 @@ export default function BackroomsScene({
     const glowMat = own(
       new THREE.PointsMaterial({
         map: glowTex,
-        size: def.lighting === "neons" ? 1.7 : def.lighting === "entrepot" ? 2.4 : def.lighting === "secours" ? 1.2 : 1.5,
+        size:
+          def.lighting === "neons"
+            ? 1.7
+            : def.lighting === "entrepot"
+              ? 2.4
+              : def.lighting === "secours"
+                ? 1.2
+                : def.lighting === "hotel"
+                  ? 1.3
+                  : def.lighting === "noir"
+                    ? 0.9
+                    : 1.5,
         sizeAttenuation: true,
         vertexColors: true,
         transparent: true,
-        opacity: def.lighting === "neons" ? 0.38 : 0.55,
+        // Dans le noir complet, le halo d'un baton est tout ce qu'on voit de loin.
+        opacity: def.lighting === "neons" ? 0.38 : def.lighting === "noir" ? 0.7 : 0.55,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       }),
@@ -1078,6 +1264,21 @@ export default function BackroomsScene({
     glowPoints.frustumCulled = false;
     scene.add(glowPoints);
     const litIndex = new Map(lit.map((f, i) => [f.index, i]));
+
+    // La Fete : chaque ampoule garde sa saturation et sa clarte, mais sa
+    // teinte tourne doucement (un tour en une demi-minute environ).
+    const partyHue = def.lighting === "fete" ? new Float32Array(fixtures.length * 3) : null;
+    if (partyHue) {
+      const hsl = { h: 0, s: 0, l: 0 };
+      fixtures.forEach((f, i) => {
+        baseFixtureColors[f.index].getHSL(hsl);
+        partyHue[i * 3] = hsl.h;
+        partyHue[i * 3 + 1] = Math.max(0.75, hsl.s);
+        partyHue[i * 3 + 2] = THREE.MathUtils.clamp(hsl.l, 0.45, 0.62);
+      });
+    }
+    const partyHemi = new THREE.Color();
+    let partyTimer = 0;
 
     // --- Ombres de contact au pied des murs et sous le plafond ---
     // Sans elles, les murs semblaient poses sur le sol sans jamais le toucher.
@@ -1094,7 +1295,8 @@ export default function BackroomsScene({
         // Pas dans la cage d'escalier : une bande a plat flotterait au-dessus des marches.
         if (inStairwell(y)) continue;
         for (const [dx, dz] of Object.values(DIRS)) {
-          if (isSolid(x + dx, y + dz)) faces.push({ x, z: y, dx, dz });
+          // Murs seulement : une bande sombre au plafond au-dessus d'une chaise n'aurait aucun sens.
+          if (isSolid(x + dx, y + dz) && !isPropCell(x + dx, y + dz)) faces.push({ x, z: y, dx, dz });
         }
       }
       const floorAo = new THREE.InstancedMesh(aoGeo, aoMat, Math.max(1, faces.length));
@@ -1126,7 +1328,10 @@ export default function BackroomsScene({
     // Reserve de lumieres : un nombre FIXE de lampes, deplacees sur les
     // luminaires les plus proches du joueur. Des centaines de neons a
     // l'ecran, cinq lumieres calculees, et aucune recompilation de shader.
-    const POOL = quality === "performance" ? 3 : def.lighting === "neons" ? 5 : 4;
+    // Au plus 8 lumieres dynamiques en tout : la reserve, la torche et l'ambiance.
+    // Dans le noir (niveau 6), seulement les quelques batons les plus proches.
+    const POOL =
+      quality === "performance" ? 3 : def.lighting === "noir" ? 3 : def.lighting === "neons" || def.lighting === "hotel" || def.lighting === "fete" ? 5 : 4;
     const pool = Array.from({ length: POOL }, () => {
       const light = new THREE.PointLight(def.lamp.color, 0, def.lamp.range, 1.4);
       scene.add(light);
@@ -1142,7 +1347,17 @@ export default function BackroomsScene({
     // --- Porte de sortie ---
     const exitT = faceTransform(data.exit, CS, 0.03);
     const doorStyle = (
-      { "niveau-1": "monte-charge", "niveau-2": "trappe", "niveau-3": "centrale", "niveau-4": "securite", "niveau-37": "piscine", "niveau-run": "sortie" } as const
+      {
+        "niveau-1": "monte-charge",
+        "niveau-2": "trappe",
+        "niveau-3": "centrale",
+        "niveau-4": "securite",
+        "niveau-37": "piscine",
+        "niveau-run": "sortie",
+        "niveau-5": "hotel",
+        "niveau-6": "noir",
+        "niveau-fun": "fete",
+      } as const
     )[def.id as string] ?? "service";
     const doorW = def.id === "niveau-1" ? Math.min(CS * 0.9, 2.2) : Math.min(CS * 0.7, 1.15);
     const doorH = def.id === "niveau-1" ? 2.6 : 2.1;
@@ -1180,7 +1395,8 @@ export default function BackroomsScene({
         exitGroup.add(ind);
       }
     }
-    if (def.id === "niveau-0" || def.id === "niveau-run" || def.id === "niveau-37") {
+    // Niveau 6 : le panneau de secours, sur batterie, est la seule chose allumee au fond du noir.
+    if (def.id === "niveau-0" || def.id === "niveau-run" || def.id === "niveau-37" || def.id === "niveau-6") {
       const sign = new THREE.Mesh(own(new THREE.PlaneGeometry(0.62, 0.23)), own(new THREE.MeshBasicMaterial({ map: own(makeExitSign()) })));
       sign.position.set(0, doorH + 0.3, 0.06);
       exitGroup.add(sign);
@@ -1223,6 +1439,12 @@ export default function BackroomsScene({
     const badgeStripeGeo = own(new THREE.BoxGeometry(0.12, 0.004, 0.024));
     const badgeStripeMat = own(new THREE.MeshLambertMaterial({ color: 0x2a6f9e }));
     const cordGeo = own(new THREE.TorusGeometry(0.075, 0.006, 6, 18));
+    // Cle du personnel de l'hotel : tige, anneau et panneton en laiton, porte-cle en bois.
+    const keyShaftGeo = own(new THREE.BoxGeometry(0.13, 0.012, 0.018));
+    const keyBowGeo = own(new THREE.TorusGeometry(0.028, 0.008, 6, 14));
+    const keyBitGeo = own(new THREE.BoxGeometry(0.014, 0.012, 0.032));
+    const keyTagGeo = own(new THREE.BoxGeometry(0.075, 0.014, 0.042));
+    const keyTagMat = own(new THREE.MeshLambertMaterial({ color: 0x6a3a1e }));
 
     const pickups = data.pickups.map((p) => {
       const group = new THREE.Group();
@@ -1258,6 +1480,18 @@ export default function BackroomsScene({
         cord.rotation.x = -Math.PI / 2;
         cord.position.set(0, 0.004, 0.1);
         group.add(card, stripe, cord);
+      } else if (def.id === "niveau-5") {
+        const shaft = new THREE.Mesh(keyShaftGeo, batTopMat);
+        shaft.position.y = 0.008;
+        const bow = new THREE.Mesh(keyBowGeo, batTopMat);
+        bow.rotation.x = -Math.PI / 2;
+        bow.position.set(-0.09, 0.008, 0);
+        const bit = new THREE.Mesh(keyBitGeo, batTopMat);
+        bit.position.set(0.05, 0.008, 0.022);
+        const tag = new THREE.Mesh(keyTagGeo, keyTagMat);
+        tag.position.set(-0.16, 0.008, 0.012);
+        tag.rotation.y = 0.4;
+        group.add(shaft, bow, bit, tag);
       } else {
         const body = new THREE.Mesh(fuseGeo, fuseMat);
         body.position.y = 0.1;
@@ -1279,12 +1513,75 @@ export default function BackroomsScene({
     const wheelMat = own(new THREE.MeshLambertMaterial({ color: 0x9a2418 }));
     const pipeStubMat = own(new THREE.MeshLambertMaterial({ color: 0x3a3532 }));
     const breakerTex = def.id === "niveau-3" ? own(makeFuseBoxTexture(0)) : null;
+    // Niveau Fun : les « vannes » sont des enceintes accrochees au mur, branchees
+    // a une prise pres du sol. Maintenir E tire la fiche.
+    const speakers = def.id === "niveau-fun";
+    const speakerCabGeo = speakers ? own(new THREE.BoxGeometry(0.5, 0.72, 0.34)) : null;
+    const speakerConeGeo = speakers ? own(new THREE.CylinderGeometry(1, 0.55, 0.05, 18)) : null;
+    const speakerCabMat = speakers ? own(new THREE.MeshLambertMaterial({ color: 0x1b1a20 })) : null;
+    const speakerConeMat = speakers ? own(new THREE.MeshLambertMaterial({ color: 0x0b0b0d })) : null;
+    const speakerRimMat = speakers ? own(new THREE.MeshLambertMaterial({ color: 0xff5fa2 })) : null;
+    const plugMat = speakers ? own(new THREE.MeshLambertMaterial({ color: 0xe8e4da })) : null;
     const valves = data.valves.map((v) => {
       const t = faceTransform(v, CS, 0);
       const group = new THREE.Group();
       group.position.set(t.x, floorY(v.y + 0.5) + 1.25, t.z);
       group.rotation.y = t.yaw;
       scene.add(group);
+      if (speakers && speakerCabGeo && speakerConeGeo && speakerCabMat && speakerConeMat && speakerRimMat && plugMat) {
+        const cabinet = new THREE.Mesh(speakerCabGeo, speakerCabMat);
+        cabinet.position.set(0, 0.1, 0.18);
+        group.add(cabinet);
+        // Boomer (il bat la mesure tant que l'enceinte est branchee) et tweeter.
+        const woofer = new THREE.Group();
+        woofer.position.set(0, -0.02, 0.355);
+        woofer.rotation.x = Math.PI / 2;
+        group.add(woofer);
+        const rim = new THREE.Mesh(speakerConeGeo, speakerRimMat);
+        rim.scale.set(0.17, 0.4, 0.17);
+        woofer.add(rim);
+        const cone = new THREE.Mesh(speakerConeGeo, speakerConeMat);
+        cone.scale.set(0.145, 1, 0.145);
+        cone.position.y = 0.012;
+        woofer.add(cone);
+        const tweeter = new THREE.Mesh(speakerConeGeo, speakerConeMat);
+        tweeter.scale.set(0.05, 1, 0.05);
+        tweeter.rotation.x = Math.PI / 2;
+        tweeter.position.set(0, 0.3, 0.355);
+        group.add(tweeter);
+        // Le cable descend le long du mur jusqu'a la prise, a 30 cm du sol.
+        const socketY = 0.3 - 1.25;
+        const cableLen = Math.max(0.2, -0.26 - socketY);
+        const cable = new THREE.Mesh(own(new THREE.BoxGeometry(0.02, cableLen, 0.02)), speakerConeMat);
+        cable.position.set(0.16, -0.26 - cableLen / 2, 0.03);
+        group.add(cable);
+        const socket = new THREE.Mesh(own(new THREE.BoxGeometry(0.09, 0.09, 0.02)), plugMat);
+        socket.position.set(0.16, socketY, 0.012);
+        group.add(socket);
+        const plug = new THREE.Mesh(own(new THREE.BoxGeometry(0.05, 0.06, 0.07)), plugMat);
+        group.add(plug);
+        const lampMat = own(new THREE.MeshBasicMaterial({ color: 0xc0231a }));
+        const lamp = new THREE.Mesh(own(new THREE.SphereGeometry(0.025, 8, 6)), lampMat);
+        lamp.position.set(0.19, 0.4, 0.355);
+        group.add(lamp);
+        const setTurn = (p: number) => {
+          // La fiche sort de la prise, puis retombe au bout de son cable.
+          plug.position.set(0.16, socketY - Math.max(0, p - 0.7) * 0.5, 0.05 + Math.min(p, 0.7) * 0.25);
+          plug.rotation.x = Math.max(0, p - 0.6) * 1.4;
+        };
+        setTurn(0);
+        let unplugged = false;
+        const pulse = (time: number) => {
+          if (unplugged) return;
+          const beat = Math.max(0, Math.sin(time * Math.PI * 2 * (124 / 60)));
+          woofer.position.z = 0.355 + beat ** 6 * 0.025;
+        };
+        const cut = () => {
+          unplugged = true;
+          woofer.position.z = 0.355;
+        };
+        return { setTurn, lampMat, progress: 0, done: false, face: t, pulse, cut };
+      }
       if (breakerTex) {
         // Disjoncteur : caisson, gaine jusqu'au plafond, et le gros levier a relever.
         const cabinet = new THREE.Mesh(own(new THREE.BoxGeometry(0.46, 0.7, 0.2)), own(new THREE.MeshLambertMaterial({ map: breakerTex })));
@@ -1311,7 +1608,7 @@ export default function BackroomsScene({
           pivot.rotation.x = Math.PI * (1 - p);
         };
         setTurn(0);
-        return { setTurn, lampMat, progress: 0, done: false, face: t };
+        return { setTurn, lampMat, progress: 0, done: false, face: t, pulse: null, cut: null };
       }
       const stub = new THREE.Mesh(own(new THREE.CylinderGeometry(0.09, 0.09, 0.35, 10)), pipeStubMat);
       stub.rotation.x = Math.PI / 2;
@@ -1336,16 +1633,36 @@ export default function BackroomsScene({
       const setTurn = (p: number) => {
         wheel.rotation.z = -p * Math.PI * 3;
       };
-      return { setTurn, lampMat, progress: 0, done: false, face: t };
+      return { setTurn, lampMat, progress: 0, done: false, face: t, pulse: null, cut: null };
     });
 
     // --- Entites ---
     const bacteria = def.entity === "bacterie" ? buildBacteria() : null;
     const smiler = def.entity === "souriant" ? buildSmiler() : null;
-    // Nouveaux niveaux : Voleur de peau, Chiens, Fetards (branchement minimal,
-    // meme intelligence que la Bacterie).
+    // Nouveaux niveaux : Voleur de peau, Chiens, Fetards. Meme cerveau que la
+    // Bacterie, plus leurs regles propres (MONSTER_TRAITS) : le Voleur se fige
+    // quand on le regarde, les Chiens sont aveugles et entendent de loin, les
+    // Fetards font coucou avant de courir.
     const monster: Monster | null = def.entity === "voleur" || def.entity === "chiens" || def.entity === "fetards" ? buildMonster(def.entity) : null;
+    const traits = monster ? MONSTER_TRAITS[monster.kind] : null;
     if (monster) scene.add(monster.group);
+    // Vitesses : celles du niveau, sinon celles conseillees pour le monstre.
+    const wanderSpeed = def.entityWander || traits?.wander || 0;
+    const investigateSpeed = def.entityInvestigate || traits?.investigate || 0;
+    const chaseSpeed = def.entityChase || traits?.chase || 0;
+    /** Les Chiens entendent plus loin : les bruits du joueur portent d'autant. */
+    const hearingScale = traits?.hearing ?? 1;
+    // Niveau Fun : des Fetards immobiles qui dansent (decor, pas l'entite). On
+    // n'anime que ceux qui sont a portee du brouillard.
+    const figures = data.figures.map((f) => {
+      const body = buildMonster("fetards");
+      body.group.position.set(f.x * CS, floorY(f.y), f.y * CS);
+      body.group.rotation.y = f.yaw;
+      scene.add(body.group);
+      return { body, x: f.x, z: f.y };
+    });
+    const figurePose: MonsterPose = { time: 0, delta: 0, speed: 0, state: "danse", lunge: 0, scream: 0, headYaw: 0, watched: false };
+    const monsterPose: MonsterPose = { time: 0, delta: 0, speed: 0, state: "errer", lunge: 0, scream: 0, headYaw: 0, watched: false };
     const wanderer = buildWanderer();
     wanderer.setOpacity(0);
     scene.add(wanderer.group);
@@ -1433,14 +1750,22 @@ export default function BackroomsScene({
 
     // --- Audio ---
     const audio = createBackroomsAudio(def.lighting, AUDIO_FLAVOR[def.id] ?? null);
+    // La Fete : une musique en boucle, qui vient des enceintes encore branchees.
+    let partyMusic: PartyMusic | null = def.lighting === "fete" ? playPartyMusic(audio.ctx, audio.master, { gain: 0.25 }) : null;
+    let partyMusicTimer = 0;
+    function stopPartyMusic() {
+      partyMusic?.stop();
+      partyMusic = null;
+    }
 
     // --- Etat du joueur ---
     const player = { x: data.start.x + 0.5, z: data.start.y + 0.5, yaw: data.startYaw, pitch: 0 };
     let elapsed = 0;
     let sanityLevel = 100;
     let batteryLevel = 100;
-    // Dans les tunnels on part lampe allumee ; a la centrale, mieux vaut attendre.
-    let lamp = def.lighting === "secours" && !def.blackouts;
+    // Dans les tunnels et dans le noir complet on part lampe allumee ; a la
+    // centrale, mieux vaut attendre.
+    let lamp = (def.lighting === "secours" && !def.blackouts) || def.lighting === "noir";
     let staminaLevel = 100;
     let exhausted = false;
     let crouching = false;
@@ -1500,6 +1825,20 @@ export default function BackroomsScene({
     let screamUntil = -1;
     let netEntitySpeed = 0;
     let hostEntitySpeed = 0;
+    // Nouveaux monstres : Voleur fige sous un regard, coucou des Fetards, cris.
+    let monsterFrozen = false;
+    let greetUntil = -1;
+    let monsterDisplay: MonsterDisplay = "errer";
+    /** Cris du monstre depuis le debut du niveau : les invites en rejouent un a chaque changement. */
+    let monsterCalls = 0;
+    let lastNetCalls = -1;
+    let nextMonsterCallAt = 0;
+    let nextMonsterMurmurAt = 14 + rng() * 10;
+    /** Cosinus du demi-champ horizontal de la camera : au-dela, le Voleur est hors de l'ecran. */
+    let watchCos = 0.6;
+    // Salles marquantes sombres (neons morts, chaise seule) : l'ambiance baisse quand on y entre.
+    let zoneDark = 0;
+    let ambientShown = 1;
     let nextVoiceNoiseAt = 0;
     let micShown = 0;
     let spectating = false;
@@ -1546,9 +1885,22 @@ export default function BackroomsScene({
       const pan = THREE.MathUtils.clamp((dx / len) * Math.cos(player.yaw) - (dz / len) * Math.sin(player.yaw), -1, 1);
       return { pan, gain: Math.max(0, 1 - d / reach) * loud };
     }
+    /** Le monstre t'a repere (ou, pour les Chiens, entendu) : son cri, compte pour les invites. */
+    function monsterCall() {
+      if (!monster) return;
+      monsterCalls++;
+      nextMonsterCallAt = elapsed + 4;
+      playMonsterCall(audio.ctx, audio.master, monster.kind, spatial(entity.x, entity.z, 45, 1.2));
+    }
+    function updateWatchCos() {
+      // Demi-champ horizontal, plus une marge pour la largeur du corps.
+      const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
+      watchCos = Math.cos(Math.min(1.45, half + 0.08));
+    }
+    updateWatchCos();
     function emitNoise(kind: NoiseKind, x = player.x, z = player.z, scale = 1) {
       if (spectating) return;
-      const radius = NOISE_RADIUS[kind] * scale * (MANOR_CELL / CS);
+      const radius = NOISE_RADIUS[kind] * scale * (MANOR_CELL / CS) * hearingScale;
       noises.push({ kind, x, z, radius, at: elapsed });
       noises = pruneNoises(noises, elapsed);
       // En groupe, c'est l'hote qui fait penser la creature : il doit entendre nos bruits.
@@ -1561,7 +1913,7 @@ export default function BackroomsScene({
       const steps = Math.ceil(Math.hypot(bx - ax, bz - az) * 3);
       for (let i = 1; i < steps; i++) {
         const t = i / steps;
-        if (isSolid(Math.floor(ax + (bx - ax) * t), Math.floor(az + (bz - az) * t))) return false;
+        if (blocksSight(Math.floor(ax + (bx - ax) * t), Math.floor(az + (bz - az) * t))) return false;
       }
       return true;
     }
@@ -1585,7 +1937,9 @@ export default function BackroomsScene({
       if (def.objective === "sortie") {
         return def.id === "niveau-37"
           ? { title: "Trouve une sortie", detail: "L'eau ralentit. Les flèches aident, pas toutes." }
-          : { title: "Trouve une sortie", detail: "Les flèches taguées aident. Pas toutes." };
+          : def.id === "niveau-6"
+            ? { title: "Trouve la sortie de secours", detail: "Les flèches aident, à la lampe. Pas un bruit." }
+            : { title: "Trouve une sortie", detail: "Les flèches taguées aident. Pas toutes." };
       }
       if (def.objective === "fusibles" || def.objective === "vannes") {
         const got = def.objective === "fusibles" ? fuses : valvesDone;
@@ -1677,6 +2031,7 @@ export default function BackroomsScene({
       if (broadcast) link?.sendEvent({ type: "complete" });
       noclipSince = elapsed;
       setNoclip(true);
+      stopPartyMusic();
       if (def.id === "niveau-1") {
         playElevator(audio.ctx, audio.master);
       } else {
@@ -1736,9 +2091,17 @@ export default function BackroomsScene({
       v.setTurn(1);
       valvesDone++;
       v.lampMat.color.setHex(0x2fd35a);
+      v.cut?.();
       if (indicatorMats[valvesDone - 1]) indicatorMats[valvesDone - 1].color.setHex(0x2fd35a);
       if (def.id === "niveau-3") playPowerOn(audio.ctx, audio.master);
+      // Enceinte debranchee : le son s'effondre d'un coup.
+      else if (speakers) playBlackout(audio.ctx, audio.master);
       else playValveDone(audio.ctx, audio.master);
+      if (speakers && valvesDone >= def.goalCount && partyMusic) {
+        // La derniere enceinte : la musique s'eteint en fondu, puis s'arrete.
+        partyMusic.setLevel(0);
+        later(1600, stopPartyMusic);
+      }
       if (local) {
         emitNoise("haletement", player.x, player.z, 1.3);
         link?.sendEvent({ type: "valve", index: valves.indexOf(v) });
@@ -2127,6 +2490,9 @@ export default function BackroomsScene({
       deathCause = cause;
       setDying(true);
       playDeath(audio.ctx, audio.master);
+      stopPartyMusic();
+      // Le cri du monstre, a bout portant.
+      if (monster && cause === monster.kind) playMonsterCall(audio.ctx, audio.master, monster.kind, { gain: 1.3 });
       try {
         document.exitPointerLock?.();
       } catch {
@@ -2179,6 +2545,8 @@ export default function BackroomsScene({
       if (introShown && elapsed > INTRO_SECONDS) {
         introShown = false;
         setIntro(false);
+        const firstHint = INTRO_HINT[def.id];
+        if (firstHint) showHint(firstHint, 5.5);
       }
 
       // --- Mort : l'entite fonce sur la camera ---
@@ -2197,10 +2565,20 @@ export default function BackroomsScene({
           bacteria.group.rotation.y = player.yaw;
           poseBacteria(bacteria, { time: elapsed, walk: entity.walk + elapsed * 8, speed: 5, headYaw: 0, lunge: 1 });
           animateBacteriaModel(delta, 5, 1, 1, "poursuivre");
-        } else if (deathCause === "bacterie" && monster) {
-          monster.group.position.set(camera.position.x + fx * dist, floorY(player.z), camera.position.z + fz * dist);
+        } else if (monster && deathCause === monster.kind) {
+          // Le Chien bondit a hauteur de visage ; les autres sont assez grands.
+          const leap = monster.kind === "chiens" ? 0.75 * rush : 0;
+          monster.group.position.set(camera.position.x + fx * dist, floorY(player.z) + leap, camera.position.z + fz * dist);
           monster.group.rotation.y = player.yaw;
-          monster.animate({ time: elapsed, delta, speed: 5, state: "poursuivre", lunge: 1, scream: 1, headYaw: 0, watched: false });
+          monsterPose.time = elapsed;
+          monsterPose.delta = delta;
+          monsterPose.speed = 5;
+          monsterPose.state = "poursuivre";
+          monsterPose.lunge = 1;
+          monsterPose.scream = 1;
+          monsterPose.headYaw = 0;
+          monsterPose.watched = false;
+          monster.animate(monsterPose);
         } else if (deathCause === "souriant" && smiler) {
           smiler.group.position.set(camera.position.x + fx * dist, camera.position.y - 1.45, camera.position.z + fz * dist);
           smiler.group.rotation.y = player.yaw;
@@ -2286,10 +2664,14 @@ export default function BackroomsScene({
       } else if (devFlyHeight !== 0) {
         devFlyHeight = 0;
       }
-      const wading = hasWater && !dev.fly && data.water[Math.floor(player.z) * W + Math.floor(player.x)] === 1;
-      waterSink += ((wading ? 1 : 0) - waterSink) * Math.min(1, delta * 5);
+      const waterCell = Math.floor(player.z) * W + Math.floor(player.x);
+      const wading = hasWater && !dev.fly && data.water[waterCell] === 1;
+      // Bassin profond : on s'y enfonce plus, et on y avance plus lentement.
+      const deepWading = wading && isDeepWater(waterCell);
+      waterSink += ((wading ? (deepWading ? 2.2 : 1) : 0) - waterSink) * Math.min(1, delta * 5);
       if (moving) {
-        const speed = ((crouching ? def.crouch : sprinting ? def.sprint : def.walk) / CS) * (dev.fast ? 3 : 1) * (wading ? WADE_SPEED : 1);
+        const wade = wading ? WADE_SPEED * (deepWading ? 0.75 : 1) : 1;
+        const speed = ((crouching ? def.crouch : sprinting ? def.sprint : def.walk) / CS) * (dev.fast ? 3 : 1) * wade;
         const sin = Math.sin(player.yaw);
         const cos = Math.cos(player.yaw);
         let mx = -sin * fwd + cos * strafe;
@@ -2509,6 +2891,63 @@ export default function BackroomsScene({
       machineBlink?.(elapsed);
       if (waterTex) waterTex.offset.set(elapsed * 0.035, elapsed * 0.021);
 
+      // --- La Fete : couleurs qui tournent, enceintes qui battent, musique ---
+      if (partyHue && fixtureMesh) {
+        partyTimer -= delta;
+        if (partyTimer <= 0) {
+          partyTimer = 0.1;
+          const shift = elapsed * 0.03;
+          for (const f of fixtures) {
+            if (f.state === 1) continue;
+            const i = f.index;
+            const c = baseFixtureColors[i];
+            c.setHSL((partyHue[i * 3] + shift) % 1, partyHue[i * 3 + 1], partyHue[i * 3 + 2]);
+            lightColors[i].copy(c);
+            const gi = litIndex.get(i);
+            if (gi !== undefined) glowBase[gi].copy(c).multiply(glowTint);
+            // Les ampoules qui clignotent sont recolorees plus bas, a chaque image.
+            if (f.state === 2) continue;
+            fixtureMesh.setColorAt(i, c);
+            if (gi !== undefined) {
+              glowColors[gi * 3] = glowBase[gi].r;
+              glowColors[gi * 3 + 1] = glowBase[gi].g;
+              glowColors[gi * 3 + 2] = glowBase[gi].b;
+            }
+          }
+          for (const slot of pool) if (slot.fixture >= 0) slot.light.color.copy(lightColors[slot.fixture]);
+          if (fixtureMesh.instanceColor) fixtureMesh.instanceColor.needsUpdate = true;
+          glowColorAttr.needsUpdate = true;
+          // L'ambiance suit, de loin : un tiers de la couleur qui tourne.
+          partyHemi.setHSL((0.92 + shift) % 1, 0.7, 0.72);
+          hemi.color.setHex(def.hemi.sky).lerp(partyHemi, 0.35);
+        }
+      }
+      if (speakers) for (const v of valves) v.pulse?.(elapsed);
+      if (partyMusic) {
+        partyMusicTimer -= delta;
+        if (partyMusicTimer <= 0) {
+          partyMusicTimer = 0.25;
+          // Elle vient de l'enceinte encore branchee la plus proche : plus fort
+          // a mesure qu'on s'en approche, et du bon cote.
+          let best = Infinity;
+          let bx = 0;
+          let bz = 0;
+          for (const v of valves) {
+            if (v.done) continue;
+            const d = Math.hypot(v.face.x / CS - player.x, v.face.z / CS - player.z) * CS;
+            if (d < best) {
+              best = d;
+              bx = v.face.x / CS;
+              bz = v.face.z / CS;
+            }
+          }
+          if (best < Infinity) {
+            const near = THREE.MathUtils.clamp(1 - best / 34, 0, 1);
+            partyMusic.setLevel(0.08 + 0.42 * near * near, spatial(bx, bz, 1).pan * 0.6);
+          }
+        }
+      }
+
       // --- Luminaires qui clignotent ---
       if (fixtureMesh && (flickering.length > 0 || def.blackouts)) {
         const list = def.blackouts ? fixtures : flickering;
@@ -2554,8 +2993,25 @@ export default function BackroomsScene({
           if (!free) break;
           free.fixture = r.f.index;
           free.level = 0;
-          free.light.position.set(r.f.x, r.f.y - 0.15, r.f.z);
+          free.light.position.set(r.f.x, r.f.ly ?? r.f.y - 0.15, r.f.z);
+          free.light.color.copy(lightColors[r.f.index]);
         }
+      }
+      // Salle aux neons morts : ils sont tous eteints, et l'ambiance s'eteint
+      // aussi quand on y entre. Sous la chaise seule, a moitie : son unique
+      // neon doit se detacher du noir.
+      {
+        const ci = Math.floor(player.z) * W + Math.floor(player.x);
+        const here = ci >= 0 && ci < data.zones.length && data.zones[ci] !== 0 ? zoneKind(data.zones, ci) : null;
+        const target = here === "neons-morts" ? 1 : here === "chaise-seule" ? 0.55 : 0;
+        zoneDark += (target - zoneDark) * Math.min(1, delta * 1.6);
+        if (zoneDark < 0.002 && target === 0) zoneDark = 0;
+        // Les lampes de la reserve eclairent a travers les murs : dans ces
+        // deux salles, celles du dehors s'effacent (seul le neon de la chaise reste).
+        if (here === "neons-morts" || here === "chaise-seule") darkRoomCode = data.zones[ci];
+        const dimTarget = here === "neons-morts" || here === "chaise-seule" ? 1 : 0;
+        roomDim += (dimTarget - roomDim) * Math.min(1, delta * 1.6);
+        if (roomDim < 0.002 && dimTarget === 0) roomDim = 0;
       }
       let lightHere = 0;
       for (const slot of pool) {
@@ -2568,11 +3024,12 @@ export default function BackroomsScene({
         slot.level = Math.min(1, slot.level + delta * 6);
         const d = Math.hypot(f.x - player.x * CS, f.z - player.z * CS);
         const falloff = THREE.MathUtils.clamp(1 - d / (def.lamp.range * 2.2), 0, 1);
-        const k = fixtureFactor(f);
+        const outside = roomDim > 0 && fixtureZone[f.index] !== darkRoomCode ? 1 - roomDim : 1;
+        const k = fixtureFactor(f) * outside;
         slot.light.intensity = def.lamp.intensity * slot.level * k * brightness * (0.35 + 0.65 * falloff);
         lightHere = Math.max(lightHere, k * THREE.MathUtils.clamp(1 - d / (def.lamp.range * 0.9), 0, 1));
       }
-      hemi.intensity = def.hemi.intensity * brightness * (def.blackouts ? 0.12 + 0.88 * power : 1);
+      hemi.intensity = def.hemi.intensity * brightness * (def.blackouts ? 0.12 + 0.88 * power : 1) * (1 - 0.85 * zoneDark);
 
       // --- Entite ---
       const introHold = elapsed < INTRO_SECONDS;
@@ -2617,13 +3074,38 @@ export default function BackroomsScene({
             sight = t.lamp ? 18 : t.crouch ? 6 : 10;
             if (behind) sight *= 0.45;
           }
-          const seen = t.los && dM < sight;
+          // Les Chiens sont aveugles : ni la vue ni la lampe ne comptent, seulement les bruits.
+          const seen = (!traits || traits.sees) && t.los && dM < sight;
           // Quelqu'un qu'elle voit passe toujours avant quelqu'un qu'elle ne voit pas.
           const score = dM - (seen ? 1000 : 0);
           if (score < bestScore) {
             bestScore = score;
             target = t;
             canSee = seen;
+          }
+        }
+
+        // Voleur de peau : fige tant qu'un vivant le regarde (a l'ecran, sans
+        // mur entre eux, en deca du brouillard). Personne ne regarde : il file.
+        monsterFrozen = false;
+        if (traits?.freezesWhenWatched) {
+          const reach = fog.far + 2;
+          if (
+            !spectating &&
+            los &&
+            Math.hypot(entity.x - player.x, entity.z - player.z) * CS < reach &&
+            isLookingAt(player.x, player.z, player.yaw, entity.x, entity.z, watchCos)
+          ) {
+            monsterFrozen = true;
+          }
+          if (!monsterFrozen) {
+            for (const av of avatars.values()) {
+              if (!av.fresh || av.dead || !av.entityLos) continue;
+              if (Math.hypot(entity.x - av.x, entity.z - av.z) * CS < reach && isLookingAt(av.x, av.z, av.yaw, entity.x, entity.z, watchCos)) {
+                monsterFrozen = true;
+                break;
+              }
+            }
           }
         }
 
@@ -2656,7 +3138,15 @@ export default function BackroomsScene({
             if (decision.noticed) {
               screamUntil = elapsed + 0.9;
               if (bacteria) playBacteriaScreech(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 1));
-              else playSmilerGiggle(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 1.2));
+              else if (monster) {
+                monsterCall();
+                // Fetards : coucou d'abord, la course ensuite.
+                if (traits && traits.greetSeconds > 0) greetUntil = elapsed + traits.greetSeconds;
+              } else playSmilerGiggle(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 1.2));
+            } else if (monster && traits && !traits.sees && decision.alerted && decision.speed === "chasse" && elapsed >= nextMonsterCallAt) {
+              // Les Chiens ne voient rien : c'est un bruit fort qui les lance.
+              screamUntil = elapsed + 0.9;
+              monsterCall();
             }
             mode = decision.speed;
             state = decision.state;
@@ -2677,11 +3167,22 @@ export default function BackroomsScene({
             }
           }
 
-          const speedM =
-            mode === "chasse" || mode === "fuite" ? def.entityChase : mode === "marche" ? def.entityInvestigate : def.entityWander;
+          const speedM = mode === "chasse" || mode === "fuite" ? chaseSpeed : mode === "marche" ? investigateSpeed : wanderSpeed;
           const speed = speedM / CS;
           const tDist = Math.hypot(target.x - entity.x, target.z - entity.z) * CS;
-          if (state === "poursuivre" && (canSee || def.id === "niveau-run") && tDist < 2.2) {
+          if (monsterFrozen) {
+            // Regarde, il ne bouge plus du tout : ni un pas, ni un tour de tete.
+          } else if (greetUntil > elapsed) {
+            // Coucou : il se tourne vers toi et agite la main, sans avancer.
+            let turn = Math.atan2(target.x - entity.x, target.z - entity.z) - entity.yaw;
+            while (turn > Math.PI) turn -= Math.PI * 2;
+            while (turn < -Math.PI) turn += Math.PI * 2;
+            entity.yaw += turn * Math.min(1, delta * 6);
+          } else if (
+            (state === "poursuivre" && (canSee || def.id === "niveau-run") && tDist < 2.2) ||
+            // Chiens : aveugles, mais a deux pas d'un bruit fort, ils sautent dessus.
+            (traits !== null && !traits.sees && state === "enqueter" && mode === "chasse" && tDist < 2.2)
+          ) {
             const dx = target.x - entity.x;
             const dz = target.z - entity.z;
             const d = Math.hypot(dx, dz) || 1;
@@ -2725,10 +3226,11 @@ export default function BackroomsScene({
           if (moved) entity.walk += speedM * delta * 2.2;
           entity.lunge += ((tDist < 2 ? 1 - tDist / 2 : 0) - entity.lunge) * Math.min(1, delta * 5);
 
-          // Captures : l'hote seul en decide, pour tout le monde.
+          // Captures : l'hote seul en decide, pour tout le monde. Fige, le
+          // Voleur ne peut prendre personne.
           for (const t of targets) {
-            if (Math.hypot(t.x - entity.x, t.z - entity.z) * CS >= CAPTURE) continue;
-            const cause: DeathCause = bacteria || monster ? "bacterie" : "souriant";
+            if (monsterFrozen || Math.hypot(t.x - entity.x, t.z - entity.z) * CS >= CAPTURE) continue;
+            const cause: DeathCause = monster ? monster.kind : bacteria ? "bacterie" : "souriant";
             if (t.id === selfKey) killPlayer(cause);
             else {
               const av = avatars.get(t.id);
@@ -2764,7 +3266,7 @@ export default function BackroomsScene({
         entity.active = net.active;
         entity.lunge = net.lunge;
         entity.opacity = net.opacity;
-        if (net.state === "poursuivre" && state !== "poursuivre") {
+        if (!monster && net.state === "poursuivre" && state !== "poursuivre") {
           screamUntil = elapsed + 0.9;
           if (bacteria) playBacteriaScreech(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 1));
           else playSmilerGiggle(audio.ctx, audio.master, spatial(entity.x, entity.z, 40, 1.2));
@@ -2772,8 +3274,21 @@ export default function BackroomsScene({
         state = net.state as BrainState;
         netEntitySpeed = net.speed;
         if (bacteria) bacteria.group.visible = net.visible;
-        if (monster) monster.group.visible = net.visible;
+        if (monster) {
+          monster.group.visible = net.visible;
+          // Fige, coucou et cris : tels que l'hote les decide.
+          monsterFrozen = net.frozen === true;
+          monsterDisplay = net.pose === "salut" ? "salut" : state;
+          if (typeof net.calls === "number" && net.calls !== lastNetCalls) {
+            if (lastNetCalls >= 0 && net.calls > lastNetCalls) {
+              screamUntil = elapsed + 0.9;
+              playMonsterCall(audio.ctx, audio.master, monster.kind, spatial(entity.x, entity.z, 45, 1.2));
+            }
+            lastNetCalls = net.calls;
+          }
+        }
       }
+      if (monster && isHost) monsterDisplay = greetUntil > elapsed ? "salut" : state;
 
       // Affichage et sons, pareils pour l'hote et les invites.
       const renderSpeed = isHost ? hostEntitySpeed : netEntitySpeed;
@@ -2809,16 +3324,49 @@ export default function BackroomsScene({
       if (monster) {
         monster.group.position.set(entity.x * CS, floorY(entity.z), entity.z * CS);
         monster.group.rotation.y = entity.yaw;
-        monster.animate({
-          time: elapsed,
-          delta,
-          speed: renderSpeed,
-          state,
-          lunge: entity.lunge,
-          scream: THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1),
-          headYaw: 0,
-          watched: isLookingAt(player.x, player.z, player.yaw, entity.x, entity.z),
-        });
+        let headYaw = Math.atan2(player.x - entity.x, player.z - entity.z) - entity.yaw;
+        while (headYaw > Math.PI) headYaw -= Math.PI * 2;
+        while (headYaw < -Math.PI) headYaw += Math.PI * 2;
+        // Le Voleur te suit toujours des yeux ; les Chiens reniflent a droite,
+        // a gauche ; un Fetard ne tourne la tete vers toi que s'il t'a vu.
+        const facing = monster.kind === "voleur" || monsterDisplay === "salut" || state === "poursuivre";
+        monsterPose.time = elapsed;
+        monsterPose.delta = delta;
+        monsterPose.speed = renderSpeed;
+        monsterPose.state = monsterDisplay;
+        monsterPose.lunge = entity.lunge;
+        monsterPose.scream = THREE.MathUtils.clamp((screamUntil - elapsed) / 0.9, 0, 1);
+        monsterPose.headYaw =
+          monster.kind === "chiens" ? Math.sin(elapsed * 1.3) * 0.6 : facing ? THREE.MathUtils.clamp(headYaw, -1.2, 1.2) : Math.sin(elapsed * 0.8) * 0.5;
+        monsterPose.watched = monsterFrozen;
+        monster.animate(monsterPose);
+        if (entity.active && !introHold && monster.group.visible) {
+          // Il rode : chuchotements du Voleur (jamais quand on le regarde),
+          // grognements des Chiens, gloussements des Fetards.
+          if (elapsed >= nextMonsterMurmurAt) {
+            nextMonsterMurmurAt = elapsed + 7 + rng() * 8;
+            if (distM < 26 && !monsterFrozen) {
+              playMonsterCall(audio.ctx, audio.master, monster.kind, spatial(entity.x, entity.z, 26, 0.9), "ambiance");
+            }
+          }
+          if (renderSpeed > 0.1 && elapsed >= nextEntityStepAt && distM < 22) {
+            // Une foulee par longueur de pas : les Chiens trottinent, le Voleur allonge.
+            const stride = monster.kind === "chiens" ? 0.8 : monster.kind === "voleur" ? 1.15 : 1;
+            nextEntityStepAt = elapsed + THREE.MathUtils.clamp(stride / renderSpeed, 0.16, 0.9);
+            playMonsterStep(audio.ctx, audio.master, monster.kind, spatial(entity.x, entity.z, 22, 1.2));
+          }
+        }
+      }
+      // Les danseurs immobiles de la Fete : animes seulement a portee de vue.
+      if (figures.length > 0) {
+        figurePose.time = elapsed;
+        figurePose.delta = delta;
+        const reach = fog.far + 4;
+        for (const fig of figures) {
+          const near = Math.hypot(fig.x - player.x, fig.z - player.z) * CS < reach;
+          fig.body.group.visible = near;
+          if (near) fig.body.animate(figurePose);
+        }
       }
       if (smiler) {
         if (isHost) {
@@ -2922,7 +3470,8 @@ export default function BackroomsScene({
         valve.setTurn(valve.progress);
         valveShown = valve.progress;
         if (Math.floor(before * 7) !== Math.floor(valve.progress * 7)) {
-          if (def.id === "niveau-3") playClick(audio.ctx, audio.master, valve.progress > 0.5);
+          // Disjoncteur et fiche d'enceinte : des declics ; vanne : elle grince.
+          if (def.id === "niveau-3" || speakers) playClick(audio.ctx, audio.master, valve.progress > 0.5);
           else playValveTurn(audio.ctx, audio.master, valve.progress);
           emitNoise("porte", player.x, player.z, 0.9);
           handReachAt = elapsed;
@@ -2977,6 +3526,7 @@ export default function BackroomsScene({
                   visible: bacteria ? bacteria.group.visible : true,
                   lunge: entity.lunge,
                   opacity: entity.opacity,
+                  ...(monster ? { pose: monsterDisplay, frozen: monsterFrozen, calls: monsterCalls } : {}),
                 }
               : undefined,
           );
@@ -2995,7 +3545,7 @@ export default function BackroomsScene({
       dreadLevel += (targetDread - dreadLevel) * Math.min(1, delta * 3);
       audio.setTension(dreadLevel);
       const blackoutFog = def.blackouts ? 1 - power : 0;
-      fog.far = THREE.MathUtils.lerp(def.fog.far, def.fog.far * 0.45, Math.max(blackoutFog, sanityDread * 0.4));
+      fog.far = THREE.MathUtils.lerp(def.fog.far, def.fog.far * 0.45, Math.max(blackoutFog, sanityDread * 0.4, zoneDark * 0.5));
       // Mode dev, au-dessus du plafond : on voit le niveau comme une carte.
       const flyingHigh = devRef.current.fly && camera.position.y > floorY(player.z) + WH + 0.3;
       if (flyingHigh) {
@@ -3041,9 +3591,12 @@ export default function BackroomsScene({
           });
         }
       }
-      if (def.blackouts) {
-        (scene.background as THREE.Color).setHex(def.fog.color).multiplyScalar(0.25 + 0.75 * power);
-        fog.color.setHex(def.fog.color).multiplyScalar(0.25 + 0.75 * power);
+      // Brouillard assombri par les coupures et par les salles aux neons morts.
+      const ambient = (def.blackouts ? 0.25 + 0.75 * power : 1) * (1 - 0.75 * zoneDark);
+      if (def.blackouts || ambient !== ambientShown) {
+        ambientShown = ambient;
+        (scene.background as THREE.Color).setHex(def.fog.color).multiplyScalar(ambient);
+        fog.color.setHex(def.fog.color).multiplyScalar(ambient);
       }
 
       // --- Interface (synchronisee par paliers) ---
@@ -3198,6 +3751,7 @@ export default function BackroomsScene({
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
+      updateWatchCos();
     }
     window.addEventListener("resize", onResize);
 
@@ -3227,6 +3781,7 @@ export default function BackroomsScene({
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
       apiRef.current = null;
       voiceRef.current?.setSpatial(false);
+      stopPartyMusic();
       audio.stop();
       audio.ctx.close().catch(() => {});
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
@@ -3236,6 +3791,7 @@ export default function BackroomsScene({
       const disposeGpu = () => {
         bacteria?.dispose();
         monster?.dispose();
+        for (const fig of figures) fig.body.dispose();
         smiler?.dispose();
         wanderer.dispose();
         handRig.dispose();
@@ -3465,7 +4021,7 @@ export default function BackroomsScene({
           )}
           {voice?.hasMic() && !muted && micLevel > VOICE_LOUD && (
             <span className="font-bold text-red-400" style={{ animation: "backrooms-rec 0.5s steps(1) infinite" }}>
-              TROP FORT · ELLE T&apos;ENTEND
+              TROP FORT · {level.entity === "chiens" || level.entity === "fetards" ? "ILS T'ENTENDENT" : level.entity === "voleur" ? "IL T'ENTEND" : "ELLE T'ENTEND"}
             </span>
           )}
           {blackout && (

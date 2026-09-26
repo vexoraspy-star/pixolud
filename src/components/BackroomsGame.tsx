@@ -58,6 +58,18 @@ const DEATH_TEXT: Record<DeathCause, { title: string; text: string }> = {
     title: "Elle t'a entendu",
     text: "Des doigts trop longs, un claquement sec, et plus rien. Chaque pas fait du bruit, ici.",
   },
+  voleur: {
+    title: "Tu as détourné les yeux",
+    text: "Une seconde, pas plus. Quand tu t'es retourné, il était là, tout près, avec ce visage d'emprunt. Demain, quelqu'un portera le tien dans les couloirs de l'hôtel.",
+  },
+  chiens: {
+    title: "Ils t'ont entendu",
+    text: "Pas une lumière, pas un bruit — sauf toi. Des griffes sur le béton, un souffle chaud dans le noir, puis plus rien.",
+  },
+  fetards: {
+    title: "Joyeux anniversaire",
+    text: "Ils t'ont fait coucou. Tu n'as pas couru assez vite. La fête continue, et maintenant, toi aussi, tu souris.",
+  },
 };
 
 function loadProgress(): number {
@@ -793,7 +805,7 @@ export default function BackroomsGame({
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed opacity-85">
             Tu as traversé le sol par accident. Derrière : de la moquette humide, des néons qui bourdonnent, et des
-            couloirs jaunes, parfois sur plusieurs étages, qui ne mènent nulle part. Trouve la sortie de chaque niveau
+            couloirs jaunes, parfois sur plusieurs étages, qui ne mènent nulle part. Dix niveaux, chacun avec sa sortie
             — quand il y a un étage, elle est souvent en haut des escaliers. Ne reste pas dans le noir.
           </p>
 
@@ -914,7 +926,12 @@ export default function BackroomsGame({
                     onClick={() => start(i, true)}
                     className="flex w-full items-start gap-4 border border-white/10 bg-black/50 p-3 text-left transition enabled:hover:border-[#f3e3a0]/60 enabled:hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <span className="w-8 shrink-0 text-3xl font-black leading-none">{lvl.number}</span>
+                    {/* « Fun =) » ne tient pas dans la colonne des chiffres : plus petit, sur sa propre largeur. */}
+                    <span
+                      className={`shrink-0 font-black leading-none ${lvl.number.length > 2 ? "w-14 whitespace-nowrap pt-1.5 text-base" : "w-8 text-3xl"}`}
+                    >
+                      {lvl.number}
+                    </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-bold tracking-widest">{open ? lvl.name.toUpperCase() : "???"}</span>
                       <span className="mt-1 block text-[11px] leading-snug opacity-70">
@@ -944,6 +961,7 @@ export default function BackroomsGame({
             <ul className="mt-2 space-y-1 opacity-85">
               <li>Ta lucidité baisse, surtout dans le noir. L&apos;eau d&apos;amande la remonte.</li>
               <li>Les entités entendent tes pas. Accroupi, tu es presque silencieux.</li>
+              <li>Chaque créature a sa règle : le conseil qui s&apos;affiche au début du niveau te la donne.</li>
               <li>Le signal en bas à gauche grimpe près de ton objectif.</li>
               <li>Casque recommandé : les sons viennent d&apos;une direction.</li>
             </ul>
