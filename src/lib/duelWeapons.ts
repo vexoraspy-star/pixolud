@@ -1411,9 +1411,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   const body = new THREE.Group();
   group.add(body);
 
-  const owned: { dispose(): void }[] = [];
+  const owned = new Set<{ dispose(): void }>();
   function keep<T extends { dispose(): void }>(x: T): T {
-    owned.push(x);
+    owned.add(x);
     return x;
   }
 
@@ -1584,21 +1584,45 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   const stockGroup = new THREE.Group();
   const inv = new THREE.Matrix4();
   const rel = new THREE.Matrix4();
+  const seenGeo = new Set<THREE.BufferGeometry>();
   function mergeInto(buckets: Map<THREE.Material, THREE.Mesh[]>, target: THREE.Object3D) {
     for (const [mat, meshes] of buckets) {
       if (meshes.length < 2) continue;
       const geos: THREE.BufferGeometry[] = [];
       for (const m of meshes) {
         rel.multiplyMatrices(inv, m.matrixWorld);
-        geos.push(m.geometry.clone().applyMatrix4(rel));
+        // La geometrie d'une piece ne sert plus qu'a la fusion : on la
+        // transforme sur place. Une geometrie partagee (les mains) ou deja
+        // vue est copiee.
+        const g = m.geometry as THREE.BufferGeometry;
+        const own = g.userData.shared !== true && !seenGeo.has(g);
+        seenGeo.add(g);
+        geos.push((own ? g : g.clone()).applyMatrix4(rel));
       }
       // Memes attributs partout (couleur de sommet, coordonnees de texture).
       const ready = prepareMerge(geos);
       const merged = mergeGeometries(ready, false);
-      for (const g of ready) g.dispose();
-      if (!merged) continue;
+      if (!merged) {
+        // Repli : chaque piece garde sa geometrie, deja dans le repere du groupe.
+        meshes.forEach((m, i) => {
+          m.geometry = keep(ready[i]);
+          target.add(m);
+          m.position.set(0, 0, 0);
+          m.rotation.set(0, 0, 0);
+          m.scale.set(1, 1, 1);
+        });
+        continue;
+      }
+      // Les pieces fusionnees sont liberees tout de suite : la memoire aussi.
+      for (const g of ready) {
+        g.dispose();
+        owned.delete(g);
+      }
+      for (const m of meshes) {
+        owned.delete(m.geometry);
+        m.removeFromParent();
+      }
       target.add(new THREE.Mesh(keep(merged), mat));
-      for (const m of meshes) m.removeFromParent();
     }
   }
   for (const unit of units) {

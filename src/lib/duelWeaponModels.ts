@@ -702,7 +702,7 @@ function mergeSimple(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
   let count = 0;
   for (const g of geos) count += g.attributes.position.count;
   const out = new THREE.BufferGeometry();
-  for (const name of ["position", "normal", "uv"]) {
+  for (const name of ["position", "normal", "uv", "color"]) {
     if (!geos.every((g) => g.attributes[name])) continue;
     const size = (geos[0].attributes[name] as THREE.BufferAttribute).itemSize;
     const arr = new Float32Array(count * size);
@@ -932,10 +932,11 @@ const HAND_PLANS: Record<HandShape, HandPlan> = {
   // Main gauche sous un garde-main (demi-largeur 3,8 cm, demi-hauteur 4,2 cm).
   appui: {
     fingers: [
-      { pts: [[0.03, -0.058, -0.031], [0.048, -0.012, -0.034], [0.046, 0.02, -0.034], [0.034, 0.038, -0.033]], r: 0.0102 },
-      { pts: [[0.032, -0.06, -0.009], [0.05, -0.012, -0.011], [0.048, 0.022, -0.011], [0.036, 0.041, -0.011]], r: 0.0106 },
-      { pts: [[0.031, -0.06, 0.012], [0.049, -0.014, 0.012], [0.047, 0.018, 0.012], [0.035, 0.036, 0.012]], r: 0.0102 },
-      { pts: [[0.028, -0.058, 0.031], [0.045, -0.018, 0.031], [0.044, 0.008, 0.031], [0.035, 0.024, 0.031]], r: 0.0088 },
+      // Les doigts remontent le flanc droit en penchant vers l'avant.
+      { pts: [[0.03, -0.058, -0.031], [0.048, -0.016, -0.04], [0.048, 0.012, -0.05], [0.037, 0.028, -0.057]], r: 0.0102 },
+      { pts: [[0.032, -0.06, -0.009], [0.05, -0.016, -0.018], [0.05, 0.014, -0.028], [0.039, 0.031, -0.035]], r: 0.0106 },
+      { pts: [[0.031, -0.06, 0.012], [0.049, -0.018, 0.004], [0.049, 0.01, -0.006], [0.038, 0.026, -0.013]], r: 0.0102 },
+      { pts: [[0.028, -0.058, 0.031], [0.046, -0.022, 0.024], [0.046, 0.002, 0.016], [0.037, 0.017, 0.01]], r: 0.0088 },
       // Pouce : il longe le flanc gauche du garde-main, vers l'avant.
       { pts: [[-0.028, -0.064, 0.018], [-0.048, -0.046, -0.014], [-0.055, -0.022, -0.044], [-0.051, -0.006, -0.068]], r: 0.012 },
     ],
@@ -945,8 +946,8 @@ const HAND_PLANS: Record<HandShape, HandPlan> = {
       { at: [-0.034, -0.058, 0.006], r: [0.022, 0.02, 0.03], rot: [0, 0, 0.4] },
       { at: [-0.012, -0.07, 0.036], r: [0.026, 0.018, 0.022] },
     ],
-    wrist: [-0.018, -0.078, 0.046],
-    dir: [-0.3, -0.72, 0.62],
+    wrist: [-0.022, -0.076, 0.044],
+    dir: [-0.5, -0.64, 0.58],
   },
   // Main gauche d'un pistolet : les doigts passent devant ceux de la main
   // droite, la paume contre le flanc gauche de la poignee.
@@ -975,7 +976,7 @@ const HAND_PLANS: Record<HandShape, HandPlan> = {
  * vers le cube (exposant < 1), plus proche d'une main que d'une balle.
  */
 function ellipsoid(rx: number, ry: number, rz: number, boxy = 0.7): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 18, 14);
+  const g = new THREE.SphereGeometry(1, 16, 11);
   const pos = g.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -1000,13 +1001,12 @@ function ellipsoid(rx: number, ry: number, rz: number, boxy = 0.7): THREE.Buffer
  * phalanges et bouts renforces ; poignet a sangle, puis la manche de treillis
  * au bord retourne, assez longue pour toujours sortir du cadre.
  */
-export function buildGloveHand(
+function buildHandParts(
   kit: Pick<GunKit, "glove" | "gloveDark" | "sleeve">,
   keep: Disposer,
   shape: HandShape,
   left: boolean,
-  /** Inclinaison de la poignee : l'index reste a l'horizontale, le long de la carcasse. */
-  tilt = 0,
+  tilt: number,
 ): THREE.Group {
   const h = new THREE.Group();
   // « appui » et « soutien » sont dessinees directement en main gauche.
@@ -1036,11 +1036,11 @@ export function buildGloveHand(
     for (let i = 0; i < 3; i++) {
       // Les phalanges s'affinent vers le bout.
       const r = fg.r * (1 - i * 0.08);
-      f.part(h, capsuleBetween(p[i], p[i + 1], r, 10), glove);
+      f.part(h, capsuleBetween(p[i], p[i + 1], r, 9), glove);
     }
     // Articulations un peu renflees : le doigt ne ressemble plus a un tuyau.
-    f.part(h, sphere(fg.r * 1.06, 10, 8), glove, p[1].x, p[1].y, p[1].z);
-    f.part(h, sphere(fg.r * 0.98, 10, 8), glove, p[2].x, p[2].y, p[2].z);
+    f.part(h, sphere(fg.r * 1.06, 9, 6), glove, p[1].x, p[1].y, p[1].z);
+    f.part(h, sphere(fg.r * 0.98, 9, 6), glove, p[2].x, p[2].y, p[2].z);
     if (n === 4) return;
     bases.push(p[0]);
     // Coussinet sombre sur la phalange, bout de doigt renforce.
@@ -1106,6 +1106,67 @@ export function buildGloveHand(
       sleeve,
     ),
   );
+  return h;
+}
+
+/**
+ * Mains deja construites, par forme : la meme main sert aux treize armes. On
+ * garde ses trois maillages fusionnes (gant, renforts, manche) et chaque arme
+ * les habille de ses propres matieres. La derniere arme detruite les libere.
+ */
+const handCache = new Map<string, { geos: [THREE.BufferGeometry, THREE.BufferGeometry, THREE.BufferGeometry]; users: number }>();
+
+/**
+ * Une main gantee, son poignet et la manche. L'origine est le centre de ce
+ * qu'elle tient. Voir buildHandParts pour le detail ; ici, trois maillages.
+ */
+export function buildGloveHand(
+  kit: Pick<GunKit, "glove" | "gloveDark" | "sleeve">,
+  keep: Disposer,
+  shape: HandShape,
+  left: boolean,
+  /** Inclinaison de la poignee : l'index reste a l'horizontale, le long de la carcasse. */
+  tilt = 0,
+): THREE.Group {
+  const key = `${shape}|${left ? 1 : 0}|${shape === "poignee" ? tilt.toFixed(4) : 0}`;
+  let entry = handCache.get(key);
+  if (!entry) {
+    const tmp: { dispose(): void }[] = [];
+    const parts = buildHandParts(kit, (x) => (tmp.push(x), x), shape, left, tilt);
+    parts.updateMatrixWorld(true);
+    const lists: THREE.BufferGeometry[][] = [[], [], []];
+    const mats = [kit.glove, kit.gloveDark, kit.sleeve];
+    parts.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const i = mats.indexOf(o.material as THREE.MeshLambertMaterial);
+      if (i < 0) return;
+      lists[i].push((o.geometry as THREE.BufferGeometry).applyMatrix4(o.matrixWorld));
+    });
+    const geos = lists.map((l) => {
+      const g = mergeSimple(l);
+      g.userData.shared = true;
+      return g;
+    }) as [THREE.BufferGeometry, THREE.BufferGeometry, THREE.BufferGeometry];
+    for (const t of tmp) t.dispose();
+    entry = { geos, users: 0 };
+    handCache.set(key, entry);
+  }
+  const e = entry;
+  e.users += 1;
+  let released = false;
+  keep({
+    dispose() {
+      if (released) return;
+      released = true;
+      e.users -= 1;
+      if (e.users <= 0) {
+        for (const g of e.geos) g.dispose();
+        if (handCache.get(key) === e) handCache.delete(key);
+      }
+    },
+  });
+  const h = new THREE.Group();
+  h.add(new THREE.Mesh(e.geos[0], kit.glove), new THREE.Mesh(e.geos[1], kit.gloveDark), new THREE.Mesh(e.geos[2], kit.sleeve));
   return h;
 }
 

@@ -7,6 +7,7 @@ import {
   createForge,
   createGunKit,
   front,
+  indexTipLocal,
   lathe,
   leftGestureRotations,
   optic,
@@ -315,6 +316,165 @@ function rigBase(s: Shop, leftShape: HandShape, tilt: number): GunRig {
   };
 }
 
+/** Point du repere de la main (poignee inclinee de `tilt`, origine H) dans celui de l'arme. */
+function fromHand(H: THREE.Vector3, tilt: number, x: number, y: number, z: number) {
+  const c = Math.cos(tilt);
+  const sn = Math.sin(tilt);
+  return new THREE.Vector3(H.x + x, H.y + y * c - z * sn, H.z + y * sn + z * c);
+}
+
+/** Devant de la poignee (z) a la hauteur y de l'arme : la ou le pontet la rejoint. */
+function gripFrontZ(H: THREE.Vector3, tilt: number, y: number, front = -0.042) {
+  const c = Math.cos(tilt);
+  const sn = Math.sin(tilt);
+  const ly = (y - H.y + front * sn) / c;
+  return H.z + ly * sn + front * c;
+}
+
+/**
+ * Detente et pontet places sous l'index de la main droite : la lame juste
+ * derriere le bout du doigt, le pontet autour, de la carcasse (yTop) jusqu'au
+ * devant de la poignee.
+ */
+function triggerUnder(
+  s: Shop,
+  parent: Parent,
+  H: THREE.Vector3,
+  tilt: number,
+  yTop: number,
+  o: { width?: number; bar?: number; mat?: THREE.Material; bladeMat?: THREE.Material } = {},
+) {
+  const l = indexTipLocal(tilt);
+  const tip = fromHand(H, tilt, l.x, l.y, l.z);
+  const zBlade = tip.z + 0.017;
+  triggerBlade(s, parent, yTop - 0.002, zBlade, Math.max(0.026, yTop - tip.y + 0.012), o.bladeMat);
+  const yBot = Math.min(tip.y - 0.02, yTop - 0.04);
+  const zBack = Math.max(zBlade + 0.02, gripFrontZ(H, tilt, yBot) + 0.006);
+  triggerGuard(s, parent, tip.z - 0.026, zBack, yTop, yBot, o.width ?? 0.024, o.bar ?? 0.008, o.mat);
+  return tip;
+}
+
+/**
+ * Chargeur courbe vu de cote : deux arcs concentriques (le centre est devant
+ * l'arme). Haut du dos en (zBack, yTop), profondeur `depth`, courbure `radius`,
+ * ouverture `sweep` (radians). Nervures en relief et semelle.
+ */
+function curvedMag(
+  s: Shop,
+  parent: Parent,
+  mat: THREE.Material,
+  zBack: number,
+  yTop: number,
+  depth: number,
+  radius: number,
+  sweep: number,
+  width: number,
+) {
+  const cz = zBack - radius;
+  const cy = yTop;
+  const rb = radius;
+  const rf = radius - depth;
+  const shape = new THREE.Shape();
+  shape.moveTo(cz + rb, cy);
+  shape.absarc(cz, cy, rb, 0, -sweep, true);
+  shape.lineTo(cz + rf * Math.cos(sweep), cy - rf * Math.sin(sweep));
+  shape.absarc(cz, cy, rf, -sweep, 0, false);
+  shape.closePath();
+  put(s, parent, side(shape, width, { bevel: 0.004, seg: 2, curve: 10 }), mat);
+  // Nervures de renfort : une bande en relief qui suit la courbe.
+  const band = new THREE.Shape();
+  const a0 = -0.05;
+  const a1 = -sweep + 0.05;
+  const r0 = rf + 0.013;
+  const r1 = rb - 0.013;
+  band.moveTo(cz + r1 * Math.cos(a0), cy + r1 * Math.sin(a0));
+  band.absarc(cz, cy, r1, a0, a1, true);
+  band.lineTo(cz + r0 * Math.cos(a1), cy + r0 * Math.sin(a1));
+  band.absarc(cz, cy, r0, a1, a0, false);
+  band.closePath();
+  put(s, parent, side(band, width + 0.005, { bevel: 0.0018, seg: 1, curve: 10 }), mat);
+  // Semelle, perpendiculaire a l'axe du chargeur.
+  const n = new THREE.Vector2(Math.cos(sweep), -Math.sin(sweep));
+  const t = new THREE.Vector2(-Math.sin(sweep), -Math.cos(sweep));
+  const bb = new THREE.Vector2(cz, cy).addScaledVector(n, rb + 0.004).addScaledVector(t, -0.004);
+  const fb = new THREE.Vector2(cz, cy).addScaledVector(n, rf - 0.004).addScaledVector(t, -0.004);
+  const plate: Pt[] = [
+    [bb.x, bb.y],
+    [fb.x, fb.y],
+    [fb.x + t.x * 0.016, fb.y + t.y * 0.016, 0.004],
+    [bb.x + t.x * 0.016, bb.y + t.y * 0.016, 0.004],
+  ];
+  put(s, parent, side(plate, width + 0.006, { bevel: 0.003, seg: 1 }), s.kit.dark);
+  // Cartouche du dessus, visible quand le chargeur est sorti.
+  put(s, parent, rod(0.0068, zBack - depth + 0.012, zBack - 0.012, 10), s.kit.brass, 0, yTop - 0.004, 0);
+}
+
+/**
+ * Viseur point rouge a tube, sur embase haute. `y` : axe optique, `z0`/`z1` :
+ * les deux bouts, `railY` : le dessus du rail. Le point est nomme « dot ».
+ */
+function redDotTube(s: Shop, parent: Parent, y: number, z0: number, z1: number, railY: number) {
+  const k = s.kit;
+  const zc = (z0 + z1) / 2;
+  const r = 0.024;
+  // Embase : semelle sur le rail, colonne jusqu'au tube.
+  put(s, parent, block(0.04, 0.012, z1 - z0 - 0.012, 0.002), k.dark, 0, railY + 0.006, zc);
+  put(
+    s,
+    parent,
+    side([[z0 + 0.012, railY + 0.01], [z1 - 0.012, railY + 0.01], [z1 - 0.018, y - r + 0.006, 0.006], [z0 + 0.018, y - r + 0.006, 0.006]], 0.022, { bevel: 0.003 }),
+    k.dark,
+  );
+  put(s, parent, block(0.008, 0.008, 0.014, 0.002), k.steel, 0.024, railY + 0.006, zc);
+  // Tube creux, pare-soleil a l'avant, bagues.
+  optic(put(s, parent, tube(r - 0.004, r, z0, z1, 24, 0.002), k.dark, 0, y, 0));
+  optic(put(s, parent, tube(r - 0.003, r + 0.003, z0 - 0.002, z0 + 0.008, 24, 0.0015), k.dark, 0, y, 0));
+  optic(put(s, parent, tube(r - 0.003, r + 0.003, z1 - 0.008, z1 + 0.002, 24, 0.0015), k.dark, 0, y, 0));
+  // Tourelles de reglage.
+  optic(put(s, parent, lathe([[0.0001, 0], [0.009, 0], [0.009, 0.012, 0.002], [0.0001, 0.012]], 14), k.dark, 0, y + r - 0.002, zc, -Math.PI / 2, 0, 0));
+  optic(put(s, parent, lathe([[0.0001, 0], [0.009, 0], [0.009, 0.012, 0.002], [0.0001, 0.012]], 14), k.dark, r - 0.002, y, zc, 0, Math.PI / 2, 0));
+  // Verre teinte et point lumineux.
+  optic(put(s, parent, rod(r - 0.004, z0 + 0.004, z0 + 0.0045, 24), k.glassTint, 0, y, 0));
+  const dot = optic(put(s, parent, rod(0.0042, -0.0004, 0.0004, 12), k.accent, 0, y, z0 + 0.012));
+  dot.name = "dot";
+}
+
+/**
+ * Garde-main octogonal vu de face (demi-largeur hw, demi-hauteur hh, centre
+ * a (0, y)), creux, de z0 a z1, avec des lumieres de fixation sur les flancs
+ * et dessous.
+ */
+function octoHandguard(s: Shop, parent: Parent, mat: THREE.Material, y: number, z0: number, z1: number, hw = 0.035, hh = 0.037) {
+  const c = 0.012;
+  const pts: Pt[] = [
+    [-hw + c, -hh],
+    [hw - c, -hh],
+    [hw, -hh + c],
+    [hw, hh - c],
+    [hw - c, hh],
+    [-hw + c, hh],
+    [-hw, hh - c],
+    [-hw, -hh + c],
+  ];
+  const ri = Math.min(hw, hh) - 0.011;
+  const hole: Pt[] = [];
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    hole.push([Math.cos(a) * ri, Math.sin(a) * ri - 0.004]);
+  }
+  put(s, parent, front(pts, z1 - z0, { bevel: 0.003, seg: 2, holes: [hole] }), mat, 0, y, (z0 + z1) / 2);
+  // Lumieres : des creux sombres, trois par flanc et deux dessous.
+  const len = z1 - z0;
+  for (let i = 0; i < 3; i++) {
+    const zz = z0 + len * (0.2 + i * 0.28);
+    put(s, parent, block(hw * 2 + 0.0012, 0.011, len * 0.16, 0.003), s.kit.bore, 0, y, zz);
+  }
+  for (let i = 0; i < 2; i++) {
+    const zz = z0 + len * (0.3 + i * 0.36);
+    put(s, parent, block(0.011, hh * 2 + 0.0012, len * 0.16, 0.003), s.kit.bore, 0, y, zz);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pistolet : carcasse polymere, culasse acier noir, organes a trois points
 // ---------------------------------------------------------------------------
@@ -463,11 +623,598 @@ function pistolet(s: Shop): GunRig {
 }
 
 // ---------------------------------------------------------------------------
+// Fusil d'assaut : boitier en deux parties, garde-main flottant, chargeur
+// courbe, point rouge sur embase, crosse reglable
+// ---------------------------------------------------------------------------
+
+function fusil(s: Shop): GunRig {
+  const { kit, body, f } = s;
+  const tilt = -0.3;
+  const rig = rigBase(s, "appui", tilt);
+  const H = gripOrigin(-0.05, 0.13, tilt);
+  const furn = kit.sable;
+
+  // --- Boitier superieur : rail sur toute la longueur ---
+  put(
+    s,
+    body,
+    side([[-0.205, -0.004], [0.165, -0.004], [0.165, 0.05, 0.004], [0.157, 0.058], [-0.205, 0.058]], 0.062, { bevel: 0.004, seg: 2 }),
+    kit.metal,
+  );
+  rail(s, body, -0.2, 0.16, 0.058, 0.034);
+  // Deflecteur de douilles derriere la fenetre, et la fenetre elle-meme.
+  put(s, body, side([[0.036, 0.01], [0.066, 0.012], [0.062, 0.046, 0.006], [0.036, 0.046, 0.004]], 0.07, { bevel: 0.004 }), kit.metal);
+  put(s, body, block(0.0634, 0.034, 0.088, 0.002), kit.bore, 0, 0.026, -0.008);
+  // --- Boitier inferieur : puits de chargeur, goupilles, commandes ---
+  put(
+    s,
+    body,
+    side(
+      [
+        [-0.165, -0.002],
+        [0.172, -0.002],
+        [0.176, -0.034, 0.01],
+        [0.156, -0.052, 0.008],
+        [0.0, -0.052],
+        [-0.03, -0.068, 0.004],
+        [-0.142, -0.068, 0.004],
+        [-0.165, -0.032, 0.01],
+      ],
+      0.058,
+      { bevel: 0.0035, seg: 2 },
+    ),
+    kit.metal,
+  );
+  // Evasement du puits de chargeur.
+  put(s, body, side([[-0.146, -0.056], [-0.026, -0.056], [-0.024, -0.072, 0.003], [-0.148, -0.072, 0.003]], 0.064, { bevel: 0.003 }), kit.metal);
+  for (const sx of [-1, 1]) {
+    screw(s, body, sx * 0.0292, -0.02, -0.15, 0.0045);
+    screw(s, body, sx * 0.0292, -0.018, 0.158, 0.0045);
+  }
+  // Selecteur (gauche), arretoir de chargeur (droite), arretoir de culasse.
+  put(s, body, side([[-0.004, -0.004], [0.028, -0.002], [0.03, 0.006, 0.003], [-0.004, 0.006, 0.003]], 0.005, { bevel: 0.0015 }), kit.dark, -0.031, -0.028, 0.1);
+  put(s, body, rod(0.0045, 0, 0.004, 10), kit.steel, -0.03, -0.024, 0.1, 0, -Math.PI / 2, 0);
+  put(s, body, rod(0.007, 0, 0.004, 12), kit.dark, 0.029, -0.032, -0.012, 0, Math.PI / 2, 0);
+  put(s, body, block(0.004, 0.02, 0.026, 0.0015), kit.dark, -0.0305, -0.03, -0.008);
+
+  // --- Culasse : on la voit par la fenetre, le levier depasse a droite ---
+  const carrier = f.group(body);
+  rig.slide = carrier;
+  put(s, carrier, block(0.004, 0.024, 0.074, 0.001), kit.steel, 0.0302, 0.026, -0.012);
+  put(s, carrier, block(0.0032, 0.004, 0.06, 0.0008), kit.dark, 0.0318, 0.026, -0.014);
+  put(s, carrier, rod(0.0048, 0, 0.026, 10), kit.steel, 0.03, 0.03, 0.03, 0, Math.PI / 2, 0);
+  put(s, carrier, lathe([[0.0001, 0], [0.008, 0.001, 0.002], [0.009, 0.01, 0.003], [0.0001, 0.012]], 12), kit.dark, 0.052, 0.03, 0.03, 0, Math.PI / 2, 0);
+  rig.handleAt = new THREE.Vector3(0.062, 0.03, 0.03);
+  rig.ejectAt.set(0.045, 0.028, -0.01);
+
+  // --- Garde-main flottant, rail du dessus, canon, frein de bouche ---
+  octoHandguard(s, body, furn, 0.02, -0.47, -0.205);
+  rail(s, body, -0.465, -0.21, 0.057, 0.03);
+  put(s, body, tube(0.0205, 0.028, -0.21, -0.198, 20, 0.002), kit.metal, 0, 0.014, 0);
+  put(s, body, rod(0.0108, -0.63, -0.46, 16, 0.001), kit.blued, 0, 0.014, 0);
+  muzzleBrake(s, body, 0.014, -0.688, 0.062, 0.0175);
+  // Organes de visee de secours, rabattus sur le rail.
+  put(s, body, side([[-0.018, 0], [0.012, 0], [0.008, 0.012, 0.003], [-0.012, 0.012, 0.003]], 0.024, { bevel: 0.002 }), kit.dark, 0, 0.068, -0.44);
+  put(s, body, side([[-0.014, 0], [0.018, 0], [0.014, 0.011, 0.003], [-0.01, 0.011, 0.003]], 0.028, { bevel: 0.002 }), kit.dark, 0, 0.069, 0.136);
+
+  // --- Point rouge ---
+  redDotTube(s, body, 0.128, 0.018, 0.09, 0.069);
+
+  // --- Poignee, detente, pontet ---
+  const grip = f.group(body, H.x, H.y, H.z);
+  grip.rotation.x = tilt;
+  rifleGrip(s, grip, furn);
+  triggerUnder(s, body, H, tilt, -0.05, { width: 0.022, mat: kit.metal });
+
+  // --- Chargeur courbe ---
+  const mag = f.group(body);
+  rig.mag = mag;
+  curvedMag(s, mag, kit.dark, -0.04, -0.045, 0.086, 0.46, 0.5, 0.054);
+
+  // --- Tube de crosse et crosse reglable ---
+  put(s, body, rod(0.018, 0.165, 0.41, 18, 0.002), kit.metal, 0, 0.012, 0);
+  put(s, body, tube(0.0175, 0.023, 0.168, 0.182, 18, 0.002), kit.metal, 0, 0.012, 0);
+  put(
+    s,
+    body,
+    side(
+      [
+        [0.262, 0.04, 0.008],
+        [0.448, 0.05, 0.008],
+        [0.452, -0.078, 0.01],
+        [0.425, -0.088, 0.012],
+        [0.36, -0.052, 0.02],
+        [0.3, -0.026, 0.012],
+        [0.262, -0.022, 0.008],
+      ],
+      0.056,
+      { bevel: 0.006, seg: 2, holes: [[[0.33, 0.012], [0.4, 0.016, 0.006], [0.404, -0.036, 0.008], [0.37, -0.032, 0.008], [0.33, -0.012, 0.006]]] },
+    ),
+    furn,
+  );
+  // Appui-joue et plaque de couche caoutchouc.
+  put(s, body, side([[0.29, 0.038], [0.43, 0.046], [0.43, 0.06, 0.006], [0.3, 0.054, 0.008]], 0.05, { bevel: 0.005 }), furn);
+  put(s, body, side([[0.446, 0.054], [0.466, 0.054, 0.004], [0.47, -0.08, 0.006], [0.45, -0.092, 0.004], [0.44, -0.084]], 0.06, { bevel: 0.004 }), kit.rubber);
+  put(s, body, block(0.008, 0.016, 0.03, 0.002), kit.dark, 0, -0.026, 0.28);
+
+  rig.muzzleZ = -0.688;
+  rig.muzzleY = 0.014;
+  rig.sightY = 0.128;
+  rig.rackHand = true;
+  rig.rightHand.position.copy(H);
+  rig.rightHand.rotation.set(tilt, 0, 0);
+  body.add(rig.rightHand);
+  rig.leftHand.position.set(0, 0.02, -0.36);
+  rig.leftHand.rotation.set(0, 0, 0);
+  body.add(rig.leftHand);
+  rig.magGrip.set(0, -0.02, 0);
+  return rig;
+}
+
+// ---------------------------------------------------------------------------
+// Fusil de precision : culasse a verrou sur chassis, canon lourd cannele,
+// grand frein de bouche, lunette a tourelles, crosse squelette, bipied replie
+// ---------------------------------------------------------------------------
+
+/**
+ * Lunette de tir : tube, objectif evase, oculaire, tourelles et bagues sur le
+ * rail. Axe a (0, y), de zFront (objectif) a zBack (oculaire).
+ */
+function scope(s: Shop, parent: Parent, y: number, zFront: number, zBack: number, railY: number, r = 0.022) {
+  const k = s.kit;
+  const len = zBack - zFront;
+  const bell = r * 1.55;
+  const eye = r * 1.3;
+  put(
+    s,
+    parent,
+    lathe(
+      [
+        [bell - 0.006, zFront],
+        [bell, zFront],
+        [bell, zFront + len * 0.16, 0.004],
+        [r, zFront + len * 0.3, 0.02],
+        [r, zBack - len * 0.36],
+        [r + 0.002, zBack - len * 0.34, 0.002],
+        [r + 0.002, zBack - len * 0.28],
+        [eye, zBack - len * 0.18, 0.012],
+        [eye, zBack, 0.003],
+        [eye - 0.005, zBack],
+      ],
+      24,
+    ),
+    k.blued,
+    0,
+    y,
+    0,
+  );
+  // Verres : l'objectif et l'oculaire, traites (reflets bleus et verts).
+  put(s, parent, rod(bell - 0.006, zFront + 0.002, zFront + 0.003, 24), k.glass, 0, y, 0).name = "lens";
+  put(s, parent, rod(eye - 0.005, zBack - 0.004, zBack - 0.003, 24), k.glass, 0, y, 0).name = "lens";
+  // Bague de grossissement striee.
+  for (let i = 0; i < 6; i++) {
+    put(s, parent, tube(eye - 0.001, eye + 0.0015, zBack - len * 0.17 + i * 0.006, zBack - len * 0.17 + i * 0.006 + 0.003, 24), k.dark, 0, y, 0);
+  }
+  // Tourelles : hausse dessus, derive a droite, parallaxe a gauche.
+  const zt = zFront + len * 0.52;
+  const turret = (h: number, rr: number) =>
+    lathe([[0.0001, 0], [rr, 0], [rr, h * 0.45], [rr * 1.12, h * 0.5, 0.001], [rr * 1.12, h, 0.003], [0.0001, h]], 18);
+  put(s, parent, turret(0.024, 0.014), k.dark, 0, y + r - 0.003, zt, -Math.PI / 2, 0, 0);
+  put(s, parent, turret(0.02, 0.012), k.dark, r - 0.003, y, zt, 0, Math.PI / 2, 0);
+  put(s, parent, turret(0.016, 0.012), k.dark, -r + 0.003, y, zt, 0, -Math.PI / 2, 0);
+  put(s, parent, block(r * 2.2, r * 2.2, 0.03, 0.006), k.blued, 0, y, zt);
+  // Bagues et leurs embases sur le rail.
+  for (const zz of [zFront + len * 0.34, zBack - len * 0.42]) {
+    put(s, parent, tube(r, r + 0.006, zz - 0.009, zz + 0.009, 24, 0.002), k.dark, 0, y, 0);
+    put(s, parent, side([[zz - 0.012, railY], [zz + 0.012, railY], [zz + 0.009, y - r + 0.004, 0.004], [zz - 0.009, y - r + 0.004, 0.004]], 0.03, { bevel: 0.003 }), k.dark);
+    screw(s, parent, 0.016, railY + 0.012, zz, 0.004);
+  }
+}
+
+function sniper(s: Shop): GunRig {
+  const { kit, body, f } = s;
+  const tilt = -0.25;
+  const rig = rigBase(s, "appui", tilt);
+  const H = gripOrigin(-0.05, 0.2, tilt);
+  const furn = kit.olive;
+  const ay = 0.02;
+
+  // --- Boitier rond, rail, fenetre d'ejection ---
+  put(s, body, lathe([[0.02, -0.15], [0.026, -0.148, 0.002], [0.026, 0.128, 0.004], [0.02, 0.13]], 22), kit.blued, 0, ay, 0);
+  put(s, body, block(0.03, 0.012, 0.25, 0.002), kit.blued, 0, ay + 0.024, -0.01);
+  rail(s, body, -0.14, 0.12, ay + 0.03, 0.03);
+  put(s, body, block(0.018, 0.022, 0.07, 0.002), kit.bore, 0.018, ay + 0.004, -0.03);
+  screw(s, body, 0.02, ay - 0.018, -0.12, 0.004);
+  screw(s, body, 0.02, ay - 0.018, 0.1, 0.004);
+
+  // --- Canon lourd cannele et frein de bouche ---
+  put(s, body, lathe([[0.0001, -0.86], [0.0145, -0.86], [0.0145, -0.5, 0.01], [0.02, -0.2, 0.02], [0.021, -0.15], [0.0001, -0.15]], 20), kit.blued, 0, 0.014, 0);
+  for (const a of [0.55, -0.55, Math.PI - 0.55]) {
+    const x = Math.sin(a) * 0.0165;
+    const yy = 0.014 + Math.cos(a) * 0.0165;
+    put(s, body, block(0.0045, 0.0045, 0.3, 0.001), kit.bore, x, yy, -0.52, 0, 0, -a);
+  }
+  muzzleBrake(s, body, 0.014, -0.95, 0.092, 0.024);
+
+  // --- Chassis : fut octogonal, logement du chargeur ---
+  octoHandguard(s, body, furn, 0.008, -0.47, -0.13, 0.034, 0.034);
+  put(
+    s,
+    body,
+    side(
+      [
+        [-0.14, 0.0],
+        [0.2, 0.0],
+        [0.22, 0.02, 0.006],
+        [0.24, 0.02],
+        [0.24, -0.045, 0.008],
+        [0.12, -0.05],
+        [-0.012, -0.05],
+        [-0.02, -0.064, 0.004],
+        [-0.108, -0.064, 0.004],
+        [-0.14, -0.03, 0.008],
+      ],
+      0.058,
+      { bevel: 0.004, seg: 2 },
+    ),
+    furn,
+  );
+  // Bipied replie sous le fut.
+  put(s, body, block(0.04, 0.016, 0.03, 0.004), kit.dark, 0, -0.034, -0.44);
+  for (const sx of [-0.012, 0.012]) {
+    put(s, body, rod(0.0055, -0.43, -0.2, 10, 0.002), kit.dark, sx, -0.034, 0);
+    put(s, body, sphere(0.0075, 10, 8), kit.rubber, sx, -0.034, -0.2);
+  }
+
+  // --- Verrou : leve, tire, repousse, rabattu ---
+  const bolt = f.group(body, 0, ay, 0.1);
+  rig.bolt = bolt;
+  put(s, bolt, rod(0.017, 0.02, 0.07, 18, 0.003), kit.steel, 0, 0, 0);
+  put(s, bolt, lathe([[0.0001, 0.07], [0.017, 0.07], [0.018, 0.08, 0.003], [0.012, 0.086, 0.003], [0.0001, 0.086]], 18), kit.blued, 0, 0, 0);
+  put(s, bolt, rod(0.0048, 0, 0.05, 10), kit.steel, 0.012, 0, 0.056, 0, Math.PI / 2 - 0.25, 0);
+  put(
+    s,
+    bolt,
+    lathe([[0.0001, -0.012], [0.009, -0.011, 0.003], [0.012, 0.0, 0.004], [0.011, 0.012, 0.003], [0.0001, 0.014]], 14),
+    kit.dark,
+    0.062,
+    0,
+    0.06,
+    0,
+    Math.PI / 2,
+    0,
+  );
+
+  // --- Lunette ---
+  scope(s, body, 0.14, -0.3, 0.14, ay + 0.041);
+
+  // --- Poignee, detente, pontet ---
+  const grip = f.group(body, H.x, H.y, H.z);
+  grip.rotation.x = tilt;
+  rifleGrip(s, grip, furn);
+  triggerUnder(s, body, H, tilt, -0.048, { width: 0.022, mat: kit.dark });
+
+  // --- Chargeur droit ---
+  const mag = f.group(body);
+  rig.mag = mag;
+  put(s, mag, side([[-0.104, -0.02], [-0.024, -0.02], [-0.03, -0.132, 0.004], [-0.108, -0.132, 0.004]], 0.05, { bevel: 0.003 }), kit.metal);
+  put(s, mag, side([[-0.112, -0.128], [-0.022, -0.128], [-0.026, -0.146, 0.004], [-0.112, -0.144, 0.004]], 0.056, { bevel: 0.003 }), kit.dark);
+  put(s, mag, rod(0.0068, -0.098, -0.03, 10), kit.brass, 0, -0.022, 0);
+
+  // --- Crosse squelette ---
+  put(
+    s,
+    body,
+    side(
+      [
+        [0.2, 0.042],
+        [0.5, 0.056, 0.006],
+        [0.516, 0.05, 0.004],
+        [0.52, -0.1, 0.008],
+        [0.48, -0.106, 0.01],
+        [0.3, -0.05, 0.02],
+        [0.2, -0.042, 0.008],
+      ],
+      0.054,
+      { bevel: 0.006, seg: 2, holes: [[[0.28, 0.016], [0.46, 0.028, 0.01], [0.47, -0.07, 0.012], [0.33, -0.03, 0.012]]] },
+    ),
+    furn,
+  );
+  // Busc reglable sur ses deux tiges, plaque de couche.
+  put(s, body, side([[0.3, 0.058], [0.45, 0.064], [0.45, 0.08, 0.008], [0.31, 0.076, 0.01]], 0.046, { bevel: 0.006 }), kit.dark);
+  for (const zz of [0.33, 0.42]) put(s, body, rod(0.0042, -0.004, 0.004, 8), kit.steel, 0, 0.054 + (zz - 0.3) * 0.047, zz, -Math.PI / 2, 0, 0);
+  put(s, body, side([[0.514, 0.058], [0.534, 0.058, 0.004], [0.538, -0.104, 0.006], [0.516, -0.112, 0.004]], 0.058, { bevel: 0.004 }), kit.rubber);
+
+  rig.muzzleZ = -0.95;
+  rig.muzzleY = 0.014;
+  rig.sightY = 0.14;
+  rig.casing = "long";
+  rig.ejectAt.set(0.04, 0.03, -0.03);
+  rig.rightHand.position.copy(H);
+  rig.rightHand.rotation.set(tilt, 0, 0);
+  body.add(rig.rightHand);
+  rig.leftHand.position.set(0, 0.008, -0.3);
+  body.add(rig.leftHand);
+  rig.magGrip.set(0, -0.01, 0);
+  return rig;
+}
+
+// ---------------------------------------------------------------------------
+// Fusil a pompe : boitier noir, canon a bande ventilee, tube magasin, pompe
+// en noyer striee, crosse en noyer, cartouches de rechange sur le flanc
+// ---------------------------------------------------------------------------
+
+/** Cartouche de fusil : culot en laiton, corps rouge, le long de z (culot vers +z). */
+function shotShell(s: Shop, parent: Parent, x: number, y: number, z: number, len = 0.058, r = 0.0115, ry = 0, rx = 0) {
+  const g = s.f.group(parent, x, y, z);
+  g.rotation.set(rx, ry, 0);
+  put(s, g, lathe([[0.0001, len / 2], [r * 1.12, len / 2], [r * 1.12, len / 2 - 0.003], [r, len / 2 - 0.004], [r, len / 2 - 0.014], [0.0001, len / 2 - 0.014]], 14), s.kit.brass);
+  put(s, g, lathe([[0.0001, -len / 2], [r * 0.9, -len / 2, 0.002], [r, -len / 2 + 0.004], [r, len / 2 - 0.014], [0.0001, len / 2 - 0.014]], 14), s.kit.shellRed);
+  return g;
+}
+
+function pompe(s: Shop): GunRig {
+  const { kit, body, f } = s;
+  const tilt = -0.3;
+  const rig = rigBase(s, "appui", tilt);
+  const H = gripOrigin(-0.036, 0.2, tilt);
+  const by = 0.03;
+  const my = -0.014;
+
+  // --- Boitier : dessus arrondi, fenetres d'ejection et de chargement ---
+  put(
+    s,
+    body,
+    side(
+      [
+        [-0.1, -0.042],
+        [0.162, -0.042],
+        [0.168, -0.012, 0.012],
+        [0.15, 0.05, 0.03],
+        [0.118, 0.062, 0.012],
+        [-0.1, 0.062, 0.006],
+      ],
+      0.06,
+      { bevel: 0.006, seg: 3 },
+    ),
+    kit.metal,
+  );
+  put(s, body, block(0.0612, 0.036, 0.1, 0.004), kit.bore, 0, 0.022, -0.02);
+  put(s, body, block(0.034, 0.008, 0.11, 0.003), kit.bore, 0, -0.04, -0.03);
+  screw(s, body, 0.03, -0.02, 0.1, 0.0045);
+  screw(s, body, -0.03, -0.02, 0.1, 0.0045);
+  screw(s, body, 0.03, -0.02, 0.135, 0.0045);
+  // Surete : bouton en travers, derriere la detente.
+  put(s, body, rod(0.005, -0.034, 0.034, 12), kit.dark, 0, -0.034, 0.145, 0, Math.PI / 2, 0);
+
+  // --- Canon, bande ventilee et guidons ---
+  put(s, body, rod(0.0195, -0.72, -0.1, 20, 0.001), kit.blued, 0, by, 0);
+  put(s, body, rod(0.0118, -0.7215, -0.7, 16), kit.bore, 0, by, 0);
+  put(s, body, block(0.012, 0.004, 0.62, 0.001), kit.dark, 0, by + 0.026, -0.41);
+  for (let i = 0; i < 12; i++) put(s, body, block(0.006, 0.008, 0.012, 0.001), kit.dark, 0, by + 0.021, -0.69 + i * 0.05);
+  optic(put(s, body, sphere(0.0048, 12, 10), kit.brass, 0, by + 0.031, -0.705));
+  optic(put(s, body, sphere(0.0032, 10, 8), kit.steel, 0, by + 0.03, -0.42));
+
+  // --- Tube magasin, bouchon, collier ---
+  put(s, body, rod(0.0165, -0.64, -0.1, 18, 0.001), kit.blued, 0, my, 0);
+  put(s, body, lathe([[0.0001, -0.668], [0.015, -0.668, 0.003], [0.018, -0.66], [0.018, -0.636, 0.002], [0.0001, -0.636]], 18), kit.dark, 0, my, 0);
+  put(s, body, side([[-0.62, my - 0.02], [-0.59, my - 0.02], [-0.59, by + 0.02, 0.006], [-0.62, by + 0.02, 0.006]], 0.046, { bevel: 0.004 }), kit.dark);
+
+  // --- Pompe : elle coulisse avec ses barres d'action et la culasse ---
+  const pump = f.group(body, 0, my, -0.3);
+  rig.pump = pump;
+  const hw = 0.032;
+  const forend: Pt[] = [
+    [-hw + 0.01, -0.03],
+    [hw - 0.01, -0.03],
+    [hw, -0.012, 0.01],
+    [hw - 0.002, 0.018, 0.012],
+    [hw - 0.012, 0.03, 0.006],
+    [-hw + 0.012, 0.03, 0.006],
+    [-hw + 0.002, 0.018, 0.012],
+    [-hw, -0.012, 0.01],
+  ];
+  put(s, pump, front(forend, 0.19, { bevel: 0.006, seg: 3, holes: [[[-0.017, -0.017], [0.017, -0.017], [0.017, 0.017], [-0.017, 0.017]]] }), kit.wood);
+  for (let i = 0; i < 7; i++) put(s, pump, front(forend, 0.004, { bevel: 0.0005 }), kit.dark, 0, 0, -0.066 + i * 0.022).scale.set(1.012, 1.02, 1);
+  for (const sx of [-1, 1]) put(s, pump, rod(0.004, 0.095, 0.26, 8), kit.steel, sx * 0.02, 0.004, 0);
+  put(s, pump, block(0.003, 0.028, 0.07, 0.001), kit.steel, 0.0295, by - my - 0.008, 0.28);
+  rig.dipPort.set(0, -0.03 - my, 0.0 - pump.position.z);
+  rig.ejectAt.set(0.045, 0.024, -0.02);
+
+  // --- Poignee, detente, pontet ---
+  const grip = f.group(body, H.x, H.y, H.z);
+  grip.rotation.x = tilt;
+  rifleGrip(s, grip, kit.wood, 0.056);
+  triggerUnder(s, body, H, tilt, -0.042, { width: 0.022, mat: kit.dark });
+
+  // --- Crosse en noyer, plaque de couche, cartouches de rechange ---
+  put(
+    s,
+    body,
+    side(
+      [
+        [0.158, 0.056, 0.006],
+        [0.52, 0.034, 0.006],
+        [0.53, 0.028],
+        [0.534, -0.122],
+        [0.5, -0.13, 0.01],
+        [0.36, -0.074, 0.04],
+        [0.27, -0.044, 0.02],
+        [0.2, -0.038, 0.01],
+        [0.158, -0.036, 0.006],
+      ],
+      0.058,
+      { bevel: 0.008, seg: 3 },
+    ),
+    kit.wood,
+  );
+  put(s, body, side([[0.528, 0.036], [0.552, 0.036, 0.006], [0.558, -0.128, 0.008], [0.53, -0.132, 0.004]], 0.062, { bevel: 0.005 }), kit.rubber);
+  put(s, body, side([[0.29, 0.03], [0.44, 0.022], [0.44, -0.058], [0.29, -0.04]], 0.066, { bevel: 0.004 }), kit.dark);
+  for (let i = 0; i < 4; i++) shotShell(s, body, 0.0345, -0.014, 0.322 + i * 0.025, 0.058, 0.0105, 0, Math.PI / 2);
+
+  // --- Cartouche que la main gauche apporte ---
+  const carry = shotShell(s, rig.leftHand, 0, -0.034, 0, 0.058, 0.0115);
+  rig.carry = carry;
+
+  rig.muzzleZ = -0.72;
+  rig.muzzleY = by;
+  rig.sightY = by + 0.036;
+  rig.reloadStyle = "cartouches";
+  rig.casing = "coque";
+  rig.rightHand.position.copy(H);
+  rig.rightHand.rotation.set(tilt, 0, 0);
+  body.add(rig.rightHand);
+  // La main gauche est fille de la pompe : elle coulisse avec elle.
+  rig.leftHand.position.set(0, 0, 0);
+  pump.add(rig.leftHand);
+  return rig;
+}
+
+// ---------------------------------------------------------------------------
+// Mitraillette : boitier en tole emboutie, tube d'armement au-dessus du
+// canon, dioptre et guidon sous capuchon, chargeur legerement courbe,
+// crosse a coulisse
+// ---------------------------------------------------------------------------
+
+/** Dioptre : un oeilleton creux entre deux oreilles, a la hauteur `y`. */
+function apertureSight(s: Shop, parent: Parent, y: number, z: number, baseY: number, mat?: THREE.Material) {
+  const k = s.kit;
+  const m = mat ?? k.dark;
+  optic(put(s, parent, tube(0.0042, 0.011, z - 0.007, z + 0.007, 18, 0.0015), m, 0, y, 0));
+  for (const sx of [-1, 1]) {
+    optic(put(s, parent, side([[z - 0.012, baseY], [z + 0.012, baseY], [z + 0.01, y + 0.016, 0.004], [z - 0.01, y + 0.016, 0.004]], 0.005, { bevel: 0.0015 }), m, sx * 0.0165, 0, 0));
+  }
+  optic(put(s, parent, side([[z - 0.014, baseY - 0.004], [z + 0.014, baseY - 0.004], [z + 0.012, y - 0.008, 0.003], [z - 0.012, y - 0.008, 0.003]], 0.028, { bevel: 0.002 }), m));
+}
+
+/** Guidon sous capuchon : un anneau, et le fut du guidon dont le sommet est a `y`. */
+function hoodedPost(s: Shop, parent: Parent, y: number, z: number, baseY: number, r = 0.013, mat?: THREE.Material) {
+  const k = s.kit;
+  const m = mat ?? k.dark;
+  optic(put(s, parent, tube(r, r + 0.0035, z - 0.006, z + 0.006, 20, 0.001), m, 0, y, 0));
+  optic(put(s, parent, side([[z - 0.01, baseY], [z + 0.01, baseY], [z + 0.007, y - r + 0.002, 0.003], [z - 0.007, y - r + 0.002, 0.003]], 0.026, { bevel: 0.002 }), m));
+  optic(put(s, parent, side([[z - 0.0025, y - r - 0.001], [z + 0.0025, y - r - 0.001], [z + 0.0015, y], [z - 0.0015, y]], 0.0032, { bevel: 0.0005 }), m));
+}
+
+function mitraillette(s: Shop): GunRig {
+  const { kit, body, f } = s;
+  const tilt = -0.25;
+  const rig = rigBase(s, "appui", tilt);
+  const H = gripOrigin(-0.05, 0.12, tilt);
+  const by = 0.008;
+  const ty = 0.03;
+  const sightY = 0.066;
+
+  // --- Boitier en tole : dessus arrondi, nervure laterale emboutie ---
+  put(
+    s,
+    body,
+    side([[-0.19, -0.018], [0.17, -0.018], [0.173, 0.028, 0.012], [0.16, 0.044, 0.008], [-0.19, 0.044, 0.004]], 0.052, { bevel: 0.008, seg: 3 }),
+    kit.metal,
+  );
+  put(s, body, side([[-0.17, -0.004], [0.15, -0.004], [0.15, 0.016, 0.004], [-0.17, 0.016, 0.004]], 0.0556, { bevel: 0.0022, seg: 1 }), kit.metal);
+  // Fenetre d'ejection et culasse.
+  put(s, body, block(0.0562, 0.022, 0.056, 0.002), kit.bore, 0, 0.024, -0.032);
+  put(s, body, block(0.0035, 0.014, 0.046, 0.001), kit.steel, 0.0268, 0.024, -0.032);
+  // Puits de chargeur.
+  put(s, body, side([[-0.13, -0.016], [-0.035, -0.016], [-0.038, -0.064, 0.004], [-0.128, -0.064, 0.004]], 0.05, { bevel: 0.003 }), kit.metal);
+  // Carcasse polymere de la detente.
+  put(
+    s,
+    body,
+    side([[-0.03, -0.014], [0.172, -0.014], [0.176, -0.036, 0.008], [0.145, -0.052, 0.008], [-0.03, -0.052, 0.004]], 0.05, { bevel: 0.004, seg: 2 }),
+    kit.polymer,
+  );
+  for (const sx of [-1, 1]) {
+    screw(s, body, sx * 0.0255, -0.03, 0.0, 0.004);
+    screw(s, body, sx * 0.0255, -0.03, 0.15, 0.004);
+  }
+  put(s, body, side([[-0.004, -0.003], [0.024, -0.001], [0.026, 0.006, 0.003], [-0.004, 0.006, 0.003]], 0.005, { bevel: 0.0015 }), kit.dark, -0.026, -0.03, 0.09);
+
+  // --- Tube d'armement, garde-main, canon, cache-flamme ---
+  put(s, body, rod(0.0145, -0.37, -0.18, 18, 0.002), kit.metal, 0, ty, 0);
+  put(s, body, block(0.004, 0.005, 0.14, 0.001), kit.bore, -0.0138, ty, -0.27);
+  const hg: Pt[] = [
+    [-0.024, -0.042],
+    [0.024, -0.042],
+    [0.034, -0.03, 0.008],
+    [0.034, 0.012, 0.01],
+    [0.018, 0.026, 0.006],
+    [-0.018, 0.026, 0.006],
+    [-0.034, 0.012, 0.01],
+    [-0.034, -0.03, 0.008],
+  ];
+  put(s, body, front(hg, 0.17, { bevel: 0.004, seg: 2 }), kit.polymer, 0, -0.004, -0.285);
+  for (let i = 0; i < 5; i++) put(s, body, block(0.0694, 0.006, 0.012, 0.002), kit.dark, 0, -0.012, -0.345 + i * 0.03);
+  put(s, body, rod(0.0092, -0.41, -0.36, 14), kit.blued, 0, by, 0);
+  put(
+    s,
+    body,
+    lathe([[0.006, -0.448], [0.0125, -0.448], [0.0125, -0.414, 0.002], [0.0095, -0.408], [0.006, -0.408]], 16),
+    kit.blued,
+    0,
+    by,
+    0,
+  );
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    put(s, body, block(0.004, 0.004, 0.018, 0.001), kit.dark, Math.sin(a) * 0.0125, by + Math.cos(a) * 0.0125, -0.426, 0, 0, -a);
+  }
+  // Organes de visee.
+  hoodedPost(s, body, sightY, -0.352, ty + 0.012);
+  apertureSight(s, body, sightY, 0.13, 0.043);
+
+  // --- Levier d'armement, a gauche du tube : il claque a chaque coup ---
+  const handle = f.group(body);
+  rig.slide = handle;
+  put(s, handle, rod(0.0042, 0, 0.022, 10), kit.steel, -0.014, ty, -0.305, 0, -Math.PI / 2, 0);
+  put(s, handle, lathe([[0.0001, 0], [0.0075, 0.001, 0.002], [0.0085, 0.012, 0.003], [0.0001, 0.014]], 12), kit.dark, -0.034, ty, -0.305, 0, -Math.PI / 2, 0);
+  rig.handleAt = new THREE.Vector3(-0.04, ty, -0.305);
+  rig.ejectAt.set(0.034, 0.024, -0.032);
+
+  // --- Poignee, detente, chargeur ---
+  const grip = f.group(body, H.x, H.y, H.z);
+  grip.rotation.x = tilt;
+  rifleGrip(s, grip, kit.polymer, 0.052);
+  triggerUnder(s, body, H, tilt, -0.05, { width: 0.02, mat: kit.polymer });
+  const mag = f.group(body);
+  rig.mag = mag;
+  curvedMag(s, mag, kit.metal, -0.04, -0.03, 0.08, 1.15, 0.2, 0.04);
+
+  // --- Crosse a coulisse : deux tiges et une plaque ---
+  for (const sx of [-1, 1]) put(s, body, rod(0.0062, 0.16, 0.37, 10, 0.001), kit.steel, sx * 0.02, 0.012, 0);
+  put(s, body, block(0.056, 0.018, 0.02, 0.004), kit.dark, 0, 0.012, 0.175);
+  put(
+    s,
+    body,
+    side([[0.35, 0.046], [0.378, 0.05, 0.006], [0.384, -0.066, 0.008], [0.36, -0.07, 0.006], [0.35, -0.02, 0.01]], 0.07, { bevel: 0.006, seg: 2 }),
+    kit.polymer,
+  );
+  put(s, body, side([[0.378, 0.05], [0.392, 0.05, 0.004], [0.396, -0.068, 0.004], [0.382, -0.07]], 0.074, { bevel: 0.003 }), kit.rubber);
+
+  rig.muzzleZ = -0.448;
+  rig.muzzleY = by;
+  rig.sightY = sightY;
+  rig.rackHand = true;
+  rig.rightHand.position.copy(H);
+  rig.rightHand.rotation.set(tilt, 0, 0);
+  body.add(rig.rightHand);
+  rig.leftHand.position.set(0, -0.004, -0.29);
+  body.add(rig.leftHand);
+  rig.magGrip.set(0, -0.02, 0);
+  return rig;
+}
+
+// ---------------------------------------------------------------------------
 // Distribution
 // ---------------------------------------------------------------------------
 
 const BUILDERS: Partial<Record<WeaponId, (s: Shop) => GunRig>> = {
   pistolet,
+  fusil,
+  sniper,
+  pompe,
+  mitraillette,
 };
 
 /** Vrai si l'arme a son modele realiste dans cet arsenal. */
