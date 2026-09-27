@@ -42,6 +42,22 @@ function finish(canvas: HTMLCanvasElement, rx = 1, ry = 1, aniso = 4): THREE.Can
   return t;
 }
 
+/**
+ * Les textures peintes sont gardees en memoire vive pour la duree de la page :
+ * rejouer une partie ne repeint rien (la ville du desert en compte une
+ * trentaine). Chaque appel rend un CLONE, que la scene peut liberer sans
+ * toucher a l'original ; seul le canevas est partage.
+ */
+const PAINTED = new Map<string, THREE.CanvasTexture>();
+function memo(key: string, paint: () => THREE.CanvasTexture): THREE.CanvasTexture {
+  let t = PAINTED.get(key);
+  if (!t) {
+    t = paint();
+    PAINTED.set(key, t);
+  }
+  return t.clone();
+}
+
 /** Tirage pseudo-aleatoire a graine (mulberry32). */
 export function seeded(seed: number): () => number {
   let a = seed >>> 0;
@@ -247,25 +263,29 @@ function pebble(ctx: Ctx, x: number, y: number, r: number, c: RGB, rot: number):
 
 /** Mur : l'habillage depend entierement de la carte. */
 export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTexture {
-  if (theme === "entrepot") return makeWarehouseWall();
-  if (theme === "gouffre") return makeRockWall();
-  if (theme === "poussiere") return makeSandstoneWall();
-  if (theme === "ile") return makeHouseWall();
-  return makeTechWall();
+  return memo("mur:" + theme, () => {
+    if (theme === "entrepot") return makeWarehouseWall();
+    if (theme === "gouffre") return makeRockWall();
+    if (theme === "poussiere") return makeSandstoneWall();
+    if (theme === "ile") return makeHouseWall();
+    return makeTechWall();
+  });
 }
 
 /** Sol : une tuile couvre deux cases (3,8 m), assez grand pour ne pas voir la repetition. */
 export function makeArenaFloorTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
-  if (theme === "entrepot") return makeConcreteFloor(width, height);
-  if (theme === "gouffre") return makeRockFloor(width, height);
-  if (theme === "poussiere" || theme === "ile") return makeSandFloor(width, height);
-  return makeTechFloor(width, height);
+  const t = memo("sol:" + (theme === "ile" ? "poussiere" : theme), () => {
+    if (theme === "entrepot") return makeConcreteFloor(1, 1);
+    if (theme === "gouffre") return makeRockFloor(1, 1);
+    if (theme === "poussiere" || theme === "ile") return makeSandFloor(1, 1);
+    return makeTechFloor(1, 1);
+  });
+  t.repeat.set(width / 2, height / 2);
+  return t;
 }
 
 /** Plafond des cartes couvertes. Poussiere et l'ile sont a ciel ouvert (voir makeDuelSkyTexture). */
 export function makeArenaCeilingTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
-  if (theme === "entrepot") return makeWarehouseCeiling(width, height);
-  if (theme === "gouffre") return makeRockCeiling(width, height);
   if (theme === "poussiere" || theme === "ile") {
     // Jamais affiche en temps normal (ciel ouvert) : une simple teinte de ciel en secours.
     const { canvas, ctx } = canvas2d(4, 4);
@@ -273,7 +293,13 @@ export function makeArenaCeilingTexture(width: number, height: number, theme: Du
     ctx.fillRect(0, 0, 4, 4);
     return finish(canvas);
   }
-  return makeTechCeiling(width, height);
+  const t = memo("plafond:" + theme, () => {
+    if (theme === "entrepot") return makeWarehouseCeiling(1, 1);
+    if (theme === "gouffre") return makeRockCeiling(1, 1);
+    return makeTechCeiling(1, 1);
+  });
+  t.repeat.set(width / 2, height / 2);
+  return t;
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +791,10 @@ function makeRockCeiling(width: number, height: number): THREE.CanvasTexture {
 
 /** Petite roche pour les blocs poses au sol. */
 export function makeBoulderTexture(): THREE.CanvasTexture {
+  return memo("rocher", () => paintBoulderTexture());
+}
+
+function paintBoulderTexture(): THREE.CanvasTexture {
   const S = 128;
   const { canvas, ctx } = canvas2d(S, S);
   paintRock(ctx, S, S, fbm(S, S, 541, 3, 3, 5, 0.55), 542, [46, 42, 38], [128, 116, 100]);
@@ -887,15 +917,20 @@ function makeSandstoneWall(): THREE.CanvasTexture {
  * (ocre, creme, rose) par la couleur d'instance.
  * Couvre de 0,5 m (au-dessus du soubassement) jusque sous la corniche : 288 x 420.
  */
-export function makePlasterTexture(): THREE.CanvasTexture {
+export function makePlasterTexture(variant = 0): THREE.CanvasTexture {
+  return memo("enduit:" + variant, () => paintPlaster(variant));
+}
+
+function paintPlaster(variant: number): THREE.CanvasTexture {
+  const k = variant * 101;
   const W = 288;
   const H = 420;
-  const rand = seeded(2203);
+  const rand = seeded(2203 + k);
   const { canvas, ctx } = canvas2d(W, H);
   ctx.fillStyle = "#ecdfc6";
   ctx.fillRect(0, 0, W, H);
-  tone(ctx, W, H, fbm(W, H, 2204, 3, 4, 5), 0.24);
-  tone(ctx, W, H, fbm(W, H, 2205, 16, 22, 3), 0.08);
+  tone(ctx, W, H, fbm(W, H, 2204 + k, 3, 4, 5), 0.24);
+  tone(ctx, W, H, fbm(W, H, 2205 + k, 16, 22, 3), 0.08);
   // Coups de taloche.
   for (let i = 0; i < 70; i++) {
     const x = rand() * W;
@@ -918,14 +953,14 @@ export function makePlasterTexture(): THREE.CanvasTexture {
   }
   streaks(ctx, rand, W, 14, [104, 84, 58], 0.2, H * 0.55, 6);
   footDirt(ctx, W, H, 120, [118, 88, 54], 0.42);
-  grain(ctx, W, H, 2206, 0.035);
+  grain(ctx, W, H, 2206 + k, 0.035);
   // Enduit tombe : trous a bord irregulier, jamais sur les bords verticaux
   // (la facade voisine peut etre nue ou enduite).
   const holes: { x: number; y: number; r: number }[] = [];
   const n = 1 + Math.floor(rand() * 2);
   for (let i = 0; i < n; i++) holes.push({ x: W * (0.25 + rand() * 0.5), y: H * (0.3 + rand() * 0.6), r: 26 + rand() * 40 });
   holes.push({ x: W * 0.8, y: H * 0.08, r: 18 });
-  const edge = fbm(W, H, 2207, 6, 8, 4);
+  const edge = fbm(W, H, 2207 + k, 6, 8, 4);
   pixels(ctx, W, H, (d, i, p) => {
     const x = p % W;
     const y = (p / W) | 0;
@@ -952,6 +987,10 @@ export function makePlasterTexture(): THREE.CanvasTexture {
 
 /** Soubassement : enduit de ciment grossier, eclabousse par la pluie. Clair : teinte par instance. */
 export function makePlinthTexture(): THREE.CanvasTexture {
+  return memo("soubassement", () => paintPlinthTexture());
+}
+
+function paintPlinthTexture(): THREE.CanvasTexture {
   const W = 256;
   const H = 72;
   const rand = seeded(2301);
@@ -980,6 +1019,10 @@ export function makePlinthTexture(): THREE.CanvasTexture {
 
 /** Pierre de taille claire (1 m x 1 m) : arcs, jambages, appuis, bordures. */
 export function makeStoneTrimTexture(): THREE.CanvasTexture {
+  return memo("pierre", () => paintStoneTrimTexture());
+}
+
+function paintStoneTrimTexture(): THREE.CanvasTexture {
   const S = 256;
   const rand = seeded(2401);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1009,6 +1052,10 @@ export function makeStoneTrimTexture(): THREE.CanvasTexture {
 
 /** Bois vieilli (linteaux, poutres, palettes) : fil long, fentes, grisaille. */
 export function makeWoodBeamTexture(): THREE.CanvasTexture {
+  return memo("poutre", () => paintWoodBeamTexture());
+}
+
+function paintWoodBeamTexture(): THREE.CanvasTexture {
   const W = 256;
   const H = 64;
   const rand = seeded(2501);
@@ -1054,6 +1101,10 @@ export type DoorStyle = "bleu" | "vert" | "rideau";
  * barres cloutees, pentures en fer forge ; ou rideau metallique de boutique.
  */
 export function makeDoorTexture(style: DoorStyle): THREE.CanvasTexture {
+  return memo("porte:" + style, () => paintDoorTexture(style));
+}
+
+function paintDoorTexture(style: DoorStyle): THREE.CanvasTexture {
   const W = 256;
   const H = 512;
   const rand = seeded(style === "bleu" ? 811 : style === "vert" ? 812 : 813);
@@ -1200,6 +1251,10 @@ function paintRollShutter(ctx: Ctx, W: number, H: number, rand: () => number): v
 
 /** Volet persienne (42 x 105 cm), peint clair : la couleur vient de l'instance. */
 export function makeShutterTexture(): THREE.CanvasTexture {
+  return memo("volet", () => paintShutterTexture());
+}
+
+function paintShutterTexture(): THREE.CanvasTexture {
   const W = 128;
   const H = 320;
   const rand = seeded(2601);
@@ -1244,6 +1299,10 @@ export function makeShutterTexture(): THREE.CanvasTexture {
 
 /** Fenetre (80 x 100 cm) : piece sombre derriere un verre sale, croisillons et grille en fer. */
 export function makeWindowTexture(): THREE.CanvasTexture {
+  return memo("fenetre", () => paintWindowTexture());
+}
+
+function paintWindowTexture(): THREE.CanvasTexture {
   const W = 128;
   const H = 160;
   const rand = seeded(2701);
@@ -1309,6 +1368,10 @@ export function makeWindowTexture(): THREE.CanvasTexture {
  * joint : on peut tourner la dalle d'un quart de tour d'une case a l'autre.
  */
 export function makePavingTexture(): THREE.CanvasTexture {
+  return memo("dallage", () => paintPavingTexture());
+}
+
+function paintPavingTexture(): THREE.CanvasTexture {
   const S = 512;
   const rand = seeded(4409);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1443,6 +1506,10 @@ function makeSandFloor(width: number, height: number): THREE.CanvasTexture {
  * canevas), il s'effiloche vers la rue. Transparent sur les bords.
  */
 export function makeSandDriftTexture(): THREE.CanvasTexture {
+  return memo("congere", () => paintSandDriftTexture());
+}
+
+function paintSandDriftTexture(): THREE.CanvasTexture {
   const W = 256;
   const H = 128;
   const { canvas, ctx } = canvas2d(W, H);
@@ -1468,6 +1535,10 @@ export function makeSandDriftTexture(): THREE.CanvasTexture {
 
 /** Touffe d'herbe seche (plans croises, decoupes par transparence). */
 export function makeGrassTuftTexture(): THREE.CanvasTexture {
+  return memo("herbe", () => paintGrassTuftTexture());
+}
+
+function paintGrassTuftTexture(): THREE.CanvasTexture {
   const S = 128;
   const rand = seeded(5701);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1498,6 +1569,10 @@ export function makeGrassTuftTexture(): THREE.CanvasTexture {
 
 /** Palme : nervure centrale et folioles, vert olive poussiereux, pointes seches. */
 export function makePalmFrondTexture(): THREE.CanvasTexture {
+  return memo("palme", () => paintPalmFrondTexture());
+}
+
+function paintPalmFrondTexture(): THREE.CanvasTexture {
   const W = 256;
   const H = 64;
   const rand = seeded(5801);
@@ -1532,6 +1607,10 @@ export function makePalmFrondTexture(): THREE.CanvasTexture {
 
 /** Stipe de palmier : cicatrices des anciennes palmes, en anneaux. */
 export function makePalmTrunkTexture(): THREE.CanvasTexture {
+  return memo("stipe", () => paintPalmTrunkTexture());
+}
+
+function paintPalmTrunkTexture(): THREE.CanvasTexture {
   const W = 64;
   const H = 128;
   const { canvas, ctx } = canvas2d(W, H);
@@ -1550,6 +1629,10 @@ export function makePalmTrunkTexture(): THREE.CanvasTexture {
 
 /** Toile d'auvent a rayures passees par le soleil. */
 export function makeAwningTexture(): THREE.CanvasTexture {
+  return memo("auvent", () => paintAwningTexture());
+}
+
+function paintAwningTexture(): THREE.CanvasTexture {
   const S = 128;
   const { canvas, ctx } = canvas2d(S, S);
   for (let x = 0; x < S; x += 16) {
@@ -1568,6 +1651,10 @@ export function makeAwningTexture(): THREE.CanvasTexture {
  * uni en haut a gauche du canevas, voir duelTown).
  */
 export function makeAcUnitTexture(): THREE.CanvasTexture {
+  return memo("climatiseur", () => paintAcUnitTexture());
+}
+
+function paintAcUnitTexture(): THREE.CanvasTexture {
   const W = 128;
   const H = 96;
   const rand = seeded(6101);
@@ -1606,6 +1693,10 @@ export function makeAcUnitTexture(): THREE.CanvasTexture {
 
 /** Coffret electrique : tole grise, petite fenetre du compteur, triangle de danger. */
 export function makeMeterBoxTexture(): THREE.CanvasTexture {
+  return memo("compteur", () => paintMeterBoxTexture());
+}
+
+function paintMeterBoxTexture(): THREE.CanvasTexture {
   const W = 64;
   const H = 96;
   const rand = seeded(6201);
@@ -1647,6 +1738,10 @@ export function makeMeterBoxTexture(): THREE.CanvasTexture {
  * coordonnees du monde : la teinte vient des couleurs de sommets).
  */
 export function makePlasterTileTexture(): THREE.CanvasTexture {
+  return memo("enduit-tuile", () => paintPlasterTileTexture());
+}
+
+function paintPlasterTileTexture(): THREE.CanvasTexture {
   const S = 256;
   const rand = seeded(6301);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1669,6 +1764,10 @@ export function makePlasterTileTexture(): THREE.CanvasTexture {
  */
 export function makeDuelSkyTexture(theme: DuelTheme, sun: readonly [number, number, number]): THREE.CanvasTexture | null {
   if (theme !== "poussiere" && theme !== "ile") return null;
+  return memo("ciel:" + theme + ":" + sun.join(","), () => paintSky(theme, sun));
+}
+
+function paintSky(theme: DuelTheme, sun: readonly [number, number, number]): THREE.CanvasTexture {
   const W = 1024;
   const H = 512;
   const desert = theme === "poussiere";
@@ -1773,6 +1872,10 @@ export function makeDuelSkyTexture(theme: DuelTheme, sun: readonly [number, numb
  * montants (les montants en relief de duelDecor y prennent leur texture).
  */
 export function makeCrateTexture(): THREE.CanvasTexture {
+  return memo("caisse", () => paintCrateTexture());
+}
+
+function paintCrateTexture(): THREE.CanvasTexture {
   const S = 256;
   const rand = seeded(7101);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1858,6 +1961,10 @@ export function makeCrateTexture(): THREE.CanvasTexture {
  * la carte.
  */
 export function makeBuildTexture(): THREE.CanvasTexture {
+  return memo("construction", () => paintBuildTexture());
+}
+
+function paintBuildTexture(): THREE.CanvasTexture {
   const S = 256;
   const rand = seeded(7201);
   const { canvas, ctx } = canvas2d(S, S);
@@ -1905,6 +2012,10 @@ export function makeBuildTexture(): THREE.CanvasTexture {
  * couleur vient de l'instance), rouille, coulures, etiquette de danger.
  */
 export function makeBarrelTexture(): THREE.CanvasTexture {
+  return memo("bidon", () => paintBarrelTexture());
+}
+
+function paintBarrelTexture(): THREE.CanvasTexture {
   const W = 256;
   const H = 128;
   const rand = seeded(7301);
@@ -1953,6 +2064,10 @@ export function makeBarrelTexture(): THREE.CanvasTexture {
 
 /** Sac de sable : toile de jute tissee, couture, poussiere. */
 export function makeSandbagTexture(): THREE.CanvasTexture {
+  return memo("sac", () => paintSandbagTexture());
+}
+
+function paintSandbagTexture(): THREE.CanvasTexture {
   const S = 128;
   const { canvas, ctx } = canvas2d(S, S);
   ctx.fillStyle = "#a89770";
@@ -1981,6 +2096,10 @@ export function makeSandbagTexture(): THREE.CanvasTexture {
 
 /** Lettre de site peinte a la bombe, facon « site A ». */
 export function makeSiteMarkTexture(label: string): THREE.CanvasTexture {
+  return memo("site:" + label, () => paintSiteMarkTexture(label));
+}
+
+function paintSiteMarkTexture(label: string): THREE.CanvasTexture {
   const S = 256;
   const { canvas, ctx } = canvas2d(S, S);
   ctx.clearRect(0, 0, S, S);

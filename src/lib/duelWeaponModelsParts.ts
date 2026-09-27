@@ -556,6 +556,158 @@ export function hoodedPost(s: Shop, parent: Parent, y: number, z: number, baseY:
   optic(put(s, parent, side([[z - 0.0025, y - r - 0.001], [z + 0.0025, y - r - 0.001], [z + 0.0015, y], [z - 0.0015, y]], 0.0032, { bevel: 0.0005 }), m));
 }
 
+/** Poignee lisse de crosse en bois (chasse, fusil de ferme), dans le repere de la main. */
+export function smoothGrip(s: Shop, parent: Parent, mat: THREE.Material, width = 0.054) {
+  const pts: Pt[] = [
+    [-0.036, 0.1],
+    [-0.04, 0.052, 0.01],
+    [-0.045, 0.0, 0.03],
+    [-0.046, -0.06, 0.02],
+    [-0.036, -0.08, 0.01],
+    [0.04, -0.084, 0.01],
+    [0.05, -0.068, 0.012],
+    [0.05, -0.03, 0.03],
+    [0.043, 0.03, 0.02],
+    [0.048, 0.07, 0.012],
+    [0.05, 0.1],
+  ];
+  put(s, parent, side(pts, width, { bevel: 0.01, seg: 3 }), mat);
+  // Calotte de poignee sombre.
+  put(s, parent, side([[-0.036, -0.076], [0.04, -0.08], [0.04, -0.09, 0.005], [-0.034, -0.086, 0.005]], width - 0.006, { bevel: 0.003 }), s.kit.dark);
+}
+
+/**
+ * Poignee avant verticale, dans son propre repere : le haut en y = 0, elle
+ * descend de `len`. Nervures pour les doigts, bouchon en bas.
+ */
+export function foreGrip(s: Shop, parent: Parent, mat: THREE.Material, len = 0.12, depth = 0.066, width = 0.046) {
+  const hd = depth / 2;
+  put(
+    s,
+    parent,
+    side(
+      [
+        [-hd, 0.0],
+        [hd, 0.0],
+        [hd + 0.002, -len * 0.3, 0.02],
+        [hd - 0.002, -len * 0.55, 0.01],
+        [hd + 0.002, -len * 0.8, 0.01],
+        [hd, -len, 0.012],
+        [-hd, -len, 0.012],
+        [-hd - 0.003, -len * 0.25, 0.03],
+      ],
+      width,
+      { bevel: 0.009, seg: 3 },
+    ),
+    mat,
+  );
+  // Anneaux de prise et bouchon.
+  for (let i = 0; i < 3; i++) {
+    const y = -len * (0.35 + i * 0.18);
+    put(s, parent, side([[-hd + 0.004, y], [hd - 0.004, y], [hd - 0.004, y - 0.006], [-hd + 0.004, y - 0.006]], width + 0.003, { bevel: 0.0015 }), s.kit.dark);
+  }
+  put(s, parent, side([[-hd + 0.003, -len + 0.004], [hd - 0.003, -len + 0.004], [hd - 0.006, -len - 0.008, 0.004], [-hd + 0.006, -len - 0.008, 0.004]], width - 0.004, { bevel: 0.003 }), s.kit.rubber);
+}
+
+/**
+ * Viseur reflex ouvert (plaque) : embase sur le rail, fenetre en arceau,
+ * verre teinte et point. Le centre de la fenetre est a la hauteur `y`.
+ */
+export function reflexSight(s: Shop, parent: Parent, y: number, z: number, railY: number) {
+  const k = s.kit;
+  const hw = 0.019;
+  const winH = 0.03;
+  const y0 = y - winH / 2 - 0.004;
+  // Embase : du rail jusque sous la fenetre.
+  put(s, parent, side([[z - 0.03, railY], [z + 0.03, railY], [z + 0.03, y0, 0.004], [z - 0.022, y0, 0.006]], 0.034, { bevel: 0.003 }), k.dark);
+  put(s, parent, block(0.036, 0.006, 0.05, 0.002), k.dark, 0, railY + 0.003, z);
+  screw(s, parent, 0.0172, railY + 0.004, z + 0.012, 0.0035);
+  // Arceau de la fenetre.
+  const outer: Pt[] = [
+    [-hw, 0],
+    [hw, 0],
+    [hw, winH + 0.004, 0.012],
+    [-hw, winH + 0.004, 0.012],
+  ];
+  const hole: Pt[] = [
+    [-hw + 0.004, 0.004],
+    [hw - 0.004, 0.004],
+    [hw - 0.004, winH, 0.009],
+    [-hw + 0.004, winH, 0.009],
+  ];
+  optic(put(s, parent, front(outer, 0.008, { bevel: 0.0015, seg: 1, holes: [hole] }), k.dark, 0, y0, z - 0.02));
+  // Verre et point : le point flotte juste derriere le verre.
+  optic(put(s, parent, block(hw * 2 - 0.008, winH - 0.004, 0.0006, 0), k.glassTint, 0, y0 + winH / 2 + 0.002, z - 0.02));
+  const dot = optic(put(s, parent, rod(0.0024, -0.0004, 0.0004, 10), k.accent, 0, y, z - 0.014));
+  dot.name = "dot";
+  // Emetteur, a l'arriere de l'embase.
+  optic(put(s, parent, block(0.008, 0.006, 0.008, 0.001), k.dark, 0, y0 + 0.003, z + 0.02));
+}
+
+/**
+ * Viseur holographique : embase, boitier de pile en travers, capot
+ * rectangulaire ouvert aux deux bouts, verres et reticule (cercle et point).
+ */
+export function holoSight(s: Shop, parent: Parent, y: number, zFront: number, zBack: number, railY: number) {
+  const k = s.kit;
+  const len = zBack - zFront;
+  const zc = (zFront + zBack) / 2;
+  const hw = 0.025;
+  const hh = 0.02;
+  const yb = y - hh;
+  // Embase et boitier de pile, sous la fenetre, a l'avant.
+  put(s, parent, block(0.04, 0.008, len, 0.002), k.dark, 0, railY + 0.004, zc);
+  put(s, parent, side([[zFront, railY + 0.006], [zBack, railY + 0.006], [zBack - 0.004, yb, 0.004], [zFront + 0.004, yb, 0.004]], 0.036, { bevel: 0.003 }), k.dark);
+  put(s, parent, rod(0.0095, -0.024, 0.024, 14, 0.002), k.metal, 0, yb - 0.004, zFront + 0.012, 0, Math.PI / 2, 0);
+  // Boutons de reglage, a gauche.
+  for (let i = 0; i < 2; i++) put(s, parent, block(0.004, 0.007, 0.01, 0.0015), k.rubber, -0.02, yb - 0.004, zc + 0.006 + i * 0.014);
+  // Capot : un cadre rectangulaire creux.
+  const outer: Pt[] = [
+    [-hw, 0],
+    [hw, 0],
+    [hw, hh * 2 + 0.008, 0.006],
+    [-hw, hh * 2 + 0.008, 0.006],
+  ];
+  const hole: Pt[] = [
+    [-hw + 0.005, 0.006],
+    [hw - 0.005, 0.006],
+    [hw - 0.005, hh * 2 + 0.002, 0.004],
+    [-hw + 0.005, hh * 2 + 0.002, 0.004],
+  ];
+  optic(put(s, parent, front(outer, len - 0.024, { bevel: 0.002, seg: 1, holes: [hole] }), k.dark, 0, yb - 0.002, zc + 0.006));
+  // Verres, avant et arriere.
+  for (const zz of [zFront + 0.02, zBack - 0.008]) {
+    optic(put(s, parent, block(hw * 2 - 0.01, hh * 2 - 0.004, 0.0006, 0), k.glassTint, 0, y + 0.002, zz));
+  }
+  // Reticule : un cercle et son point, lumineux.
+  const zr = zFront + 0.028;
+  optic(put(s, parent, tube(0.0074, 0.0084, zr - 0.0003, zr + 0.0003, 24), k.accent, 0, y, 0));
+  const dot = optic(put(s, parent, rod(0.0016, zr - 0.0003, zr + 0.0003, 10), k.accent, 0, y, 0));
+  dot.name = "dot";
+}
+
+/**
+ * Cache-flamme a fentes : un cone tourne, et des fentes sombres tout autour.
+ * Bouche en z0 (vers -z), longueur `len`, rayon `r`.
+ */
+export function flashHider(s: Shop, parent: Parent, y: number, z0: number, len: number, r: number, slots = 4) {
+  const k = s.kit;
+  put(
+    s,
+    parent,
+    lathe([[r * 0.55, z0], [r, z0], [r, z0 + len * 0.72, 0.002], [r * 0.8, z0 + len], [r * 0.55, z0 + len]], 18),
+    k.blued,
+    0,
+    y,
+    0,
+  );
+  put(s, parent, rod(r * 0.56, z0 - 0.0005, z0 + 0.012, 12), k.bore, 0, y, 0);
+  for (let i = 0; i < slots; i++) {
+    const a = ((i + 0.5) / slots) * Math.PI * 2;
+    put(s, parent, block(0.0036, 0.004, len * 0.55, 0.0008), k.bore, Math.sin(a) * r, y + Math.cos(a) * r, z0 + len * 0.3, 0, 0, -a);
+  }
+}
+
 /** Prepare l'atelier d'une arme : matieres (selon le camouflage et la tenue) et outil de pose. */
 export function createShop(body: THREE.Group, look: WeaponLook, keep: Disposer): Shop {
   const kit = createGunKit(look, keep);

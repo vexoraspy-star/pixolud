@@ -86,7 +86,8 @@ const MAPS: Record<DuelMapId, string[]> = {
   // Poussiere : une carte de plan « deux sites », comme dans les jeux de tir
   // par equipes. Longs couloirs sur les cotes, milieu degage au centre, et
   // deux sites (a gauche, a droite) encombres de caisses ou l'on se bat au
-  // corps a corps.
+  // corps a corps. Habillee en ville du desert par duelTown (facades, portes,
+  // arches, etages, fils) : le decor ne touche jamais a cette grille.
   poussiere: [
     "#############################",
     "#A.......#.........#........#",
@@ -141,7 +142,7 @@ export const DUEL_MAP_INFO: Record<DuelMapId, { name: string; tagline: string; t
   arene: { name: "Arène", tagline: "Symétrique, corridors serrés", theme: "arene" },
   entrepot: { name: "Entrepôt", tagline: "Hangar, caisses empilées", theme: "entrepot" },
   gouffre: { name: "Gouffre", tagline: "Roche, couloirs coudés", theme: "gouffre" },
-  poussiere: { name: "Poussière", tagline: "Deux sites, milieu ouvert", theme: "poussiere" },
+  poussiere: { name: "Poussière", tagline: "Ville du désert, deux sites", theme: "poussiere" },
   chantier: { name: "Chantier", tagline: "Terrain ouvert, à toi de bâtir", theme: "entrepot" },
 };
 
@@ -149,6 +150,123 @@ export const DUEL_WIDTH = MAPS.arene[0].length;
 export const DUEL_HEIGHT = MAPS.arene.length;
 export const DUEL_CELL = 1.9;
 export const DUEL_WALL_HEIGHT = 3.4;
+
+/**
+ * Eclairage d'une carte. Quatre lumieres en tout dans la scene (ciel, soleil,
+ * contre-jour, lueur du tir) : le contraste vient du rapport entre la lumiere
+ * principale, chaude, et le ciel, plus froid, qui eclaire seul les faces a
+ * l'ombre.
+ *
+ * Intensites en unites physiques de three.js (une lumiere blanche d'intensite
+ * PI rend la couleur d'une texture telle quelle).
+ */
+export interface DuelLighting {
+  /** Lumiere du ciel (faces tournees vers le haut) et rebond du sol (vers le bas). */
+  sky: number;
+  ground: number;
+  ambient: number;
+  /** Soleil ou lampes : couleur, intensite, direction VERS la lumiere. */
+  key: number;
+  keyPower: number;
+  keyDir: readonly [number, number, number];
+  /** Contre-jour froid, venu du cote oppose. */
+  fill: number;
+  fillPower: number;
+  fillDir: readonly [number, number, number];
+  /** Fond, et brouillard (en cases) de la meme couleur que l'horizon. */
+  background: number;
+  fogNear: number;
+  fogFar: number;
+  /** Ciel ouvert : pas de plafond, ciel peint, ombres portees au sol. */
+  openSky: boolean;
+}
+
+/** Soleil de Poussiere : 45 degres de haut, venu du sud-ouest (lumiere rasante sur les facades). */
+const DESERT_SUN = [-0.39, 0.707, 0.59] as const;
+/** Soleil de l'ile : plus haut, venu du sud-est. */
+const ISLAND_SUN = [0.45, 0.8, 0.4] as const;
+
+export const DUEL_LIGHTING: Record<DuelTheme, DuelLighting> = {
+  // Neons bleutes : un plafond lumineux, peu de lumiere directe.
+  arene: {
+    sky: 0xb9cde2,
+    ground: 0x262c33,
+    ambient: 2.2,
+    key: 0xd8efff,
+    keyPower: 1.7,
+    keyDir: [0.45, 0.85, 0.3],
+    fill: 0x7fa6d6,
+    fillPower: 0.45,
+    fillDir: [-0.55, 0.6, -0.45],
+    background: 0x0d1014,
+    fogNear: 16,
+    fogFar: 30,
+    openSky: false,
+  },
+  // Jour froid qui tombe des lanterneaux, lampes chaudes au-dessus des allees.
+  entrepot: {
+    sky: 0xd2dadd,
+    ground: 0x3b3329,
+    ambient: 2.0,
+    key: 0xffe4bd,
+    keyPower: 1.9,
+    keyDir: [0.4, 0.85, 0.33],
+    fill: 0x8ea7bf,
+    fillPower: 0.5,
+    fillDir: [-0.55, 0.55, -0.5],
+    background: 0x0d1014,
+    fogNear: 16,
+    fogFar: 30,
+    openSky: false,
+  },
+  // Roche : lampes de chantier orangees, ombres bleu nuit.
+  gouffre: {
+    sky: 0x7c8898,
+    ground: 0x201913,
+    ambient: 1.7,
+    key: 0xffc684,
+    keyPower: 2.1,
+    keyDir: [0.5, 0.8, 0.3],
+    fill: 0x5b7293,
+    fillPower: 0.5,
+    fillDir: [-0.5, 0.55, -0.55],
+    background: 0x0b0d10,
+    fogNear: 14,
+    fogFar: 28,
+    openSky: false,
+  },
+  // Plein soleil d'apres-midi : facades chaudes, ombres bleutees, voile de poussiere.
+  poussiere: {
+    sky: 0xc4d6ee,
+    ground: 0x8f7a60,
+    ambient: 2.4,
+    key: 0xffdcaa,
+    keyPower: 3.3,
+    keyDir: DESERT_SUN,
+    fill: 0x9cb4d8,
+    fillPower: 0.4,
+    fillDir: [0.55, 0.3, -0.78],
+    background: 0xd9d2c0,
+    fogNear: 14,
+    fogFar: 75,
+    openSky: true,
+  },
+  ile: {
+    sky: 0xc8e2fb,
+    ground: 0x5f7a48,
+    ambient: 2.3,
+    key: 0xfff0d4,
+    keyPower: 3.0,
+    keyDir: ISLAND_SUN,
+    fill: 0xa8c4e0,
+    fillPower: 0.35,
+    fillDir: [-0.5, 0.35, -0.6],
+    background: 0x9fd4ff,
+    fogNear: 24,
+    fogFar: 64,
+    openSky: true,
+  },
+};
 
 export type DuelSide = "a" | "b";
 

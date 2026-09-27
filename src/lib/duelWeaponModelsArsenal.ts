@@ -26,6 +26,7 @@ import {
   type Shop,
 } from "./duelWeaponModelsParts";
 import { ARSENAL_2 } from "./duelWeaponModelsArsenal2";
+import { ARSENAL_3 } from "./duelWeaponModelsArsenal3";
 
 export type { GunRig } from "./duelWeaponModelsParts";
 
@@ -701,6 +702,7 @@ const BUILDERS: Partial<Record<WeaponId, (s: Shop) => GunRig>> = {
   pompe,
   mitraillette,
   ...ARSENAL_2,
+  ...ARSENAL_3,
 };
 
 /** Vrai si l'arme a son modele realiste dans cet arsenal. */
