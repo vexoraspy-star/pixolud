@@ -26,6 +26,7 @@ import {
   SKIN_ORDER,
   dailyShop,
   dayKey,
+  equippedKnife,
   giftAvailable,
   levelInfo,
   loadProfile,
@@ -40,6 +41,7 @@ import {
   type SkinId,
 } from "@/lib/duelProfile";
 import { DANCE_ORDER, type DanceId } from "@/lib/duelDances";
+import { KNIFE_ORDER, KNIVES, isKnifeId, knifeIcon, type KnifeIcon as KnifeIconData, type KnifeId } from "@/lib/duelKnives";
 import { claimMyGifts } from "@/app/cadeaux/actions";
 import { GIVE_DUEL_EVENT } from "@/lib/adminGive";
 import { DRILLS, DRILL_ORDER, loadTrainingBests, saveTrainingBest, type DrillId, type TrainingResult } from "@/lib/duelTraining";
@@ -175,14 +177,47 @@ const DANCE_EMOJI: Record<DanceId, string> = {
   crizombie: "🧟",
 };
 
+/** Silhouettes des couteaux : calculees une fois, a partir des profils du modele 3D. */
+const KNIFE_ICONS = Object.fromEntries(KNIFE_ORDER.map((id) => [id, knifeIcon(id)])) as Record<KnifeId, KnifeIconData>;
+
+/** Le couteau vu de cote, pose en biais pour tenir dans une carte du casier. */
+function KnifeIcon({ id, tilt = -38 }: { id: KnifeId; tilt?: number }) {
+  const d = KNIFE_ICONS[id];
+  // Boite englobante du dessin une fois tourne : elle devient le viewBox.
+  const [, , w, h] = d.viewBox.split(" ").map(Number);
+  const a = (tilt * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const xs = [0, w * c, -h * s, w * c - h * s];
+  const ys = [0, w * s, h * c, w * s + h * c];
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const viewBox = `${minX.toFixed(1)} ${minY.toFixed(1)} ${(Math.max(...xs) - minX).toFixed(1)} ${(Math.max(...ys) - minY).toFixed(1)}`;
+  const line = "rgba(255,255,255,0.45)";
+  return (
+    <svg viewBox={viewBox} className="h-full w-full drop-shadow" aria-hidden="true">
+      <g transform={`rotate(${tilt})`}>
+        <path d={d.handle} fill={d.colors.handle} stroke={line} strokeWidth={0.7} strokeLinejoin="round" />
+        {d.rings.map((r, i) => (
+          <circle key={i} cx={r.cx} cy={r.cy} r={r.r} fill="none" stroke={d.colors.handle} strokeWidth={r.w} />
+        ))}
+        <path d={d.blade} fill={d.colors.blade} stroke={line} strokeWidth={0.7} strokeLinejoin="round" />
+        <path d={d.edge} fill={d.colors.edge} opacity={0.9} />
+        <path d={d.guard} fill={d.colors.guard} stroke={line} strokeWidth={0.5} />
+      </g>
+    </svg>
+  );
+}
+
 function ItemIcon({ itemKey }: { itemKey: string }) {
   const [kind, id] = itemKey.split(":");
   if (kind === "skin") return <SkinIcon id={id as SkinId} />;
   if (kind === "camo") return <CamoSwatch id={id as CamoId} />;
+  if (kind === "knife" && isKnifeId(id)) return <KnifeIcon id={id} />;
   return <div className="flex h-full w-full items-center justify-center text-4xl">{DANCE_EMOJI[id as DanceId]}</div>;
 }
 
-const KIND_LABEL: Record<string, string> = { skin: "Tenue", camo: "Camouflage", dance: "Danse" };
+const KIND_LABEL: Record<string, string> = { skin: "Tenue", camo: "Camouflage", knife: "Couteau", dance: "Danse" };
 
 export default function DuelGame({ title, devAllowed = false }: { title: string; devAllowed?: boolean }) {
   const [phase, setPhase] = useState<Phase>("menu");
@@ -339,6 +374,16 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
     const [kind, id] = key.split(":");
     if (kind === "skin") changeProfile({ ...profile, skin: id as SkinId });
     else if (kind === "camo") changeProfile({ ...profile, camo: id as CamoId });
+    else if (kind === "knife" && isKnifeId(id)) changeProfile({ ...profile, knife: id });
+  }
+
+  /** L'objet est-il celui qu'on porte (tenue, camouflage ou couteau) ? */
+  function isEquipped(kind: string, id: string) {
+    return (
+      (kind === "skin" && profile.skin === id) ||
+      (kind === "camo" && profile.camo === id) ||
+      (kind === "knife" && equippedKnife(profile) === id)
+    );
   }
 
   /** Acheter un objet : il est a toi, et deja equipe si c'est une tenue ou un camouflage. */
@@ -354,7 +399,13 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
       ...profile,
       coins: profile.coins - item.price,
       owned: [...profile.owned, key],
-      ...(kind === "skin" ? { skin: id as SkinId } : kind === "camo" ? { camo: id as CamoId } : {}),
+      ...(kind === "skin"
+        ? { skin: id as SkinId }
+        : kind === "camo"
+          ? { camo: id as CamoId }
+          : kind === "knife" && isKnifeId(id)
+            ? { knife: id }
+            : {}),
     });
     setShopNote(
       kind === "dance"
@@ -513,6 +564,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
         link={link}
         look={{ camo: profile.camo, sleeve: skin.sleeve, glove: skin.glove }}
         skin={profile.skin}
+        knife={equippedKnife(profile)}
         seed={matchKey * 7919 + 17}
         devAllowed={devAllowed}
         drill={drill}
@@ -753,8 +805,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
     if (!item) return null;
     const rarity = RARITY[item.rarity];
     const isOwned = profile.owned.includes(itemKey);
-    const equipped =
-      (item.kind === "skin" && profile.skin === item.id) || (item.kind === "camo" && profile.camo === item.id);
+    const equipped = isEquipped(item.kind, item.id);
     const active = selected?.type === "item" && selected.key === itemKey;
     return (
       <button
@@ -827,7 +878,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
     if (!item) return null;
     const rarity = RARITY[item.rarity];
     const owned = profile.owned.includes(item.key);
-    const equipped = (item.kind === "skin" && profile.skin === item.id) || (item.kind === "camo" && profile.camo === item.id);
+    const equipped = isEquipped(item.kind, item.id);
     return (
       <div className="rounded-xl bg-black/70 p-3 ring-1 ring-white/15 backdrop-blur">
         <div className="flex items-start justify-between gap-2">
@@ -842,8 +893,18 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
             ✕
           </button>
         </div>
+        {item.kind === "knife" && isKnifeId(item.id) && (
+          // Grand apercu du couteau : c'est lui qu'on tient en partie.
+          <div className="mt-2 h-24 rounded-lg bg-gradient-to-br from-white/10 to-black/40 p-2 ring-1 ring-white/10">
+            <KnifeIcon id={item.id} tilt={-12} />
+          </div>
+        )}
         <p className="mt-1 text-[11px] text-sky-200">
-          {item.kind === "dance" ? "Ton personnage la danse à droite. En partie : touche G." : "Aperçu sur ton personnage, à droite."}
+          {item.kind === "dance"
+            ? "Ton personnage la danse à droite. En partie : touche G."
+            : item.kind === "knife"
+              ? "Tenu en main quand tu n'as pas d'arme à feu. Clic droit : coup lourd · dans le dos, il élimine · F : l'inspecter."
+              : "Aperçu sur ton personnage, à droite."}
         </p>
         {owned ? (
           item.kind === "dance" ? (
@@ -979,6 +1040,15 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                 <p className="truncate text-sm font-black uppercase italic">{camo.name}</p>
               </div>
               <span className="rounded bg-white/15 px-2 py-1 text-[10px] font-black uppercase">Modifier</span>
+            </div>
+            <div className="flex items-center gap-2 bg-black/55 px-2.5 py-2">
+              <div className="h-7 w-10 shrink-0">
+                <KnifeIcon id={equippedKnife(profile)} tilt={-20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-white/60">Couteau</p>
+                <p className="truncate text-sm font-black uppercase italic">{KNIVES[equippedKnife(profile)].name}</p>
+              </div>
             </div>
           </button>
 
@@ -1227,6 +1297,12 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">
+                    Couteaux <span className="normal-case tracking-normal text-zinc-400">· en main quand tu n&apos;as pas d&apos;arme à feu, F pour l&apos;inspecter</span>
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">{KNIFE_ORDER.map((id) => itemCard(`knife:${id}`))}</div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">
                     Danses <span className="normal-case tracking-normal text-zinc-400">· en partie, touche G puis le numéro</span>
                   </p>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{DANCE_ORDER.map((id) => itemCard(`dance:${id}`))}</div>
@@ -1362,6 +1438,10 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   <p><b className="text-white">Armes</b> — 1 à 3 ou molette · <b className="text-white">Échanger</b> — E</p>
                   <p><b className="text-white">Danses</b> — G, puis le numéro</p>
                   <p><b className="text-white">Construire</b> — F (mode 1v1 Construction)</p>
+                  <p>
+                    <b className="text-white">Couteau</b> — clic gauche : entaille · clic droit : coup lourd · dans le dos : élimination ·{" "}
+                    <b className="text-white">Inspecter</b> — F (V en 1v1 Construction)
+                  </p>
                   <p><b className="text-white">Économie</b> — 1 à 0 (Maj pour la suite) pour acheter, B boutique</p>
                   {devAllowed && <p className="text-fuchsia-200"><b>Mode admin</b> — F2 en partie solo</p>}
                 </div>

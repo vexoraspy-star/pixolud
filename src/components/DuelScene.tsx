@@ -91,7 +91,27 @@ import {
   playGrenadeBlast,
   playSmokePop,
   playStreak,
+  playKnifeSwing,
+  playKnifeFlesh,
+  playKnifeWall,
+  playKnifeFoley,
 } from "@/lib/duelAudio";
+import {
+  DEFAULT_KNIFE,
+  KNIFE_BACKSTAB_DAMAGE,
+  KNIFE_HEAVY_DAMAGE,
+  KNIFE_HEAVY_INTERVAL,
+  KNIFE_HEAVY_RANGE,
+  KNIFE_HIT_DELAY,
+  KNIFE_ORDER,
+  KNIVES,
+  buildKnifeModel,
+  createKnifeProps,
+  isBackstab,
+  isKnifeId,
+  type KnifeId,
+  type KnifeStrike,
+} from "@/lib/duelKnives";
 import {
   BLAST_RADIUS,
   GRENADES,
@@ -143,6 +163,8 @@ export interface DuelLink {
     jump?: number;
     /** Danse en cours, pour que l'autre la VOIE (avant, elle restait chez soi). */
     dance?: DanceId | null;
+    /** Son couteau : on le voit dans sa main quand il n'a pas d'arme a feu. */
+    knife?: KnifeId;
   } | null;
   inbox: { event: string; payload: Record<string, unknown> }[];
   send: (event: string, payload: Record<string, unknown>) => void;
@@ -283,6 +305,7 @@ export default function DuelScene({
   link,
   look,
   skin,
+  knife = DEFAULT_KNIFE,
   seed = 1,
   devAllowed = false,
   drill = "fixes",
@@ -302,6 +325,8 @@ export default function DuelScene({
   look?: WeaponLook;
   /** Tenue du joueur, envoyee a l'adversaire en ligne. */
   skin?: SkinId;
+  /** Couteau du casier : tenu en main a la place des poings (arme « poings »). */
+  knife?: KnifeId;
   /** Graine de l'ile en battle royale : une nouvelle ile a chaque partie. */
   seed?: number;
   /** Compte admin : triches du mode admin (F2), jamais en ligne. */
@@ -876,8 +901,12 @@ export default function DuelScene({
     // l'autre ne doit pas provoquer de micro-coupure en plein duel. Une arme
     // invisible ne coute aucun appel de rendu.
     const weaponModels = {} as Record<WeaponId, WeaponModel>;
+    // Sans arme a feu (« poings »), on tient le couteau du casier : meme
+    // interface que les armes, il se place et se balance pareil.
+    const myKnife: KnifeId = isKnifeId(knife) ? knife : DEFAULT_KNIFE;
+    const knifeModel = buildKnifeModel(myKnife, look);
     for (const id of Object.keys(WEAPONS) as WeaponId[]) {
-      const wm = buildWeaponModel(id, look);
+      const wm = id === "poings" ? knifeModel : buildWeaponModel(id, look);
       wm.group.visible = false;
       vmScene.add(wm.group);
       weaponModels[id] = wm;
@@ -976,7 +1005,8 @@ export default function DuelScene({
       const spec = WEAPONS[me.weapon];
       setAmmo(me.mag);
       setMagSize(spec.magSize);
-      setWeaponName(spec.short);
+      // Le couteau s'affiche sous son nom du casier (« Karambit »...).
+      setWeaponName(spec.melee ? KNIVES[myKnife].name.toUpperCase() : spec.short);
       setReloading(me.reloadUntil > 0);
       setInventory({ slots: me.inv.map((s) => s.weapon), cur: me.inv.length > 0 ? me.cur : -1 });
     }
@@ -1461,6 +1491,26 @@ export default function DuelScene({
     const botGunBarrel = new THREE.CylinderGeometry(0.018, 0.018, 0.26, 6);
     const botFlashMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 });
     const botFlashGeo = new THREE.SphereGeometry(0.09, 6, 5);
+    // Couteaux des autres combattants : accroches a la main du soldat anime,
+    // visibles quand il n'a pas d'arme a feu. Une geometrie par modele de
+    // couteau, partagee, et un seul materiau : un appel de rendu par soldat.
+    const knifeProps = createKnifeProps();
+    /** Par combattant (indice = f.id) : le support accroche au poignet. */
+    const fighterKnife: (THREE.Group | null)[] = fighters.map(() => null);
+    /** Son couteau : tire au sort pour un bot, recu du reseau pour un joueur. */
+    const fighterKnifeId: KnifeId[] = fighters.map((f) =>
+      f.isBot ? KNIFE_ORDER[Math.abs(Math.floor(f.id * 7 + seed)) % KNIFE_ORDER.length] : DEFAULT_KNIFE,
+    );
+    /** Instant de son dernier coup de couteau, pour le geste du bras. */
+    const fighterSlashAt: number[] = fighters.map(() => -10);
+    /** Met le couteau `id` dans la main du combattant (le support reste accroche). */
+    function setFighterKnife(f: Fighter, id: KnifeId) {
+      fighterKnifeId[f.id] = id;
+      const holder = fighterKnife[f.id];
+      if (!holder) return;
+      holder.clear();
+      holder.add(knifeProps.make(id));
+    }
     for (const f of fighters) {
       createAnimatedModel("soldat-swat", 1.8)
         .then((m) => {
@@ -1483,6 +1533,13 @@ export default function DuelScene({
           flash.visible = false;
           gun.add(body, barrel, flash);
           m.attach("Wrist.R", gun, "Idle_Gun_Pointing");
+          // Le couteau, dans la meme main : on bascule de l'un a l'autre.
+          const blade = new THREE.Group();
+          blade.visible = false;
+          if (m.attach("Wrist.R", blade, "Idle_Gun_Pointing")) {
+            fighterKnife[f.id] = blade;
+            setFighterKnife(f, fighterKnifeId[f.id]);
+          }
           f.anim = m;
           f.animFlash = flash;
           f.animGun = gun;
@@ -2972,34 +3029,82 @@ export default function DuelScene({
       return hitDist;
     }
 
-    /** Coup de poing : le combattant le plus proche devant soi, a portee de bras. */
-    function punch(spec: (typeof WEAPONS)[WeaponId]) {
-      me.nextShotAt = elapsed + spec.fireInterval * (cheatsRef.current.rapidFire ? 0.25 : 1);
-      recoil = 1;
+    // ------------------------------------------------------------ le couteau
+    // Clic gauche : entaille rapide (fiche WEAPONS.poings) ; clic droit : coup
+    // lourd, plus lent et plus court ; dans le dos, l'un ou l'autre elimine.
+    // Les degats tombent quand la lame arrive (KNIFE_HIT_DELAY), pas au clic :
+    // le geste a l'ecran et le coup restent ensemble.
+    /** Instant ou la lame arrive (-1 : aucun coup en cours), et la sorte du coup. */
+    let knifeHitAt = -1;
+    let knifeHitKind: KnifeStrike = "rapide";
+
+    /** Un coup de couteau part. */
+    function knifeAttack(kind: KnifeStrike) {
+      if (me.dead || ended || !me.alive || buying() || roundResetAt > 0 || buildMode) return;
+      if (!WEAPONS[me.weapon].melee || myEmote || nadeAiming) return;
+      if (elapsed < me.nextShotAt) return;
+      const spec = WEAPONS.poings;
+      const interval = kind === "lourd" ? KNIFE_HEAVY_INTERVAL : spec.fireInterval;
+      me.nextShotAt = elapsed + interval * (cheatsRef.current.rapidFire ? 0.25 : 1);
+      knifeModel.strike(kind, elapsed);
+      playKnifeSwing(audio.ctx, audio.master, kind === "lourd");
+      knifeHitAt = elapsed + KNIFE_HIT_DELAY[kind];
+      knifeHitKind = kind;
+      // En ligne, l'autre entend la lame siffler.
+      if (!bot) link.current.send("slash", { x: me.x, z: me.z, h: kind === "lourd" ? 1 : 0 });
+    }
+
+    /** La lame arrive : le combattant le plus proche devant soi, sinon le mur. */
+    function resolveKnifeHit() {
+      knifeHitAt = -1;
+      if (me.dead || !me.alive || ended || !WEAPONS[me.weapon].melee) return;
+      const spec = WEAPONS.poings;
+      const heavy = knifeHitKind === "lourd";
+      const reach = heavy ? KNIFE_HEAVY_RANGE : spec.range;
       const fx = -Math.sin(me.yaw);
       const fz = -Math.cos(me.yaw);
       let target: Fighter | null = null;
-      let best = spec.range + DUEL_BODY_RADIUS;
+      let best = reach + DUEL_BODY_RADIUS;
       for (const f of fighters) {
-        if (f.dead || !f.alive) continue;
+        if (f.dead || !f.alive || f.air > 1.2) continue;
         const dx = f.x - me.x;
         const dz = f.z - me.z;
         const d = Math.hypot(dx, dz);
-        // Devant soi seulement : un cone d'une quarantaine de degres.
-        if (d > best || (dx * fx + dz * fz) / (d || 1) < 0.75) continue;
+        // Devant soi seulement (un cone d'une quarantaine de degres), et
+        // jamais a travers le coin d'un mur.
+        if (d > best || (dx * fx + dz * fz) / (d || 1) < 0.72) continue;
+        if (!hasLineOfSight(me.x, me.z, f.x, f.z)) continue;
         best = d;
         target = f;
       }
-      if (!target) {
-        playDryFire(audio.ctx, audio.master);
+      if (target) {
+        // Dans le dos : on juge sur ce que l'on voit. Un bot regarde vers
+        // (sin, cos) de son orientation affichee ; un joueur en ligne envoie le
+        // lacet de sa camera, qui regarde vers -Z.
+        const s = target.isBot ? 1 : -1;
+        const yaw = target.isBot ? target.drawYaw : target.yaw;
+        const back = isBackstab(Math.sin(yaw) * s, Math.cos(yaw) * s, me.x - target.x, me.z - target.z);
+        const base = back ? KNIFE_BACKSTAB_DAMAGE : heavy ? KNIFE_HEAVY_DAMAGE : spec.damage;
+        const dmg = base * (cheatsRef.current.oneShot ? 50 : 1);
+        hitMarkerLevel = 1;
+        playKnifeFlesh(audio.ctx, audio.master, heavy || back, panFor(target.x, target.z));
+        if (back) playHeadshot(audio.ctx, audio.master);
+        effects.blood(target.x * DUEL_CELL, 1.25, target.z * DUEL_CELL, back ? 22 : heavy ? 14 : 9);
+        if (target.isBot) damageFighter(target, dmg, true, "Toi");
+        else link.current.send("hit", { damage: dmg });
         return;
       }
-      hitMarkerLevel = 1;
-      playHitmarker(audio.ctx, audio.master);
-      effects.blood(target.x * DUEL_CELL, 1.3, target.z * DUEL_CELL, 6);
-      const dmg = spec.damage * (cheatsRef.current.oneShot ? 50 : 1);
-      if (target.isBot) damageFighter(target, dmg, true, "Toi");
-      else link.current.send("hit", { damage: dmg });
+      // Personne : la lame rencontre-t-elle un mur, ou une construction ?
+      const limit = reach + DUEL_PLAYER_RADIUS;
+      const wall = rayWallDistance(me.x, me.z, fx, fz, limit);
+      if (wall >= limit) return;
+      const wx = me.x + fx * wall;
+      const wz = me.z + fz * wall;
+      const b = builtAt.get(Math.floor(wz) * mapW + Math.floor(wx));
+      if (b) damageBuild(b, (heavy ? KNIFE_HEAVY_DAMAGE : spec.damage) * (spec.buildDamage ?? 1));
+      // Etincelles un peu avant la paroi, a hauteur de main.
+      effects.sparks((wx - fx * 0.04) * DUEL_CELL, eyeY - 0.3, (wz - fz * 0.04) * DUEL_CELL, heavy ? 12 : 8, b ? [0.9, 0.62, 0.34] : undefined);
+      playKnifeWall(audio.ctx, audio.master, panFor(wx, wz));
     }
 
     function fire(fromBurst = false) {
@@ -3007,7 +3112,7 @@ export default function DuelScene({
       const spec = WEAPONS[me.weapon];
       if (!fromBurst && elapsed < me.nextShotAt) return;
       if (spec.melee) {
-        punch(spec);
+        knifeAttack("rapide");
         return;
       }
       if (me.reloadUntil > 0) return;
@@ -3253,6 +3358,8 @@ export default function DuelScene({
         else firing = true;
       } else if (e.button === 2) {
         if (buildMode) removeAhead();
+        // Couteau en main : le clic droit est le coup lourd (on ne vise pas).
+        else if (WEAPONS[me.weapon].melee) knifeAttack("lourd");
         else toggleZoom(true);
       }
     }
@@ -3294,6 +3401,13 @@ export default function DuelScene({
       // F : construire (1v1 construction). Une touche d'arme en fait sortir.
       if (e.code === "KeyF" && !e.repeat && mode.build) {
         setBuildMode(!buildMode);
+        return;
+      }
+      // F (V en 1v1 construction, ou F construit) : inspecter le couteau.
+      if ((e.code === "KeyF" || e.code === "KeyV") && !e.repeat) {
+        if (WEAPONS[me.weapon].melee && !me.dead && me.alive && !buildMode && !myEmote && !nadeAiming) {
+          knifeModel.inspect(elapsed);
+        }
         return;
       }
       // G : le menu des danses ; un chiffre choisit la danse.
@@ -3439,7 +3553,8 @@ export default function DuelScene({
 
     sceneApiRef.current = {
       reload: () => startReload(),
-      zoom: () => toggleZoom(),
+      // Au doigt, le bouton de visee donne le coup lourd quand on tient le couteau.
+      zoom: () => (WEAPONS[me.weapon].melee ? knifeAttack("lourd") : toggleZoom()),
       applyQuality: (value) => {
         quality = value;
         renderer.setPixelRatio(pixelRatioCap());
@@ -3529,6 +3644,11 @@ export default function DuelScene({
           }
         } else if (msg.event === "nade") {
           remoteNade(msg.payload);
+        } else if (msg.event === "slash") {
+          // Son coup de couteau : la lame siffle la ou il est, son bras frappe.
+          const p = msg.payload as Record<string, number>;
+          playKnifeSwing(audio.ctx, audio.master, Number(p.h) === 1, panFor(Number(p.x) || 0, Number(p.z) || 0));
+          if (remote) fighterSlashAt[remote.id] = elapsed;
         }
       }
       const r = link.current.remote;
@@ -3551,6 +3671,8 @@ export default function DuelScene({
           remote.danceUntil = 0;
         }
         if (r.weapon && WEAPONS[r.weapon]) remote.weapon = r.weapon;
+        // Son couteau du casier (absent chez un joueur qui n'a pas encore la mise a jour).
+        if (isKnifeId(r.knife) && r.knife !== fighterKnifeId[remote.id]) setFighterKnife(remote, r.knife);
         if (r.skin && r.skin in SKINS && r.skin !== remoteSkin) {
           remoteSkin = r.skin;
           const sk = SKINS[r.skin];
@@ -3845,7 +3967,9 @@ export default function DuelScene({
                 : spec.explosive
                   ? 8
                   : 6;
-        if (dist > ideal + 1.5) {
+        // Au couteau, il vient jusqu'a portee de lame (avant, il tournait
+        // autour de sa cible un pas trop loin pour la toucher).
+        if (dist > (spec.melee ? spec.range : ideal + 1.5)) {
           moveTowards(f, target.x, target.z, speed, delta);
         } else if (dist < ideal - 1) {
           // Trop pres : il recule en gardant la cible en vue.
@@ -3983,7 +4107,11 @@ export default function DuelScene({
         const dmg = spec.damage * botCfg.damage;
         if (f.targetIsMe) applyDamageToMe(dmg, f.x, f.z, f);
         else if (f.targetRef) damageFighter(f.targetRef, dmg * BOT_VS_BOT_DAMAGE, false, f.name, f);
-        playImpact(audio.ctx, audio.master, panFor(f.x, f.z));
+        // Un coup de couteau : le bras frappe, la lame siffle puis entre.
+        fighterSlashAt[f.id] = elapsed;
+        const pan = panFor(f.x, f.z);
+        playKnifeSwing(audio.ctx, audio.master, false, pan);
+        playKnifeFlesh(audio.ctx, audio.master, false, pan);
         return;
       }
 
@@ -4309,6 +4437,8 @@ export default function DuelScene({
           burstLeft = 0;
         }
       }
+      // Couteau : les degats tombent quand la lame arrive.
+      if (knifeHitAt >= 0 && elapsed >= knifeHitAt) resolveKnifeHit();
       updateBuilds(delta, canAct);
 
       // -------------------------------------------------------- ramassage
@@ -4570,6 +4700,13 @@ export default function DuelScene({
       vmAnim.empty = isCur ? me.mag === 0 && !spec.melee : swapFromEmpty;
       vmAnim.shells = reloadShells;
       model.update(vmAnim);
+      // Couteau : les bruits de ses gestes (sortie, cliquetis du papillon...),
+      // joues seulement s'il est a l'ecran.
+      if (model === knifeModel) {
+        for (let s = knifeModel.nextSound(); s; s = knifeModel.nextSound()) {
+          if (model.group.visible) playKnifeFoley(audio.ctx, audio.master, s);
+        }
+      }
 
       // --- Grenade en main : elle monte en bas a gauche, puis part en avant ---
       const throwT = (elapsed - lastThrowAt) / 0.22;
@@ -4694,6 +4831,17 @@ export default function DuelScene({
         if (!visible) continue;
         const bare = WEAPONS[f.weapon].melee === true;
         if (f.animGun) f.animGun.visible = !bare;
+        // Sans arme a feu, il tient son couteau ; a chaque coup, le poignet
+        // le jette en avant et le ramene (un tiers de seconde).
+        const blade = fighterKnife[f.id];
+        if (blade) {
+          blade.visible = bare;
+          const held = blade.children[0];
+          if (held && bare) {
+            const k = (elapsed - fighterSlashAt[f.id]) / 0.32;
+            knifeProps.swing(held, k >= 0 && k < 1 ? Math.sin(k * Math.PI) : 0);
+          }
+        }
         // Orientation affichee : rattrape le regard a 11 rad/s au plus, pour
         // qu'un bot ne pivote pas de 180 degres en une image.
         if (f.dead) f.drawYaw = f.yaw;
@@ -4713,6 +4861,7 @@ export default function DuelScene({
             if (!f.dancer) f.dancer = createDancer(f.anim);
             if (f.dancer.current !== f.dance) f.dancer.start(f.dance);
             if (f.animGun) f.animGun.visible = false;
+            if (blade) blade.visible = false;
             f.anim.update(delta);
             f.dancer.update(delta);
             continue;
@@ -4838,6 +4987,7 @@ export default function DuelScene({
           moving,
           weapon: me.weapon,
           skin,
+          knife: myKnife,
           jump: jumpY,
           dance: myEmote,
         });
@@ -4984,6 +5134,7 @@ export default function DuelScene({
       botFlashMat.dispose();
       botFlashGeo.dispose();
       for (const id of Object.keys(weaponModels) as WeaponId[]) weaponModels[id].dispose();
+      knifeProps.dispose();
       laserGeo.dispose();
       laserMat.dispose();
       laserDotGeo.dispose();
@@ -5419,9 +5570,12 @@ export default function DuelScene({
             </p>
           </>
         ) : (
-          <p className="text-xs font-semibold text-amber-200">
-            {island ? "Mains nues · trouve une arme" : "Corps à corps"}
-          </p>
+          <>
+            {island && <p className="text-xs font-semibold text-amber-200">Couteau seul · trouve une arme</p>}
+            <p className="text-[11px] font-semibold text-zinc-400">
+              Clic gauche : entaille · clic droit : coup lourd · {mode.build ? "V" : "F"} : inspecter
+            </p>
+          </>
         )}
       </div>
 
@@ -5744,7 +5898,9 @@ export default function DuelScene({
             Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
             R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
             {nadesInMode ? ` · ${nadeKey} ou clic molette : grenade · X : fumigène (maintenir pour viser, relâcher pour lancer)` : ""}
-            {mode.build ? " · F : construire" : ""} · Échap : libérer la souris
+            {mode.build ? " · F : construire" : ""}
+            {` · couteau : clic gauche entaille, clic droit coup lourd, dans le dos il élimine, ${mode.build ? "V" : "F"} : l'inspecter`} · Échap :
+            libérer la souris
           </span>
         </div>
       )}

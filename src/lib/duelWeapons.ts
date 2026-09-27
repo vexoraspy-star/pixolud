@@ -11,6 +11,8 @@ import {
   makePolymerTexture,
   makeScopeLensTexture,
 } from "./duelTextures";
+import { ensureVertexColors, prepareMerge, type Disposer } from "./duelWeaponModels";
+import { buildGunRig, hasGunModel, type GunRig } from "./duelWeaponModelsArsenal";
 
 /**
  * L'arsenal du Duel.
@@ -83,22 +85,27 @@ export interface WeaponSpec {
 }
 
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
+  // L'identifiant reste « poings » (il est sauvegarde et envoye en ligne),
+  // mais on tient un couteau : voir duelKnives. Cette fiche est celle du coup
+  // rapide (clic gauche) ; le coup lourd et le coup dans le dos sont la-bas.
   poings: {
     id: "poings",
-    name: "Poings",
-    short: "POINGS",
-    // En battle royale on atterrit les mains vides : les poings servent a se
-    // defendre le temps de trouver une arme, pas a gagner un combat.
-    damage: 20,
+    name: "Couteau",
+    short: "COUTEAU",
+    // En battle royale on atterrit sans arme a feu : le couteau sert a se
+    // defendre le temps d'en trouver une. Trois entailles, ou une dans le dos.
+    damage: 40,
     headshot: 1,
-    fireInterval: 0.45,
-    auto: false,
+    fireInterval: 0.48,
+    // Bouton tenu : les entailles s'enchainent, a la cadence du geste.
+    auto: true,
     magSize: 0,
     reloadSeconds: 0,
     pellets: 1,
     spread: 0,
-    recoil: 0.35,
-    range: 1.35,
+    recoil: 0,
+    // Portee courte, en cases, depuis le centre du corps vise.
+    range: 1,
     moveFactor: 1.12,
     tracer: 0xffffff,
     melee: true,
@@ -701,20 +708,12 @@ export interface WeaponLook {
  */
 const AIM_SIGHT_Y = 0.12 / 0.66;
 
-export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponModel {
-  const group = new THREE.Group();
-  // Les pieces vivent dans un sous-groupe : la scene pilote `group` (position
-  // a l'ecran, visee, sprint), l'animation pilote `body` — sans se marcher
-  // dessus.
-  const body = new THREE.Group();
-  group.add(body);
-
-  const owned: { dispose(): void }[] = [];
-  function keep<T extends { dispose(): void }>(x: T): T {
-    owned.push(x);
-    return x;
-  }
-
+/**
+ * Les anciens modeles, en boites et cylindres : il n'en reste que les poings
+ * (la scene les remplace par les couteaux, voir duelKnives) et les armes qui
+ * n'ont pas encore leur modele realiste dans duelWeaponModelsArsenal.
+ */
+function buildLegacyRig(id: WeaponId, body: THREE.Group, look: WeaponLook, keep: Disposer): GunRig {
   const metalTex = keep(makeGunMetalTexture());
   metalTex.repeat.set(2, 2);
   const polymerTex = keep(makePolymerTexture());
@@ -840,9 +839,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
 
   // Fenetre d'ejection : chaque arme la place (et la rattache a sa culasse
   // quand celle-ci bouge), la scene y fait naitre les douilles.
-  const ejectPort = new THREE.Object3D();
+  const ejectAt = new THREE.Vector3(0.045, 0.02, 0);
   let ejectParent: THREE.Object3D = body;
-  ejectPort.position.set(0.045, 0.02, 0);
   let casing: CasingKind = "laiton";
   /**
    * Rechargement au coup par coup : ou la main gauche apporte les munitions,
@@ -886,7 +884,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       put(slide, box(0.03, 0.038, 0.085, dark), 0.038, 0.035, -0.02); // fenetre d'ejection
       // La douille sort de la fenetre, qui recule avec la culasse.
       ejectParent = slide;
-      ejectPort.position.set(0.05, 0.04, -0.02);
+      ejectAt.set(0.05, 0.04, -0.02);
       rackHand = true;
       put(slide, box(0.014, 0.024, 0.014, dark), 0, 0.075, -0.185); // guidon
       put(slide, box(0.006, 0.008, 0.006, white), 0, 0.082, -0.19);
@@ -908,6 +906,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       const pbase = put(mag, box(0.066, 0.02, 0.095, dark), 0, -0.248, 0.07);
       pbase.rotation.x = -0.16;
       muzzleZ = -0.24;
+      muzzleY = 0.028;
       sightY = 0.075;
       // Deux mains : la gauche vient soutenir la droite, comme au stand.
       put(body, rightHand, 0.01, -0.15, 0.06).rotation.set(-0.16, 0, 0);
@@ -949,7 +948,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.09, 0.115, 0.03, polymer), 0, -0.005, 0.36);
       muzzleZ = -0.47;
       sightY = 0.06;
-      ejectPort.position.set(0.048, 0.02, -0.02);
+      ejectAt.set(0.048, 0.02, -0.02);
       rackHand = true;
       put(body, rightHand, 0.01, -0.15, 0.1).rotation.set(-0.2, 0, 0);
       put(body, leftHand, -0.01, -0.075, -0.25).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
@@ -998,7 +997,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       add(box(0.062, 0.145, 0.032, dark), 0, -0.015, 0.425);
       muzzleZ = -0.67;
       sightY = 0.128;
-      ejectPort.position.set(0.05, 0.02, 0.02);
+      ejectAt.set(0.05, 0.02, 0.02);
       rackHand = true;
       put(body, rightHand, 0.01, -0.16, 0.13).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.33).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
@@ -1031,7 +1030,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       sightY = 0.078;
       reloadStyle = "cartouches";
       casing = "coque";
-      ejectPort.position.set(0.058, 0.01, 0.02);
+      ejectAt.set(0.058, 0.01, 0.02);
       // Les cartouches entrent par la trappe sous la carcasse ; la main est
       // fille de la pompe, d'ou le decalage.
       dipPort.set(0, -0.1, 0.02).sub(pump.position);
@@ -1068,7 +1067,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       // remet les six balles d'un coup.
       reloadStyle = "barillet";
       ejectParent = drum;
-      ejectPort.position.set(0, 0, 0.055);
+      ejectAt.set(0, 0, 0.055);
       dipPort.set(-0.075, -0.01, 0.075);
       carry = put(leftHand, tube(0.042, 0.035, brass, 6), 0, -0.012, -0.04);
       put(body, rightHand, 0.01, -0.125, 0.1).rotation.set(-0.38, 0, 0);
@@ -1100,7 +1099,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.29;
       muzzleY = 0.01;
       sightY = 0.095;
-      ejectPort.position.set(0.045, 0.03, -0.02);
+      ejectAt.set(0.045, 0.03, -0.02);
       rackHand = true;
       put(body, rightHand, 0.01, -0.12, 0.035).rotation.set(-0.08, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.13).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
@@ -1142,7 +1141,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       sightY = 0.105;
       reloadStyle = "chargeur";
       casing = "long";
-      ejectPort.position.set(0.062, -0.01, -0.02);
+      ejectAt.set(0.062, -0.01, -0.02);
       rackHand = true;
       put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.1, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
@@ -1176,7 +1175,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleY = 0.012;
       sightY = 0.12;
       casing = "long";
-      ejectPort.position.set(0.046, 0.02, 0.04);
+      ejectAt.set(0.046, 0.02, 0.04);
       rackHand = true;
       put(body, rightHand, 0.01, -0.15, 0.16).rotation.set(-0.3, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
@@ -1236,7 +1235,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleZ = -0.92;
       sightY = 0.14;
       casing = "long";
-      ejectPort.position.set(0.048, 0.025, 0.08);
+      ejectAt.set(0.048, 0.025, 0.08);
       put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
       put(body, leftHand, -0.012, -0.07, -0.26).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
       break;
@@ -1267,7 +1266,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       muzzleY = 0.012;
       sightY = 0.132;
       // Bullpup : la fenetre d'ejection est derriere la poignee.
-      ejectPort.position.set(0.05, 0.02, 0.12);
+      ejectAt.set(0.05, 0.02, 0.12);
       rackHand = true;
       put(body, rightHand, 0.01, -0.15, -0.01).rotation.set(-0.2, 0, 0);
       put(body, leftHand, -0.012, -0.075, -0.29).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
@@ -1290,7 +1289,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       put(bar, box(0.09, 0.07, 0.3, wood), 0, -0.012 - hy, -0.25 - hz); // devant
       // Les douilles sautent de la culasse ouverte, au-dessus de la charniere.
       ejectParent = bar;
-      ejectPort.position.set(0, 0.035 - hy, -0.03 - hz);
+      ejectAt.set(0, 0.035 - hy, -0.03 - hz);
       dipPort.set(0, 0.075 - hy, 0.02 - hz);
       add(box(0.066, 0.09, 0.14, wood), 0, -0.04, 0.17); // poignee anglaise
       const dstock = add(box(0.08, 0.12, 0.34, wood), 0, -0.075, 0.34);
@@ -1379,6 +1378,55 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     }
   }
 
+  return {
+    rightHand,
+    leftHand,
+    slide,
+    pump,
+    bolt,
+    mag,
+    drum,
+    barrels,
+    muzzleZ,
+    muzzleY,
+    sightY,
+    reloadStyle,
+    casing,
+    ejectParent,
+    ejectAt,
+    dipPort,
+    carry,
+    rackHand,
+    magGrip: new THREE.Vector3(-0.045, -0.02, 0.02),
+    grabRot: new THREE.Vector3(-0.15, 0.9, 0.25),
+    handleRot: (side: number) => new THREE.Vector3(-0.15, -side * 0.9, -side * 0.25),
+  };
+}
+
+export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponModel {
+  const group = new THREE.Group();
+  // Les pieces vivent dans un sous-groupe : la scene pilote `group` (position
+  // a l'ecran, visee, sprint), l'animation pilote `body` — sans se marcher
+  // dessus.
+  const body = new THREE.Group();
+  group.add(body);
+
+  const owned: { dispose(): void }[] = [];
+  function keep<T extends { dispose(): void }>(x: T): T {
+    owned.push(x);
+    return x;
+  }
+
+  // Fenetre d'ejection : chaque arme la place (et la rattache a sa culasse
+  // quand celle-ci bouge), la scene y fait naitre les douilles.
+  const ejectPort = new THREE.Object3D();
+  const rig = hasGunModel(id) ? buildGunRig(id, body, look, keep) : buildLegacyRig(id, body, look, keep);
+  const { rightHand, leftHand, slide, pump, bolt, mag, drum, barrels, muzzleZ, muzzleY, reloadStyle } = rig;
+  const { casing, ejectParent, dipPort, carry, rackHand } = rig;
+  /** Hauteur de la ligne de mire : en visee, on l'amene au centre de l'ecran. */
+  let sightY = rig.sightY;
+  ejectPort.position.copy(rig.ejectAt);
+
   if (look.hands === false) {
     rightHand.visible = false;
     leftHand.visible = false;
@@ -1399,7 +1447,8 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     const optic: THREE.Object3D[] = [];
     body.traverse((o) => {
       if (!(o instanceof THREE.Mesh) || isHandPart(o)) return;
-      if (o.geometry instanceof THREE.TorusGeometry || o.name === "dot") {
+      // Anneaux, point rouge, hausse et guidon : on vise a travers ou par-dessus.
+      if (o.geometry instanceof THREE.TorusGeometry || o.name === "dot" || o.userData.optic === true) {
         optic.push(o);
         return;
       }
@@ -1408,8 +1457,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
       top = Math.max(top, bounds.max.y);
     });
     // Le viseur doit rester AU-DESSUS de ce qui le porte : sinon on regardait
-    // a travers l'anneau... et on ne voyait que le boitier de l'arme.
-    const clair = top + 0.012;
+    // a travers l'anneau... et on ne voyait que le boitier de l'arme. Les
+    // modeles realistes ont de vrais organes de visee, dessines a la bonne
+    // hauteur : une petite marge suffit.
+    const clair = top + (hasGunModel(id) ? 0.003 : 0.012);
     if (clair > sightY) {
       for (const o of optic) o.position.y += clair - sightY;
       sightY = clair;
@@ -1432,7 +1483,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   // eclaire sans masquer, et ne coute rien quand il est eteint.
   const muzzle = MUZZLE[id];
   const flash = new THREE.Group();
-  flash.position.set(0, id === "pistolet" ? 0.028 : muzzleY, muzzleZ);
+  flash.position.set(0, muzzleY, muzzleZ);
   flash.visible = false;
   body.add(flash);
   /** Etoile et flammes : elles tournent au hasard a chaque coup. */
@@ -1523,6 +1574,9 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   // en visee, est fusionnee a part.
   const units: THREE.Object3D[] = [body, rightHand, leftHand];
   for (const p of [slide, pump, bolt, mag, drum, barrels]) if (p) units.push(p);
+  // Les matieres de l'atelier lisent la couleur de sommet : une piece qui
+  // n'en a pas en recoit une blanche (sinon elle sortirait noire).
+  ensureVertexColors(body);
   const unitSet = new Set(units);
   const stockSet = new Set(stockParts);
   const loose = new Set<THREE.Object3D>([flash, ejectPort]);
@@ -1538,8 +1592,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
         rel.multiplyMatrices(inv, m.matrixWorld);
         geos.push(m.geometry.clone().applyMatrix4(rel));
       }
-      const merged = mergeGeometries(geos, false);
-      for (const g of geos) g.dispose();
+      // Memes attributs partout (couleur de sommet, coordonnees de texture).
+      const ready = prepareMerge(geos);
+      const merged = mergeGeometries(ready, false);
+      for (const g of ready) g.dispose();
       if (!merged) continue;
       target.add(new THREE.Mesh(keep(merged), mat));
       for (const m of meshes) m.removeFromParent();
@@ -1661,9 +1717,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     r: THREE.Vector3;
   }
   const magKeys: HandKey[] = [];
-  const magGrip = magCenter.clone().add(new THREE.Vector3(-0.045, -0.02, 0.02));
+  // Chaque modele dit ou et comment sa main gauche saisit le chargeur.
+  const magGrip = magCenter.clone().add(rig.magGrip);
   if (reloadStyle === "chargeur" && mag && !spec.melee) {
-    const gripRot = new THREE.Vector3(-0.15, 0.9, 0.25);
+    const gripRot = rig.grabRot;
     const down = magGrip.clone().add(new THREE.Vector3(-0.08, -0.45, 0.16));
     const under = magGrip.clone().add(new THREE.Vector3(0, -0.08, 0.01));
     const k = (t: number, p: THREE.Vector3, r: THREE.Vector3) => magKeys.push({ t, p, r });
@@ -1676,10 +1733,10 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
     k(0.63, magGrip, gripRot);
     if (rackHand && slide) {
       // La poignee d'armement, du cote ou elle se trouve sur l'arme.
-      const side = slideCenter.x > 0.01 ? 1 : -1;
-      const handle = slideCenter.clone().add(new THREE.Vector3(side * 0.05, 0, 0.03));
+      const side = rig.handleAt ? (rig.handleAt.x > 0.01 ? 1 : -1) : slideCenter.x > 0.01 ? 1 : -1;
+      const handle = rig.handleAt ? rig.handleAt.clone() : slideCenter.clone().add(new THREE.Vector3(side * 0.05, 0, 0.03));
       const pulled = handle.clone().add(new THREE.Vector3(0, 0, 0.055));
-      const handleRot = new THREE.Vector3(-0.15, -side * 0.9, -side * 0.25);
+      const handleRot = rig.handleRot(side);
       k(0.72, handle, handleRot);
       k(0.78, handle, handleRot);
       k(0.8, pulled, handleRot);

@@ -1,6 +1,7 @@
 import { DANCES, DANCE_ORDER, type DanceId } from "./duelDances";
+import { DEFAULT_KNIFE, KNIFE_ORDER, KNIVES, isKnifeId, type KnifeId } from "./duelKnives";
 
-// Profil du joueur de Duel : pieces, niveau, tenues, camouflages et danses.
+// Profil du joueur de Duel : pieces, niveau, tenues, camouflages, couteaux et danses.
 //
 // Tout est conserve dans le navigateur, comme les reglages : rien ne part sur
 // le serveur, et rien ne s'achete avec de l'argent reel. On gagne des pieces
@@ -458,10 +459,15 @@ export const CAMO_ORDER: CamoId[] = [
 export interface DuelProfile {
   coins: number;
   xp: number;
-  /** Objets possedes, prefixes : « skin:neon », « camo:dragon », « dance:floss ». */
+  /** Objets possedes, prefixes : « skin:neon », « camo:dragon », « knife:karambit », « dance:floss ». */
   owned: string[];
   skin: SkinId;
   camo: CamoId;
+  /**
+   * Couteau tenu en partie a la place des poings. Facultatif : les profils
+   * sauvegardes avant les couteaux ne l'ont pas (voir equippedKnife).
+   */
+  knife?: KnifeId;
   /** Jour du dernier cadeau recupere (AAAA-MM-JJ), vide s'il n'a jamais ete pris. */
   lastGift: string;
 }
@@ -471,11 +477,19 @@ export const DEFAULT_PROFILE: DuelProfile = {
   // pas envie de jouer pour le remplir.
   coins: 500,
   xp: 0,
-  owned: ["skin:commando", "camo:standard", "dance:salut"],
+  // Le couteau de combat est offert : c'est lui qu'on tient sans arme a feu.
+  owned: ["skin:commando", "camo:standard", "dance:salut", `knife:${DEFAULT_KNIFE}`],
   skin: "commando",
   camo: "standard",
+  knife: DEFAULT_KNIFE,
   lastGift: "",
 };
+
+/** Le couteau equipe, avec le couteau offert pour les anciens profils. */
+export function equippedKnife(profile: Pick<DuelProfile, "knife" | "owned">): KnifeId {
+  const k = profile.knife;
+  return isKnifeId(k) && profile.owned.includes(`knife:${k}`) ? k : DEFAULT_KNIFE;
+}
 
 const KEY = "pixolud-duel-profil";
 
@@ -488,12 +502,15 @@ export function loadProfile(): DuelProfile {
     for (const base of DEFAULT_PROFILE.owned) if (!owned.includes(base)) owned.push(base);
     const skin = p.skin && p.skin in SKINS && owned.includes(`skin:${p.skin}`) ? p.skin : "commando";
     const camo = p.camo && p.camo in CAMOS && owned.includes(`camo:${p.camo}`) ? p.camo : "standard";
+    // Ancien profil (sans couteau) ou couteau inconnu : le couteau offert.
+    const knife = equippedKnife({ knife: p.knife, owned });
     return {
       coins: Number.isFinite(p.coins) ? Math.max(0, Math.floor(p.coins as number)) : DEFAULT_PROFILE.coins,
       xp: Number.isFinite(p.xp) ? Math.max(0, Math.floor(p.xp as number)) : 0,
       owned,
       skin,
       camo,
+      knife,
       lastGift: typeof p.lastGift === "string" ? p.lastGift : "",
     };
   } catch {
@@ -552,7 +569,7 @@ export function streakCoins(multi: number, streak: number): number {
 
 // ---------------------------------------------------------------- boutique
 
-export type ShopKind = "skin" | "camo" | "dance";
+export type ShopKind = "skin" | "camo" | "knife" | "dance";
 
 export interface ShopItem {
   key: string;
@@ -579,6 +596,10 @@ export function shopItem(key: string): ShopItem | null {
     const d = DANCES[id as DanceId];
     return { key, kind, id, name: d.name, rarity: d.rarity, price: d.price, tagline: d.tagline };
   }
+  if (kind === "knife" && isKnifeId(id)) {
+    const k = KNIVES[id];
+    return { key, kind, id, name: k.name, rarity: k.rarity, price: k.price, tagline: k.tagline };
+  }
   return null;
 }
 
@@ -587,6 +608,7 @@ export function allShopKeys(): string[] {
   return [
     ...SKIN_ORDER.filter((s) => SKINS[s].price > 0).map((s) => `skin:${s}`),
     ...CAMO_ORDER.filter((c) => CAMOS[c].price > 0).map((c) => `camo:${c}`),
+    ...KNIFE_ORDER.filter((k) => KNIVES[k].price > 0).map((k) => `knife:${k}`),
     ...DANCE_ORDER.filter((d) => DANCES[d].price > 0).map((d) => `dance:${d}`),
   ];
 }

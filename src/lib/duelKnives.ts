@@ -72,8 +72,10 @@ export const KNIVES: Record<KnifeId, KnifeInfo> = {
 export const KNIFE_ORDER: KnifeId[] = ["combat", "chasse", "baionnette", "karambit", "papillon"];
 export const DEFAULT_KNIFE: KnifeId = "combat";
 
+/** Vrai pour un identifiant de couteau (il arrive aussi du reseau et des sauvegardes). */
 export function isKnifeId(value: unknown): value is KnifeId {
-  return typeof value === "string" && value in KNIVES;
+  // hasOwnProperty et pas `in` : « toString » n'est pas un couteau.
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(KNIVES, value);
 }
 
 // ------------------------------------------------------------- le combat
@@ -371,13 +373,6 @@ function smoothShape(points: [number, number][], divisions = 60): THREE.Shape {
   const s = new THREE.Shape(pts);
   s.closePath();
   return s;
-}
-
-function holeFrom(points: [number, number][], divisions = 24): THREE.Path {
-  const curve = new THREE.SplineCurve(points.map(([x, y]) => new THREE.Vector2(x, y)));
-  const p = new THREE.Path(curve.getPoints(divisions));
-  p.closePath();
-  return p;
 }
 
 /** Trou oblong (ajourage des manches du papillon). */
@@ -1143,25 +1138,33 @@ const DRAW_KEYS: Keys = [
 ];
 
 // Pose de repos, dans le repere du modele (voir DuelScene : l'arme est posee
-// en bas a droite, echelle 0.66). Reglee a l'oeil.
-const VM_SCALE = 1.5;
-const REST_POS = new THREE.Vector3(0, 0.08, 0.3);
-/** Ou pointe la lame au repos : vers l'avant, un peu a gauche et vers le haut. */
-const REST_BLADE = new THREE.Vector3(-0.25, 0.5, -0.83).normalize();
-/** Ou part l'avant-bras : vers le bas de l'ecran, a droite, vers soi. */
-const REST_ARM = new THREE.Vector3(0.45, -0.55, 0.7).normalize();
+// en bas a droite, echelle 0.66). Reglee sur des rendus de la vue a la
+// premiere personne (champ de 82 degres) : le poing en bas a droite, la lame
+// dressee vers le haut et la gauche, le plat tourne vers soi pour qu'on la
+// voie en entier, l'avant-bras qui sort de l'ecran en bas a droite.
+const VM_SCALE = 1.6;
+const REST_POS = new THREE.Vector3(-0.03, -0.03, 0.44);
+/** Ou pointe l'index (l'axe X de la main, donc la lame) au repos. */
+const REST_BLADE = new THREE.Vector3(-0.38, 0.85, -0.4).normalize();
+/** Ou part l'avant-bras : vers la droite, un peu vers le bas et vers soi. */
+const REST_ARM = new THREE.Vector3(0.85, -0.5, 0.3).normalize();
+// Karambit, tenu a l'envers : le poing plus haut, la griffe qui pend dessous
+// et se recourbe vers l'avant (dans la pose commune, elle sortait de l'ecran).
+const KARAMBIT_POS = new THREE.Vector3(-0.03, 0.12, 0.4);
+const KARAMBIT_BLADE = new THREE.Vector3(0.55, 0.75, 0.35).normalize();
+const KARAMBIT_ARM = new THREE.Vector3(0.6, -0.7, 0.4).normalize();
 
 /**
- * Orientation de repos de la main : la lame (axe X de la main) vise
- * REST_BLADE, et l'avant-bras (FOREARM_DIR) tombe dans le plan de REST_ARM.
- * Deux directions suffisent a fixer la rotation, sans angle a deviner.
+ * Orientation de repos de la main : l'index (axe X de la main) vise `blade`,
+ * et l'avant-bras (FOREARM_DIR) tombe dans le plan de `arm`. Deux directions
+ * suffisent a fixer la rotation, sans angle a deviner.
  */
-function restQuaternion(): THREE.Quaternion {
+function restQuaternion(blade: THREE.Vector3, arm: THREE.Vector3): THREE.Quaternion {
   const x = new THREE.Vector3(1, 0, 0);
   const f = FOREARM_DIR.clone().addScaledVector(x, -FOREARM_DIR.x).normalize();
   const from = new THREE.Matrix4().makeBasis(x, f, new THREE.Vector3().crossVectors(x, f));
-  const d = REST_BLADE.clone();
-  const a = REST_ARM.clone().addScaledVector(d, -REST_ARM.dot(d)).normalize();
+  const d = blade.clone();
+  const a = arm.clone().addScaledVector(d, -arm.dot(d)).normalize();
   const to = new THREE.Matrix4().makeBasis(d, a, new THREE.Vector3().crossVectors(d, a));
   return new THREE.Quaternion().setFromRotationMatrix(to.multiply(from.transpose()));
 }
@@ -1219,7 +1222,9 @@ export function buildKnifeModel(id: KnifeId, look: WeaponLook = {}): KnifeModel 
   const body = new THREE.Group();
   arm.add(body);
   body.scale.setScalar(VM_SCALE);
-  body.quaternion.copy(restQuaternion());
+  const karambit = id === "karambit";
+  body.quaternion.copy(karambit ? restQuaternion(KARAMBIT_BLADE, KARAMBIT_ARM) : restQuaternion(REST_BLADE, REST_ARM));
+  const restPos = karambit ? KARAMBIT_POS : REST_POS;
   const wrist = new THREE.Group();
   body.add(wrist);
 
@@ -1383,7 +1388,7 @@ export function buildKnifeModel(id: KnifeId, look: WeaponLook = {}): KnifeModel 
     pose[3] += breath * 0.012 + anim.sprint * 0.55;
     pose[4] += anim.sprint * 0.25;
     pose[5] += anim.sprint * -0.35;
-    arm.position.set(REST_POS.x + pose[0], REST_POS.y + pose[1], REST_POS.z + pose[2]);
+    arm.position.set(restPos.x + pose[0], restPos.y + pose[1], restPos.z + pose[2]);
     arm.rotation.set(pose[3], pose[4], pose[5]);
     wrist.rotation.set(wristPose[3], wristPose[4], wristPose[5]);
 
@@ -1473,6 +1478,12 @@ export function buildKnifeModel(id: KnifeId, look: WeaponLook = {}): KnifeModel 
 export interface KnifeProps {
   /** Un couteau pret a accrocher (m.attach("Wrist.R", objet, "Idle_Gun_Pointing")). */
   make(id: KnifeId): THREE.Group;
+  /**
+   * Geste du poignet sur un couteau rendu par `make` : 0 au repos, 1 lame
+   * jetee en avant. Il tourne autour du creux de la main, pas du poignet :
+   * le couteau reste dans le poing.
+   */
+  swing(prop: THREE.Object3D, amount: number): void;
   dispose(): void;
 }
 
@@ -1527,10 +1538,11 @@ export function createKnifeProps(): KnifeProps {
       new THREE.Vector3(0, s, -c),
       new THREE.Vector3(-dir, 0, 0),
     );
+    // Le manche reste a l'origine : c'est le pivot (au creux de la main) qui
+    // est pose en PROP_GRIP, pour que le geste du poignet tourne autour du poing.
     merged.translate(-build.gripX, 0, 0);
     merged.scale(PROP_SCALE, PROP_SCALE, PROP_SCALE);
     merged.applyMatrix4(m);
-    merged.translate(PROP_GRIP.x, PROP_GRIP.y, PROP_GRIP.z);
     merged.computeBoundingSphere();
     geos.set(id, merged);
     return merged;
@@ -1539,11 +1551,19 @@ export function createKnifeProps(): KnifeProps {
   return {
     make(id) {
       const holder = new THREE.Group();
+      const pivot = new THREE.Group();
+      pivot.position.copy(PROP_GRIP);
+      holder.add(pivot);
       const mesh = new THREE.Mesh(geometryFor(id), material);
       // Le soldat anime sort de sa boite de depart : pas d'elimination hors champ.
       mesh.frustumCulled = false;
-      holder.add(mesh);
+      pivot.add(mesh);
       return holder;
+    },
+    swing(prop, amount) {
+      const pivot = prop.children[0];
+      // La lame bascule vers l'avant du soldat (axe X du support accroche).
+      if (pivot) pivot.rotation.x = amount * 0.9;
     },
     dispose() {
       for (const g of geos.values()) g.dispose();
