@@ -266,7 +266,7 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
   return memo("mur:" + theme, () => {
     if (theme === "entrepot") return makeWarehouseWall();
     if (theme === "gouffre") return makeRockWall();
-    if (theme === "poussiere") return makeSandstoneWall();
+    if (theme === "poussiere") return paintPlaster(0);
     if (theme === "ile") return makeHouseWall();
     return makeTechWall();
   });
@@ -274,10 +274,11 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
 
 /** Sol : une tuile couvre deux cases (3,8 m), assez grand pour ne pas voir la repetition. */
 export function makeArenaFloorTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
-  const t = memo("sol:" + (theme === "ile" ? "poussiere" : theme), () => {
+  const t = memo("sol:" + theme, () => {
+    if (theme === "poussiere") return paintPavingTexture();
     if (theme === "entrepot") return makeConcreteFloor(1, 1);
     if (theme === "gouffre") return makeRockFloor(1, 1);
-    if (theme === "poussiere" || theme === "ile") return makeSandFloor(1, 1);
+    if (theme === "ile") return makeSandFloor(1, 1);
     return makeTechFloor(1, 1);
   });
   t.repeat.set(width / 2, height / 2);

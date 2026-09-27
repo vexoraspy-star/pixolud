@@ -905,6 +905,9 @@ interface HandPlan {
 
 const V = (p: readonly [number, number, number]) => new THREE.Vector3(p[0], p[1], p[2]);
 
+/** Pente minimale de l'avant-bras vers le coude, dans le repere de l'arme (dy / dz). */
+const ARM_SLOPE = -0.2;
+
 const HAND_PLANS: Record<HandShape, HandPlan> = {
   // Main droite autour d'une poignee (demi-largeur 3 cm, demi-profondeur
   // 4,4 cm). L'index est plus haut que les autres doigts : le pontet passe
@@ -1073,6 +1076,18 @@ function buildHandParts(
     w.x = -w.x;
     d.x = -d.x;
   }
+  if (shape !== "appui") {
+    // La main est posee inclinee de `tilt` sur l'arme. Sur une poignee tres
+    // couchee (fusil de chasse, revolver), l'avant-bras remontait vers l'oeil
+    // et, en visee, la manche bouchait la moitie de l'ecran : dans le repere
+    // de l'arme, il redescend toujours un peu vers le coude.
+    const c = Math.cos(tilt);
+    const sn = Math.sin(tilt);
+    let wy = d.y * c - d.z * sn;
+    const wz = d.y * sn + d.z * c;
+    wy = Math.min(wy, ARM_SLOPE * wz);
+    d.set(d.x, wy * c + wz * sn, -wy * sn + wz * c).normalize();
+  }
   cuffGroup.position.copy(w);
   cuffGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d);
   h.add(cuffGroup);
@@ -1128,7 +1143,7 @@ export function buildGloveHand(
   /** Inclinaison de la poignee : l'index reste a l'horizontale, le long de la carcasse. */
   tilt = 0,
 ): THREE.Group {
-  const key = `${shape}|${left ? 1 : 0}|${shape === "poignee" ? tilt.toFixed(4) : 0}`;
+  const key = `${shape}|${left ? 1 : 0}|${shape === "appui" ? 0 : tilt.toFixed(4)}`;
   let entry = handCache.get(key);
   if (!entry) {
     const tmp: { dispose(): void }[] = [];
