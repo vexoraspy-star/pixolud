@@ -91,7 +91,7 @@ export const KNIFE_HEAVY_RANGE = 0.85;
 /** Dans le dos : elimination, quel que soit le coup. */
 export const KNIFE_BACKSTAB_DAMAGE = 999;
 /** Delai entre le clic et le contact de la lame : les degats tombent avec le geste. */
-export const KNIFE_HIT_DELAY: Record<KnifeStrike, number> = { rapide: 0.07, lourd: 0.2 };
+export const KNIFE_HIT_DELAY: Record<KnifeStrike, number> = { rapide: 0.07, lourd: 0.24 };
 /** Duree de l'inspection. */
 export const KNIFE_INSPECT_SECONDS = 2.6;
 
@@ -1104,13 +1104,15 @@ const QUICK_KEYS: Keys = [
   0.55, -0.24, -0.13, -0.07, -0.22, 0.7, 0.62,
   1, 0, 0, 0, 0, 0, 0,
 ];
-// Coup lourd : on arme en arriere, on plonge vers le centre, on retire.
+// Coup lourd : on arme en arriere (la lame se couche vers soi), puis on
+// plonge vers le centre en basculant la pointe vers l'avant : un vrai coup
+// d'estoc, pas un coup de poing lame en l'air. On retire ensuite.
 const HEAVY_SECONDS = 0.9;
 const HEAVY_KEYS: Keys = [
   0, 0, 0, 0, 0, 0, 0,
-  0.16, 0.035, 0.085, 0.15, 0.4, -0.1, 0.05,
-  0.27, -0.13, 0.03, -0.36, -0.28, 0.24, -0.08,
-  0.44, -0.12, 0.01, -0.32, -0.24, 0.22, -0.06,
+  0.16, 0.04, 0.09, 0.14, 0.5, -0.1, 0.05,
+  0.3, -0.12, 0.0, -0.3, -0.8, 0.3, -0.1,
+  0.46, -0.11, -0.02, -0.27, -0.75, 0.28, -0.08,
   1, 0, 0, 0, 0, 0, 0,
 ];
 // Inspection : le bras amene le couteau devant soi...
@@ -1554,9 +1556,10 @@ export function createKnifeProps(): KnifeProps {
       const pivot = new THREE.Group();
       pivot.position.copy(PROP_GRIP);
       holder.add(pivot);
+      // Maillage ordinaire (pas skinne) enfant d'un os : sa matrice suit la
+      // main, l'elimination hors champ reste juste. En battle royale, trente
+      // couteaux hors de l'ecran ne coutent ainsi aucun appel de rendu.
       const mesh = new THREE.Mesh(geometryFor(id), material);
-      // Le soldat anime sort de sa boite de depart : pas d'elimination hors champ.
-      mesh.frustumCulled = false;
       pivot.add(mesh);
       return holder;
     },

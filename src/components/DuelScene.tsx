@@ -1008,7 +1008,8 @@ export default function DuelScene({
       // Le couteau s'affiche sous son nom du casier (« Karambit »...).
       setWeaponName(spec.melee ? KNIVES[myKnife].name.toUpperCase() : spec.short);
       setReloading(me.reloadUntil > 0);
-      setInventory({ slots: me.inv.map((s) => s.weapon), cur: me.inv.length > 0 ? me.cur : -1 });
+      // Couteau en main (-1) : aucun emplacement d'arme a feu n'est allume.
+      setInventory({ slots: me.inv.map((s) => s.weapon), cur: me.inv.length > 0 && !spec.melee ? me.cur : -1 });
     }
 
     function announceWeapon(id: WeaponId) {
@@ -1017,15 +1018,19 @@ export default function DuelScene({
     }
 
     /**
-     * Sort l'arme d'un emplacement (les poings si l'inventaire est vide). Le
+     * Sort l'arme d'un emplacement (le couteau si l'inventaire est vide). Le
      * chargeur de l'arme rangee est garde : changer d'arme n'est pas recharger.
+     * `index` negatif : le couteau (touche 4), les armes a feu restent a leur
+     * place et `me.cur` garde celle qu'on ressortira.
      */
     function equipSlot(index: number, announce = false, saveCurrent = true) {
-      if (saveCurrent && me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      // Couteau sorti par-dessus des armes : l'emplacement courant n'est pas
+      // en main, son chargeur ne doit pas etre ecrase par celui du couteau (0).
+      if (saveCurrent && me.inv[me.cur] && me.inv[me.cur].weapon === me.weapon) me.inv[me.cur].mag = me.mag;
       const before = me.weapon;
       const beforeEmpty = me.mag === 0 && !WEAPONS[before].melee;
-      const slot = me.inv[index];
-      me.cur = slot ? index : 0;
+      const slot = index >= 0 ? me.inv[index] : undefined;
+      if (index >= 0 || me.inv.length === 0) me.cur = slot ? index : 0;
       me.weapon = slot ? slot.weapon : "poings";
       me.mag = slot ? slot.mag : 0;
       me.reloadUntil = 0;
@@ -1056,9 +1061,20 @@ export default function DuelScene({
       if (announce) announceWeapon(me.weapon);
     }
 
+    /** Molette : les armes a feu dans l'ordre, puis le couteau, puis on reboucle. */
     function cycleWeapon(dir: number) {
-      if (me.inv.length < 2) return;
-      equipSlot((me.cur + dir + me.inv.length) % me.inv.length);
+      if (me.inv.length === 0) return;
+      const count = me.inv.length + 1;
+      const pos = WEAPONS[me.weapon].melee ? me.inv.length : me.cur;
+      const next = (pos + dir + count) % count;
+      equipSlot(next === me.inv.length ? -1 : next);
+    }
+
+    /** Touche 4 : le couteau en main, meme avec des armes a feu. */
+    function drawKnife() {
+      if (WEAPONS[me.weapon].melee) return;
+      if (buildMode) setBuildMode(false);
+      equipSlot(-1);
     }
 
     /**
@@ -1072,12 +1088,13 @@ export default function DuelScene({
       const have = me.inv.findIndex((s) => s.weapon === id);
       if (have >= 0) {
         me.inv[have].mag = spec.magSize;
-        if (have === me.cur) me.mag = spec.magSize;
+        // (Couteau sorti : l'arme de cet emplacement n'est pas en main.)
+        if (have === me.cur && me.weapon === id) me.mag = spec.magSize;
         syncWeaponUi();
         return "recharge";
       }
       if (me.inv.length >= MAX_SLOTS) return "plein";
-      if (me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      if (me.inv[me.cur] && me.inv[me.cur].weapon === me.weapon) me.inv[me.cur].mag = me.mag;
       me.inv.push({ weapon: id, mag: spec.magSize });
       equipSlot(me.inv.length - 1, true, false);
       return "ajout";
@@ -2070,8 +2087,9 @@ export default function DuelScene({
       myMoney -= price;
       setMoney(myMoney);
       // Comme dans Counter-Strike : une arme principale et une arme de poing.
-      // Une arme achetee remplace celle de sa categorie.
-      if (me.inv[me.cur]) me.inv[me.cur].mag = me.mag;
+      // Une arme achetee remplace celle de sa categorie. (Couteau sorti :
+      // l'arme de l'emplacement courant n'est pas en main, son chargeur reste.)
+      if (me.inv[me.cur] && me.inv[me.cur].weapon === me.weapon) me.inv[me.cur].mag = me.mag;
       const bought = { weapon: id, mag: WEAPONS[id].magSize };
       const primary = me.inv.find((s) => !isSidearm(s.weapon));
       const sidearm = me.inv.find((s) => isSidearm(s.weapon));
@@ -2244,6 +2262,8 @@ export default function DuelScene({
       for (const s of me.inv) s.mag = WEAPONS[s.weapon].magSize;
       me.mag = WEAPONS[me.weapon].magSize;
       me.reloadUntil = 0;
+      // Mort couteau en main (touche 4) : on repart l'arme a feu au poing.
+      if (WEAPONS[me.weapon].melee && me.inv[me.cur]) equipSlot(me.cur, false, false);
       me.safeUntil = elapsed + SPAWN_PROTECT;
       myKbX = 0;
       myKbZ = 0;
@@ -3446,7 +3466,11 @@ export default function DuelScene({
         if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
       } else if (!e.repeat && n >= 1 && n <= MAX_SLOTS && me.inv[n - 1]) {
         if (buildMode) setBuildMode(false);
-        if (n - 1 !== me.cur) equipSlot(n - 1);
+        // Couteau sorti : la touche de l'emplacement courant ressort son arme.
+        if (n - 1 !== me.cur || WEAPONS[me.weapon].melee) equipSlot(n - 1);
+      } else if (!e.repeat && n === MAX_SLOTS + 1) {
+        // 4 : le couteau, a tout moment (les armes a feu restent dans leurs emplacements).
+        drawKnife();
       }
       // E : echanger l'arme en main contre celle qui est au sol.
       if (e.key.toLowerCase() === "e" && !e.repeat) swapWithGround();
@@ -4110,8 +4134,11 @@ export default function DuelScene({
         // Un coup de couteau : le bras frappe, la lame siffle puis entre.
         fighterSlashAt[f.id] = elapsed;
         const pan = panFor(f.x, f.z);
-        playKnifeSwing(audio.ctx, audio.master, false, pan);
-        playKnifeFlesh(audio.ctx, audio.master, false, pan);
+        // Deux bots qui se battent au loin (battle royale) : on ne les entend pas.
+        if (f.targetIsMe || pan.gain > 0.06) {
+          playKnifeSwing(audio.ctx, audio.master, false, pan);
+          playKnifeFlesh(audio.ctx, audio.master, false, pan);
+        }
         return;
       }
 
@@ -4777,7 +4804,8 @@ export default function DuelScene({
       }
 
       // --- Laser : du canon jusqu'au premier mur (ou au sol) ---
-      const wantLaser = optionsRef.current.laser && !me.dead && me.alive && !isZoomed;
+      // Pas de laser sur une lame : il partirait de la pointe et suivrait chaque coup.
+      const wantLaser = optionsRef.current.laser && !me.dead && me.alive && !isZoomed && !WEAPONS[shownWeapon].melee;
       laserBeam.visible = wantLaser;
       laserDot.visible = wantLaser;
       if (wantLaser) {
@@ -5556,6 +5584,16 @@ export default function DuelScene({
                 </div>
               );
             })}
+            {/* Le couteau du casier : toujours la, touche 4 (allume quand il est en main). */}
+            <div
+              className={`flex h-10 min-w-[4.4rem] flex-col items-start justify-center rounded-md px-2 ring-1 ${
+                inventory.cur < 0 ? "bg-cyan-500/30 ring-cyan-300" : "bg-black/60 ring-white/10"
+              }`}
+              style={{ boxShadow: `inset 0 -3px 0 ${RARITY[KNIVES[isKnifeId(knife) ? knife : DEFAULT_KNIFE].rarity].color}` }}
+            >
+              <span className="font-mono text-[9px] font-bold leading-none text-zinc-400">4</span>
+              <span className="text-[11px] font-black uppercase leading-tight text-white">{WEAPONS.poings.short}</span>
+            </div>
           </div>
         )}
         <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">{weaponName}</p>
@@ -5571,9 +5609,12 @@ export default function DuelScene({
           </>
         ) : (
           <>
-            {island && <p className="text-xs font-semibold text-amber-200">Couteau seul · trouve une arme</p>}
+            {island && inventory.slots.length === 0 && (
+              <p className="text-xs font-semibold text-amber-200">Couteau seul · trouve une arme</p>
+            )}
             <p className="text-[11px] font-semibold text-zinc-400">
               Clic gauche : entaille · clic droit : coup lourd · {mode.build ? "V" : "F"} : inspecter
+              {inventory.slots.length > 0 ? " · 1-3 : armes" : ""}
             </p>
           </>
         )}
@@ -5899,7 +5940,7 @@ export default function DuelScene({
             R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
             {nadesInMode ? ` · ${nadeKey} ou clic molette : grenade · X : fumigène (maintenir pour viser, relâcher pour lancer)` : ""}
             {mode.build ? " · F : construire" : ""}
-            {` · couteau : clic gauche entaille, clic droit coup lourd, dans le dos il élimine, ${mode.build ? "V" : "F"} : l'inspecter`} · Échap :
+            {` · 4 : couteau (clic gauche entaille, clic droit coup lourd, dans le dos il élimine, ${mode.build ? "V" : "F"} : l'inspecter)`} · Échap :
             libérer la souris
           </span>
         </div>

@@ -4,6 +4,7 @@ import type { ReloadStyle, WeaponId, WeaponLook } from "./duelWeapons";
 import {
   block,
   buildGloveHand,
+  capsuleBetween,
   createForge,
   createGunKit,
   front,
@@ -14,6 +15,7 @@ import {
   rod,
   side,
   sphere,
+  top as plan,
   tube,
   type Disposer,
   type Forge,

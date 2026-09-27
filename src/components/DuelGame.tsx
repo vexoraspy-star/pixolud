@@ -478,6 +478,11 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
         .on("broadcast", { event: "pong" }, ({ payload }: { payload: Record<string, unknown> }) => {
           link.current.inbox.push({ event: "pong", payload });
         })
+        // Coup de couteau de l'autre : on entend la lame et on voit son bras
+        // (les degats, eux, arrivent par « hit »).
+        .on("broadcast", { event: "slash" }, ({ payload }: { payload: Record<string, unknown> }) => {
+          link.current.inbox.push({ event: "slash", payload });
+        })
         .on("presence", { event: "sync" }, () => {
           const state = channel.presenceState<{ side: DuelSide }>();
           const others = Object.values(state)
@@ -903,7 +908,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
           {item.kind === "dance"
             ? "Ton personnage la danse à droite. En partie : touche G."
             : item.kind === "knife"
-              ? "Tenu en main quand tu n'as pas d'arme à feu. Clic droit : coup lourd · dans le dos, il élimine · F : l'inspecter."
+              ? "En partie : touche 4 pour le sortir (en main d'office sans arme à feu). Clic droit : coup lourd · dans le dos, il élimine · F : l'inspecter."
               : "Aperçu sur ton personnage, à droite."}
         </p>
         {owned ? (
@@ -1297,7 +1302,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-200">
-                    Couteaux <span className="normal-case tracking-normal text-zinc-400">· en main quand tu n&apos;as pas d&apos;arme à feu, F pour l&apos;inspecter</span>
+                    Couteaux <span className="normal-case tracking-normal text-zinc-400">· en partie, touche 4 pour le sortir, F pour l&apos;inspecter</span>
                   </p>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">{KNIFE_ORDER.map((id) => itemCard(`knife:${id}`))}</div>
                 </div>
@@ -1439,7 +1444,8 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                   <p><b className="text-white">Danses</b> — G, puis le numéro</p>
                   <p><b className="text-white">Construire</b> — F (mode 1v1 Construction)</p>
                   <p>
-                    <b className="text-white">Couteau</b> — clic gauche : entaille · clic droit : coup lourd · dans le dos : élimination ·{" "}
+                    <b className="text-white">Couteau</b> — 4 pour le sortir · clic gauche : entaille · clic droit : coup lourd · dans le dos :
+                    élimination ·{" "}
                     <b className="text-white">Inspecter</b> — F (V en 1v1 Construction)
                   </p>
                   <p><b className="text-white">Économie</b> — 1 à 0 (Maj pour la suite) pour acheter, B boutique</p>
