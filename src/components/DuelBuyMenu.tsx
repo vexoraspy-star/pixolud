@@ -2,15 +2,24 @@
 
 import type { ReactNode } from "react";
 import { SHOP_ORDER, WEAPONS, shopKeyLabel, type WeaponId } from "@/lib/duelWeapons";
-import { WEAPON_PRICES, type DuelEconomy } from "@/lib/duelModes";
+import {
+  ARMOR_ITEMS,
+  ARMOR_NAMES,
+  WEAPON_PRICES,
+  armorCost,
+  type ArmorItem,
+  type DuelEconomy,
+} from "@/lib/duelModes";
 import { HudIcon, type HudIconId } from "./DuelHudIcons";
+import { HelmetGlyph } from "./DuelHud";
 
 /**
  * Menu d'achat du mode Economie, pendant la phase d'achat.
  *
  * Un grand panneau par categories, facon jeu de tir tactique : silhouette
  * de chaque arme, prix, touche du clavier. Les cases trop cheres sont
- * grisees. L'achat lui-meme reste celui de DuelScene (`onBuy`) : ce panneau
+ * grisees. L'achat lui-meme reste celui de DuelScene (`onBuy`, et
+ * `onBuyArmor` pour le gilet et le casque) : ce panneau
  * n'invente ni prix ni regle, il les affiche.
  */
 
@@ -40,9 +49,12 @@ export default function DuelBuyMenu({
   knifeIcon,
   nades,
   nadeKey,
+  armor,
+  helmet,
   economy,
   touch,
   onBuy,
+  onBuyArmor,
   onClose,
 }: {
   money: number;
@@ -56,9 +68,13 @@ export default function DuelBuyMenu({
   knifeIcon: HudIconId;
   nades: { grenade: number; fumigene: number };
   nadeKey: string;
+  /** Armure portee (0 a ARMOR_MAX) et casque : ce qui reste a acheter en depend. */
+  armor: number;
+  helmet: boolean;
   economy: DuelEconomy;
   touch: boolean;
   onBuy: (id: WeaponId) => void;
+  onBuyArmor: (item: ArmorItem) => void;
   onClose: () => void;
 }) {
   const inHand = cur >= 0 ? slots[cur] : null;
@@ -142,11 +158,25 @@ export default function DuelBuyMenu({
             </section>
           ))}
 
-          {/* Equipement : le couteau du casier suit a chaque manche. */}
+          {/* Equipement : l'armure s'achete (gardee si l'on survit a la
+              manche) ; le couteau du casier suit a chaque manche. */}
           <section className="flex flex-col gap-1.5">
             <h3 className="border-b border-white/10 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
               Équipement
             </h3>
+            {ARMOR_ITEMS.map((item, k) => (
+              <ArmorCard
+                key={item}
+                item={item}
+                price={armorCost(item, armor, helmet)}
+                money={money}
+                keyLabel={shopKeyLabel(SHOP_ORDER.length + k)}
+                onBuy={onBuyArmor}
+              />
+            ))}
+            <p className="px-0.5 text-[10px] leading-snug text-zinc-500">
+              Le casque protège aussi la tête. Tu gardes ton armure si tu survis à la manche.
+            </p>
             <InfoCard label={knifeName} status="Équipé" keyLabel="4">
               <HudIcon id={knifeIcon} height={15} className="text-zinc-100" />
             </InfoCard>
@@ -170,10 +200,57 @@ export default function DuelBuyMenu({
 
         <p className="border-t border-white/10 px-3 py-1.5 text-[10px] leading-relaxed text-zinc-500 sm:px-4">
           Manche gagnée : +${economy.killReward + economy.winReward} · perdue : +${economy.lossReward}. Si tu meurs, tu repars au
-          pistolet.{touch ? "" : " Touches 1 à 9, 0, Maj + chiffre : acheter · B : ouvrir ou fermer."}
+          pistolet, sans armure.{touch ? "" : " Touches 1 à 9, 0, Maj + chiffre : acheter · B : ouvrir ou fermer."}
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Un achat d'armure, dans la meme case que les armes. `price` vient
+ * d'armorCost : 0 veut dire deja equipe (gilet intact, casque porte).
+ */
+function ArmorCard({
+  item,
+  price,
+  money,
+  keyLabel,
+  onBuy,
+}: {
+  item: ArmorItem;
+  price: number;
+  money: number;
+  keyLabel: string;
+  onBuy: (item: ArmorItem) => void;
+}) {
+  const owned = price === 0;
+  const affordable = price <= money;
+  const status = owned ? "Équipé" : `$${price}`;
+  return (
+    <button
+      type="button"
+      onClick={() => onBuy(item)}
+      disabled={owned || !affordable}
+      aria-label={`${ARMOR_NAMES[item]}, ${status}`}
+      className={`flex h-[3.9rem] flex-col justify-between rounded-[3px] px-2 py-1.5 text-left ring-1 ring-inset transition ${
+        owned
+          ? "bg-sky-500/10 ring-sky-400/45"
+          : affordable
+            ? "bg-white/[0.05] ring-white/10 hover:bg-white/[0.11] hover:ring-white/35"
+            : "cursor-not-allowed bg-white/[0.02] opacity-40 ring-white/5 grayscale"
+      }`}
+    >
+      <span className="flex items-center justify-between gap-1 text-[10px] font-bold leading-none">
+        <span className="rounded-[2px] bg-white/10 px-1 py-[1px] font-mono text-zinc-300">{keyLabel}</span>
+        <span className={`tabular-nums ${owned ? "text-sky-300" : affordable ? "text-emerald-300" : "text-red-400"}`}>{status}</span>
+      </span>
+      <span className="flex min-h-0 flex-1 items-center justify-center gap-1.5">
+        <HudIcon id="armure" height={18} className="text-zinc-100" />
+        {item === "casque" && <HelmetGlyph height={18} className="text-zinc-100" />}
+      </span>
+      <span className="truncate text-[10px] font-semibold uppercase leading-none tracking-wide text-zinc-300">{ARMOR_NAMES[item]}</span>
+    </button>
   );
 }
 

@@ -36,9 +36,15 @@ import {
 } from "@/lib/duelIsland";
 import IslandMapView from "./IslandMapView";
 import {
+  ARMOR_ITEMS,
+  ARMOR_MAX,
   DUEL_MODES,
   ZONE_DAMAGE_PER_SECOND,
   WEAPON_PRICES,
+  armorAbsorbed,
+  armorCost,
+  hasArmor,
+  type ArmorItem,
   type DuelModeId,
 } from "@/lib/duelModes";
 import {
@@ -75,6 +81,8 @@ import {
   playHitmarker,
   playHeadshot,
   playHurt,
+  playArmorHit,
+  playArmorEquip,
   playDeath,
   playReload,
   playDryFire,
@@ -362,6 +370,15 @@ export default function DuelScene({
   const adminEnabled = devAllowed && bot;
   const containerRef = useRef<HTMLDivElement>(null);
   const [hp, setHp] = useState(DUEL_MAX_HP);
+  /**
+   * Armure (regle de chaque mode : « L'armure » dans duelModes). Absente du
+   * mode : la case d'armure ne s'affiche pas. Chaque vie commence avec au
+   * moins startArmor (et le casque si le mode le donne).
+   */
+  const armorInMode = hasArmor(mode);
+  const startArmor = armorInMode ? Math.min(ARMOR_MAX, mode.startArmor ?? 0) : 0;
+  const startHelmet = startArmor > 0 && Boolean(mode.startHelmet);
+  const [armorHud, setArmorHud] = useState({ armor: startArmor, helmet: startHelmet });
   const [ammo, setAmmo] = useState(WEAPONS[mode.startWeapon].magSize);
   const [magSize, setMagSize] = useState(WEAPONS[mode.startWeapon].magSize);
   const [weaponName, setWeaponName] = useState(WEAPONS[mode.startWeapon].name);
@@ -476,6 +493,7 @@ export default function DuelScene({
     zoom: () => void;
     applyQuality: (value: Quality3D) => void;
     buy: (id: WeaponId) => void;
+    buyArmor: (item: ArmorItem) => void;
     drop: (x: number, z: number) => void;
     admin: (action: "tuer" | "soigner" | "zone" | "armes") => void;
     teleport: (x: number, z: number) => void;
@@ -674,6 +692,9 @@ export default function DuelScene({
           : Math.PI * 0.25,
       pitch: 0,
       hp: DUEL_MAX_HP,
+      /** Armure (0 a ARMOR_MAX) et casque : voir soakArmor. */
+      armor: startArmor,
+      helmet: startHelmet,
       dead: false,
       alive: true,
       respawnAt: 0,
@@ -1332,6 +1353,9 @@ export default function DuelScene({
       yaw: number;
       pitch: number;
       hp: number;
+      /** Armure (0 a ARMOR_MAX) et casque, comme le joueur. */
+      armor: number;
+      helmet: boolean;
       dead: boolean;
       /** Battle royale : faux quand il est definitivement elimine. */
       alive: boolean;
@@ -1476,6 +1500,8 @@ export default function DuelScene({
         yaw: 0,
         pitch: 0,
         hp: DUEL_MAX_HP,
+        armor: startArmor,
+        helmet: startHelmet,
         dead: false,
         alive: true,
         respawnAt: 0,
@@ -1960,6 +1986,9 @@ export default function DuelScene({
       for (const f of fighters) {
         f.safeUntil = buyUntil;
         f.nextShotAt = buyUntil + BOT_REACTION;
+        // Premiere manche : la Sentinelle garde son pistolet, mais prend un
+        // gilet si elle en a les moyens (comme un joueur a la manche au pistolet).
+        botBuyArmor(f);
       }
     }
 
@@ -2037,6 +2066,12 @@ export default function DuelScene({
      */
     let cueIcon: HudIconId | null = null;
     let cueHead = false;
+    /**
+     * Le coup est une explosion (grenade, roquette) : l'armure l'amortit
+     * comme des eclats, pas comme la balle de l'arme en main. Meme regle que
+     * les deux indices du dessus : lu puis remis a zero par le coup.
+     */
+    let cueBlast = false;
     /** Dernier coup porte a l'adversaire en ligne : tete, grenade (sa mort arrive par le reseau). */
     let lastRemoteHead = false;
     let lastRemoteIcon: HudIconId | null = null;
@@ -2189,6 +2224,26 @@ export default function DuelScene({
       playReload(audio.ctx, audio.master);
     }
 
+    /**
+     * Gilet, ou gilet + casque : l'armure repart a neuf. Le prix tient compte
+     * de ce qu'on porte deja (armorCost) ; rien a payer, rien a faire.
+     */
+    function buyArmor(item: ArmorItem) {
+      if (!eco || !buying() || me.dead) return;
+      const price = armorCost(item, me.armor, me.helmet);
+      if (price <= 0) return;
+      if (price > myMoney) {
+        playDryFire(audio.ctx, audio.master);
+        return;
+      }
+      myMoney -= price;
+      setMoney(myMoney);
+      me.armor = ARMOR_MAX;
+      if (item === "casque") me.helmet = true;
+      syncArmorHud();
+      playArmorEquip(audio.ctx, audio.master);
+    }
+
     /** La Sentinelle depense comme un joueur prudent : elle garde de quoi rebondir. */
     function botBuy(f: Fighter) {
       if (!eco) return;
@@ -2197,14 +2252,30 @@ export default function DuelScene({
           ? ["sniper", "mitrailleuse", "fusil"]
           : ["fusil", "carabine", "pompe", "mitraillette", "pm", "revolver"];
       for (const w of wishes) {
-        if (f.inv.some((s) => s.weapon === w)) return;
+        if (f.inv.some((s) => s.weapon === w)) break;
         if (WEAPON_PRICES[w] <= botMoney) {
           botMoney -= WEAPON_PRICES[w];
           f.inv = [{ weapon: w, mag: WEAPONS[w].magSize }, { weapon: "pistolet", mag: WEAPONS.pistolet.magSize }];
           botEquip(f, 0, false);
-          return;
+          break;
         }
       }
+      botBuyArmor(f);
+    }
+
+    /**
+     * Puis l'armure, avec ce qui reste apres l'arme : gilet + casque s'il y a
+     * de quoi (contre un joueur qui vise la tete), sinon le gilet seul.
+     */
+    function botBuyArmor(f: Fighter) {
+      if (!eco) return;
+      const kit = armorCost("casque", f.armor, f.helmet);
+      const vest = armorCost("gilet", f.armor, f.helmet);
+      const item: ArmorItem | null = kit > 0 && kit <= botMoney ? "casque" : vest > 0 && vest <= botMoney ? "gilet" : null;
+      if (!item) return;
+      botMoney -= item === "casque" ? kit : vest;
+      f.armor = ARMOR_MAX;
+      if (item === "casque") f.helmet = true;
     }
 
     function giveMoney(toMe: boolean, amount: number) {
@@ -2242,6 +2313,9 @@ export default function DuelScene({
       me.hp = DUEL_MAX_HP;
       me.dead = false;
       me.safeUntil = buyUntil;
+      // L'armure reste telle quelle si on a survecu (la mort l'a deja retiree).
+      spawnArmor(me);
+      syncArmorHud();
       if (iDiedLastRound) setOnlyWeapon("pistolet", false);
       else {
         for (const s of me.inv) s.mag = WEAPONS[s.weapon].magSize;
@@ -2259,6 +2333,7 @@ export default function DuelScene({
         f.path = null;
         f.safeUntil = buyUntil;
         f.nextShotAt = buyUntil + BOT_REACTION;
+        spawnArmor(f);
         if (botDiedLastRound) botSetOnly(f, "pistolet");
         for (const s of f.inv) s.mag = WEAPONS[s.weapon].magSize;
         f.mag = WEAPONS[f.weapon].magSize;
@@ -2350,6 +2425,8 @@ export default function DuelScene({
       me.z = s[1] + 0.5;
       me.hp = DUEL_MAX_HP;
       me.dead = false;
+      spawnArmor(me);
+      syncArmorHud();
       for (const s of me.inv) s.mag = WEAPONS[s.weapon].magSize;
       me.mag = WEAPONS[me.weapon].magSize;
       me.reloadUntil = 0;
@@ -2371,6 +2448,10 @@ export default function DuelScene({
       if (me.dead) return;
       me.dead = true;
       me.hp = 0;
+      // L'armure se perd a la mort (en Economie, il faudra la racheter).
+      me.armor = 0;
+      me.helmet = false;
+      syncArmorHud();
       me.respawnAt = elapsed + DUEL_RESPAWN_SECONDS;
       setHp(0);
       playDeath(audio.ctx, audio.master);
@@ -2420,6 +2501,8 @@ export default function DuelScene({
       if (f.dead) return;
       f.dead = true;
       f.hp = 0;
+      f.armor = 0;
+      f.helmet = false;
       f.deathT = 0;
       f.respawnAt = elapsed + DUEL_RESPAWN_SECONDS;
       f.dance = null;
@@ -2482,12 +2565,58 @@ export default function DuelScene({
       if (byMe) endRound(true);
     }
 
+    // ------------------------------------------------------------ l'armure
+    /**
+     * L'armure prend sa part du coup (armorAbsorbed, regle dans duelModes)
+     * et s'use d'autant ; renvoie cette part, le reste va a la vie. Vide,
+     * elle emporte le casque avec elle. Aucune allocation : on modifie le
+     * joueur ou le combattant tel quel.
+     */
+    function soakArmor(who: { armor: number; helmet: boolean }, amount: number, source: WeaponId | "explosion", head: boolean): number {
+      const soaked = armorAbsorbed(amount, who.armor, who.helmet, source, head);
+      if (soaked <= 0) return 0;
+      who.armor -= soaked;
+      // Sous un demi-point, l'interface affiche 0 : l'armure est finie.
+      if (who.armor < 0.5) {
+        who.armor = 0;
+        who.helmet = false;
+      }
+      return soaked;
+    }
+
+    /** Debut d'une vie ou d'une manche : au moins l'armure que donne le mode. */
+    function spawnArmor(who: { armor: number; helmet: boolean }) {
+      if (who.armor < startArmor) who.armor = startArmor;
+      if (startHelmet) who.helmet = true;
+    }
+
+    /** Derniere armure envoyee a l'interface : React n'est prevenu qu'a chaque point perdu. */
+    let shownArmor = startArmor;
+    let shownHelmet = startHelmet;
+    function syncArmorHud() {
+      const value = Math.round(me.armor);
+      if (value === shownArmor && me.helmet === shownHelmet) return;
+      shownArmor = value;
+      shownHelmet = me.helmet;
+      setArmorHud({ armor: value, helmet: me.helmet });
+    }
+
+    /** Le choc sur l'armure d'un bot qu'on touche : un seul par tir, meme au fusil a pompe. */
+    let armorClinkAt = -1;
+    function armorClink(x: number, z: number, helmetHit: boolean) {
+      if (elapsed - armorClinkAt < 0.06) return;
+      armorClinkAt = elapsed;
+      playArmorHit(audio.ctx, audio.master, helmetHit, panFor(x, z));
+    }
+
     function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter, unlocked = false) {
-      // L'indice du fil (arme imposee, tete) ne vaut que pour ce coup-ci.
+      // L'indice du fil (arme imposee, tete, explosion) ne vaut que pour ce coup-ci.
       const icon = cueIcon;
       const head = cueHead;
+      const blast = cueBlast;
       cueIcon = null;
       cueHead = false;
+      cueBlast = false;
       if (me.dead || ended || !me.alive || cheatsRef.current.god) return;
       if (elapsed < me.safeUntil) return;
       // Le plafond ne s'applique qu'aux tirs des bots : un vrai joueur en
@@ -2497,7 +2626,11 @@ export default function DuelScene({
         if (elapsed < hitLockUntil) return;
         hitLockUntil = elapsed + hitLockFor(engagingLast);
       }
-      me.hp = Math.max(0, me.hp - amount);
+      // L'armure d'abord. Le tireur est un bot ou l'adversaire en ligne
+      // (son arme arrive avec son etat) : c'est son arme qui compte.
+      const hadHelmet = me.helmet;
+      const soaked = soakArmor(me, amount, blast ? "explosion" : (killer?.weapon ?? "fusil"), head);
+      me.hp = Math.max(0, me.hp - (amount - soaked));
       setHp(me.hp);
       damageLevel = Math.min(1, damageLevel + 0.55);
       if (fromX !== undefined && fromZ !== undefined) {
@@ -2505,17 +2638,28 @@ export default function DuelScene({
         lastDamageAt = elapsed;
       }
       playHurt(audio.ctx, audio.master);
+      if (soaked > 0) {
+        syncArmorHud();
+        playArmorHit(audio.ctx, audio.master, head && hadHelmet);
+      }
       if (me.hp <= 0) registerMyDeath(killer?.name ?? opponentName, killer ?? null, icon, head);
     }
 
     function damageFighter(f: Fighter, amount: number, byMe: boolean, killerName: string, attacker?: Fighter) {
       const icon = cueIcon;
       const head = cueHead;
+      const blast = cueBlast;
       cueIcon = null;
       cueHead = false;
+      cueBlast = false;
       if (f.dead || !f.alive || ended) return;
       if (elapsed < f.safeUntil) return;
-      f.hp = Math.max(0, f.hp - amount);
+      const hadHelmet = f.helmet;
+      const source = blast ? "explosion" : byMe ? me.weapon : (attacker?.weapon ?? "fusil");
+      const soaked = soakArmor(f, amount, source, head);
+      // Ses protections sonnent sous nos balles (pas entre bots : trop de bruit).
+      if (soaked > 0 && byMe) armorClink(f.x, f.z, head && hadHelmet);
+      f.hp = Math.max(0, f.hp - (amount - soaked));
       // Chaque balle se voit : le buste recule et le soldat s'eclaire un
       // instant, sans casser sa course (geste additif, jambes epargnees).
       if (f.hp > 0) {
@@ -2723,6 +2867,8 @@ export default function DuelScene({
         if (dmg <= 0) continue;
         touched = true;
         effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
+        // L'armure l'amortit comme une explosion (voir cueBlast).
+        cueBlast = true;
         if (attacker) damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, attacker.name, attacker);
         else if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
         else {
@@ -2730,12 +2876,14 @@ export default function DuelScene({
           lastRemoteIcon = null;
           link.current.send("hit", { damage: dmg });
         }
+        cueBlast = false;
       }
       // Pas de degats sur soi : seul un tir ennemi blesse le joueur.
       if (attacker && !me.dead && me.alive) {
         const dmg = (splash(me.x, me.z) + (direct === "moi" ? spec.damage : 0)) * mult;
         if (dmg > 0) {
           touched = true;
+          cueBlast = true;
           applyDamageToMe(dmg, ex, ez, attacker);
         }
       }
@@ -2938,8 +3086,10 @@ export default function DuelScene({
         if (owner === f || owner === "distant" || owner === null) continue;
         const dmg = blastDamage(d);
         effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
-        // Fil des eliminations : c'est la grenade qui tue, pas l'arme en main.
+        // Fil des eliminations : c'est la grenade qui tue, pas l'arme en main ;
+        // et l'armure l'amortit comme des eclats.
         cueIcon = "grenade";
+        cueBlast = true;
         if (owner === "moi") {
           touched = true;
           if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
@@ -2952,6 +3102,7 @@ export default function DuelScene({
           damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, owner.name, owner);
         }
         cueIcon = null;
+        cueBlast = false;
       }
       if (touched) {
         hitMarkerLevel = 1;
@@ -2973,6 +3124,7 @@ export default function DuelScene({
         if (owner !== null && owner !== "moi" && owner !== "distant") {
           const cfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
           cueIcon = "grenade";
+          cueBlast = true;
           applyDamageToMe(blastDamage(d) * cfg.damage, ex, ez, owner, true);
         }
       }
@@ -3614,6 +3766,10 @@ export default function DuelScene({
         if (digit) {
           const idx = shopIndexFromKey(n, e.shiftKey);
           if (idx >= 0 && idx < SHOP_KEYS.length) buyWeapon(SHOP_KEYS[idx]);
+          // Juste apres les armes : le gilet, puis gilet + casque (Maj+4, Maj+5).
+          else if (idx >= SHOP_KEYS.length && idx < SHOP_KEYS.length + ARMOR_ITEMS.length) {
+            buyArmor(ARMOR_ITEMS[idx - SHOP_KEYS.length]);
+          }
         }
         if (e.key.toLowerCase() === "b") setShopOpen((o) => !o);
       } else if (!e.repeat && n >= 1 && n <= MAX_SLOTS && me.inv[n - 1]) {
@@ -3737,6 +3893,7 @@ export default function DuelScene({
         renderer.setPixelRatio(pixelRatioCap());
       },
       buy: (id) => buyWeapon(id),
+      buyArmor: (item) => buyArmor(item),
       drop: (x, z) => doDrop(x, z),
       admin: (action) => adminAction(action),
       teleport: (x, z) => teleportTo(x, z),
@@ -3784,9 +3941,12 @@ export default function DuelScene({
       while (box.length) {
         const msg = box.shift()!;
         if (msg.event === "hit") {
-          // Fil des eliminations : tir a la tete (h), grenade (n).
+          // Fil des eliminations : tir a la tete (h), grenade (n). L'armure
+          // se calcule ici, chez celui qui encaisse : grenade = explosion,
+          // sinon l'arme que l'adversaire a en main (roquette comprise).
           cueHead = Number(msg.payload.h) === 1;
           cueIcon = Number(msg.payload.n) === 1 ? "grenade" : null;
+          cueBlast = Number(msg.payload.n) === 1;
           applyDamageToMe(
             Number(msg.payload.damage) || WEAPONS.fusil.damage,
             remote?.x,
@@ -4036,6 +4196,7 @@ export default function DuelScene({
           f.x = s[0] + 0.5;
           f.z = s[1] + 0.5;
           f.hp = DUEL_MAX_HP;
+          spawnArmor(f);
           f.dead = false;
           f.deathT = 0;
           f.safeUntil = elapsed + SPAWN_PROTECT;
@@ -5749,7 +5910,7 @@ export default function DuelScene({
       {/* Haut, au centre : score, minuterie (au doigt : ouvre le tableau des scores) */}
       {topBar}
 
-      {/* Bas gauche : vie (et, en 1v1 construction, les materiaux au-dessus) */}
+      {/* Bas gauche : vie et armure (si le mode en a ; en 1v1 construction, les materiaux au-dessus) */}
       <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col items-start gap-2">
         {mode.build && buildHud.on && (
           <div className="max-w-[min(26rem,80vw)] rounded-[3px] bg-amber-500/90 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-black">
@@ -5763,7 +5924,7 @@ export default function DuelScene({
             <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-400">F : construire</span>
           </div>
         )}
-        <DuelVitals hp={hp} />
+        <DuelVitals hp={hp} armor={armorInMode ? armorHud.armor : null} helmet={armorHud.helmet} />
       </div>
 
       {/* Bas droit : armes portees (1 a 3, couteau 4), grenades, puis l'arme en
@@ -5881,9 +6042,12 @@ export default function DuelScene({
           knifeIcon={knifeIcon}
           nades={nadeHud}
           nadeKey={nadeKey}
+          armor={armorHud.armor}
+          helmet={armorHud.helmet}
           economy={mode.economy}
           touch={touchDevice}
           onBuy={(id) => sceneApiRef.current?.buy(id)}
+          onBuyArmor={(item) => sceneApiRef.current?.buyArmor(item)}
           onClose={() => setShopOpen(false)}
         />
       )}

@@ -233,6 +233,25 @@ export function playHurt(ctx: AudioContext, master: GainNode) {
   noise(ctx, master, 0.3, 0.3, (t) => Math.pow(1 - t, 2));
 }
 
+/**
+ * L'armure encaisse : un choc mat de plaque et un petit tintement etouffe.
+ * Discret, il s'ajoute au son de la blessure. `helmet` : la balle a sonne
+ * sur le casque, note plus claire et un peu plus longue.
+ */
+export function playArmorHit(ctx: AudioContext, master: GainNode, helmet = false, opts?: Spatial) {
+  const dest = out(ctx, master, opts);
+  noise(ctx, dest, 0.06, 0.26, (t) => Math.pow(1 - t, 2.6), { type: "bandpass", freq: 520, q: 1.4 });
+  if (helmet) tone(ctx, dest, "triangle", 2350, 1900, 0.1, 0.08, 0.002);
+  else tone(ctx, dest, "triangle", 1250, 980, 0.06, 0.05, 0.002);
+}
+
+/** Gilet enfile a l'achat : le scratch des sangles, deux fois. */
+export function playArmorEquip(ctx: AudioContext, master: GainNode) {
+  const scratch = (k: number) => (t: number) => (1 - t) * (0.55 + 0.45 * Math.sin(t * k));
+  noise(ctx, master, 0.2, 0.22, scratch(140), { type: "bandpass", freq: 1900, q: 0.8 });
+  noise(ctx, master, 0.15, 0.18, scratch(120), { type: "bandpass", freq: 1600, q: 0.8 }, 0.24);
+}
+
 /** Elimination : descente grave. */
 // Spatialisee : dans un match a plusieurs, une elimination a l'autre bout
 // de la carte ne doit pas sonner comme la tienne.

@@ -96,6 +96,14 @@ export interface DuelMode {
    * se ramassent au sol avec le reste du butin.
    */
   grenades?: { grenade: number; fumigene: number };
+  /**
+   * Armure donnee a chaque apparition (0 a ARMOR_MAX), au joueur comme aux
+   * bots. Absent : aucune au depart. En Economie, elle s'achete a la place
+   * (ARMOR_PRICES). Regle de chaque mode : voir « L'armure » plus bas.
+   */
+  startArmor?: number;
+  /** Casque donne avec l'armure de depart : il protege aussi la tete. */
+  startHelmet?: boolean;
 }
 
 export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
@@ -121,7 +129,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     name: "Match à mort",
     tagline: "Chacun pour soi",
     detail:
-      "Toi contre quatre Sentinelles, toutes ennemies entre elles aussi. 15 éliminations. Des armes traînent au sol.",
+      "Toi contre quatre Sentinelles, toutes ennemies entre elles aussi. 15 éliminations. Des armes traînent au sol. Tout le monde renaît avec gilet et casque.",
     arena: "duel",
     bots: 4,
     scoreToWin: 15,
@@ -132,6 +140,10 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     loot: true,
     online: false,
     grenades: { grenade: 2, fumigene: 1 },
+    // Comme le match a mort des jeux du genre : tout le monde renait avec
+    // gilet et casque, les tirs a la tete des bots forts comptent moins.
+    startArmor: 100,
+    startHelmet: true,
   },
   armement: {
     id: "armement",
@@ -157,7 +169,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     name: "Battle royale",
     tagline: "Île géante · 30 joueurs",
     detail:
-      "Trente joueurs sur une île géante aux quinze lieux nommés. Tu atterris les mains vides : fouille les bâtiments, trouve des armes et des soins, change d'arme selon la distance et survis à la zone. Une seule vie, le dernier debout gagne.",
+      "Trente joueurs sur une île géante aux quinze lieux nommés. Tu atterris les mains vides, un gilet sur le dos : fouille les bâtiments, trouve des armes et des soins, change d'arme selon la distance et survis à la zone. Une seule vie, le dernier debout gagne.",
     arena: "zone",
     bots: 29,
     scoreToWin: 0,
@@ -167,13 +179,16 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     shrinkingZone: true,
     loot: true,
     online: false,
+    // Un gilet sans casque pour chacun : il use les premiers echanges, et
+    // comme il ne se ramasse pas, il ne se refait pas.
+    startArmor: 100,
   },
   economie: {
     id: "economie",
     name: "Économie",
     tagline: "Achats et manches",
     detail:
-      "Comme Counter-Strike ou Valorant : 1 contre 1 en manches, 7 manches pour gagner. Avant chaque manche, achète tes armes avec l'argent gagné. Mourir fait perdre son arme.",
+      "Comme Counter-Strike ou Valorant : 1 contre 1 en manches, 7 manches pour gagner. Avant chaque manche, achète tes armes et ton armure avec l'argent gagné. Mourir fait perdre son arme et son armure.",
     arena: "duel",
     bots: 1,
     // Ici, le score compte les MANCHES gagnees.
@@ -243,6 +258,118 @@ export const DUEL_MODE_ORDER: DuelModeId[] = ["zone", "duel", "construction", "d
  */
 export function supportsInfinite(mode: DuelMode): boolean {
   return mode.scoreToWin > 0 && mode.respawn && !mode.economy && !mode.gunGame && !mode.training;
+}
+
+// ---------------------------------------------------------------- l'armure
+/*
+ * Qui porte de l'armure, selon le mode (champs startArmor / startHelmet) :
+ *  - Economie      : rien au depart ; elle s'achete (gilet 650, gilet +
+ *                    casque 1000), bots compris. Elle reste d'une manche a
+ *                    l'autre si on survit, et se perd a la mort.
+ *  - Match a mort  : gilet + casque a chaque apparition, pour tout le monde.
+ *  - Battle royale : un gilet (sans casque) a l'atterrissage, pour tout le
+ *                    monde. Il ne se ramasse pas au sol : use, il est perdu.
+ *  - Duel, Course a l'armement, Construction : rien. Le duel reste un duel
+ *    de visee aux degats d'origine (c'est aussi le seul mode en ligne), la
+ *    course doit rester rapide, la construction a deja ses murs.
+ *  - Entrainement  : les cibles ne tirent pas, l'armure n'y servirait a rien.
+ * Un nouveau mode choisit sa regle avec startArmor / startHelmet (et hasArmor
+ * decide si la case d'armure s'affiche).
+ *
+ * Les degats : tant qu'il reste de l'armure, elle prend une part de chaque
+ * coup (ARMOR_ABSORB, selon l'arme) et s'use d'autant ; le reste va a la vie.
+ *  - Tir a la tete : sans casque, l'armure ne compte pas ; avec casque, il
+ *    retient la meme part qu'un gilet (un sniper tue encore d'une balle).
+ *  - Couteau : le gilet n'en retient qu'un peu, et un coup dans le dos
+ *    elimine toujours (ses degats depassent toute armure).
+ *  - Grenade et roquette : le gilet amortit les eclats (ARMOR_BLAST_ABSORB).
+ *  - La zone de la battle royale ignore l'armure.
+ * Quand l'armure tombe a zero, le casque est perdu avec elle.
+ */
+
+/** Armure pleine : un gilet neuf. */
+export const ARMOR_MAX = 100;
+
+/** Les deux achats d'armure du mode Economie. */
+export type ArmorItem = "gilet" | "casque";
+
+/**
+ * Ordre dans le menu d'achat. Au clavier, ils suivent les armes de la
+ * boutique (aujourd'hui Maj+4 et Maj+5, voir shopKeyLabel).
+ */
+export const ARMOR_ITEMS: ArmorItem[] = ["gilet", "casque"];
+
+/**
+ * Prix en mode Economie. Le gilet coute a peu pres un revolver, le gilet +
+ * casque un pistolet-mitrailleur : sur la premiere manche (800), il faut
+ * choisir entre l'armure et une meilleure arme de poing.
+ */
+export const ARMOR_PRICES: Record<ArmorItem, number> = { gilet: 650, casque: 1000 };
+
+export const ARMOR_NAMES: Record<ArmorItem, string> = { gilet: "Gilet", casque: "Gilet + casque" };
+
+/** L'armure existe dans ce mode : achetee (Economie) ou donnee au depart. */
+export function hasArmor(mode: DuelMode): boolean {
+  return !mode.training && (Boolean(mode.economy) || (mode.startArmor ?? 0) > 0);
+}
+
+/**
+ * Prix reel d'un achat d'armure, vu ce qu'on porte deja. 0 : rien a acheter.
+ * Gilet deja intact : « gilet + casque » ne fait payer que le casque (350).
+ * Casque deja porte : seul le gilet abime se rachete (650).
+ * L'armure est comparee arrondie, comme elle s'affiche.
+ */
+export function armorCost(item: ArmorItem, armor: number, helmet: boolean): number {
+  const vest = Math.round(armor) < ARMOR_MAX ? ARMOR_PRICES.gilet : 0;
+  if (item === "gilet" || helmet) return vest;
+  return vest + (ARMOR_PRICES.casque - ARMOR_PRICES.gilet);
+}
+
+/**
+ * Part des degats que prend l'armure, arme par arme. Les petits calibres
+ * (pistolet, pistolets-mitrailleurs) s'y ecrasent ; les fusils d'assaut y
+ * perdent un tiers ; les balles de fusil de precision et les carreaux
+ * d'arbalete la traversent presque ; une lame n'y trouve qu'un peu de prise
+ * (poings : c'est l'arme du couteau) ; la roquette est une explosion.
+ * Une arme absente du tableau prend ARMOR_ABSORB_DEFAULT.
+ */
+export const ARMOR_ABSORB: Partial<Record<WeaponId, number>> = {
+  poings: 0.2,
+  pistolet: 0.4,
+  pm: 0.4,
+  mitraillette: 0.35,
+  pompe: 0.35,
+  double: 0.35,
+  rafale: 0.3,
+  fusil: 0.3,
+  mitrailleuse: 0.3,
+  revolver: 0.2,
+  carabine: 0.2,
+  arbalete: 0.12,
+  sniper: 0.1,
+  roquettes: 0.4,
+};
+export const ARMOR_ABSORB_DEFAULT = 0.3;
+/** Grenade et roquette : le gilet arrete une bonne part des eclats. */
+export const ARMOR_BLAST_ABSORB = 0.4;
+
+/**
+ * Ce que l'armure encaisse d'un coup de `amount` degats (le reste va a la
+ * vie, et l'armure perd exactement ce qu'elle encaisse). Jamais plus que
+ * l'armure restante. `source` : l'arme du tireur, ou « explosion ».
+ */
+export function armorAbsorbed(
+  amount: number,
+  armor: number,
+  helmet: boolean,
+  source: WeaponId | "explosion",
+  head: boolean,
+): number {
+  if (armor <= 0 || amount <= 0) return 0;
+  // Sans casque, la tete n'est pas protegee du tout.
+  if (head && !helmet) return 0;
+  const ratio = source === "explosion" ? ARMOR_BLAST_ABSORB : (ARMOR_ABSORB[source] ?? ARMOR_ABSORB_DEFAULT);
+  return Math.min(armor, amount * ratio);
 }
 
 /**

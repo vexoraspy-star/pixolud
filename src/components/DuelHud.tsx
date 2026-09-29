@@ -124,29 +124,61 @@ export function DuelTopBar({
 }
 
 // ------------------------------------------------------------ bas, gauche
-/** Vie (et armure si le mode en donne une) : gros chiffres et barre fine. */
-export function DuelVitals({ hp, armor = null }: { hp: number; armor?: number | null }) {
+/**
+ * Vie (et armure si le mode en donne une) : gros chiffres et barre fine.
+ * `armor` null : pas d'armure dans ce mode, la case disparait. Armure a
+ * zero : la case reste, grisee (en Economie, elle rappelle d'en acheter).
+ */
+export function DuelVitals({ hp, armor = null, helmet = false }: { hp: number; armor?: number | null; helmet?: boolean }) {
   const value = Math.max(0, Math.round(hp));
   const low = value <= 25;
+  const armorValue = armor === null ? 0 : Math.max(0, Math.round(armor));
   return (
     <div className="pointer-events-none flex items-end gap-5 rounded-[3px] bg-gradient-to-r from-black/70 via-black/45 to-transparent py-2 pl-3 pr-8">
       <Vital icon="vie" value={value} low={low} label="Vie" />
-      {armor !== null && <Vital icon="armure" value={Math.max(0, Math.round(armor))} low={false} label="Armure" />}
+      {armor !== null && (
+        <Vital
+          icon="armure"
+          value={armorValue}
+          low={false}
+          dim={armorValue === 0}
+          label={helmet && armorValue > 0 ? "Armure et casque" : "Armure"}
+          badge={helmet && armorValue > 0 ? <HelmetGlyph height={15} className="text-zinc-200" title="Casque" /> : null}
+        />
+      )}
     </div>
   );
 }
 
-function Vital({ icon, value, low, label }: { icon: HudIconId; value: number; low: boolean; label: string }) {
+function Vital({
+  icon,
+  value,
+  low,
+  label,
+  dim = false,
+  badge = null,
+}: {
+  icon: HudIconId;
+  value: number;
+  low: boolean;
+  label: string;
+  /** Rien a proteger (armure vide) : chiffre gris. */
+  dim?: boolean;
+  /** Petite marque apres le chiffre (le casque). */
+  badge?: ReactNode;
+}) {
+  const tone = low ? "text-red-400" : dim ? "text-zinc-500" : "text-white";
   return (
     <div className="flex flex-col gap-1" aria-label={`${label} : ${value}`}>
       <div className="flex items-center gap-2">
-        <HudIcon id={icon} height={18} className={low ? "text-red-400" : "text-zinc-200"} />
+        <HudIcon id={icon} height={18} className={low ? "text-red-400" : dim ? "text-zinc-500" : "text-zinc-200"} />
         <span
-          className={`font-sans text-3xl font-semibold leading-none tabular-nums sm:text-4xl ${low ? "text-red-400" : "text-white"}`}
+          className={`font-sans text-3xl font-semibold leading-none tabular-nums sm:text-4xl ${tone}`}
           style={low ? { animation: "horror-breathe 0.9s ease-in-out infinite" } : undefined}
         >
           {value}
         </span>
+        {badge}
       </div>
       <div className="h-[3px] w-24 bg-white/15 sm:w-28">
         <div
@@ -155,6 +187,30 @@ function Vital({ icon, value, low, label }: { icon: HudIconId; value: number; lo
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Le casque, en silhouette : calotte, bandeau creuse, visiere. Dessine ici
+ * (et non dans DuelHudIcons) car il ne sert qu'a l'armure : a cote du
+ * chiffre d'armure et dans le menu d'achat. Une couleur, `currentColor`.
+ */
+export function HelmetGlyph({ height = 16, className = "", title }: { height?: number; className?: string; title?: string }) {
+  return (
+    <svg
+      viewBox="0 0 40 40"
+      height={height}
+      width={height}
+      fill="currentColor"
+      fillRule="evenodd"
+      className={`inline-block shrink-0 ${className}`}
+      role={title ? "img" : undefined}
+      aria-hidden={title ? undefined : true}
+      aria-label={title}
+    >
+      <path d="M5 27 Q5 7 20 7 Q35 7 35 27 Z M8 20.5 H32 V23 H8 Z" />
+      <path d="M2 28.5 H38 Q38 32 34.5 32 H5.5 Q2 32 2 28.5 Z" />
+    </svg>
   );
 }
 
