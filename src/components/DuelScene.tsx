@@ -4170,11 +4170,11 @@ export default function DuelScene({
       // se deplace. Rester immobile a couvert doit rester une mauvaise idee
       // uniquement quand on est a portee.
       let accuracy = botCfg.accuracy - dist * 0.035;
-      if (target.moving) accuracy -= 0.16;
+      if (target.moving) accuracy -= 0.16 * (botCfg.moveTracking ?? 1);
       if (f.targetIsMe && crouching) accuracy -= 0.08;
       if (!f.targetIsMe) accuracy -= 0.12;
       if (dist > spec.range) accuracy *= 0.45;
-      accuracy = Math.max(0.08, Math.min(0.85, accuracy));
+      accuracy = Math.max(0.08, Math.min(botCfg.maxAccuracy ?? 0.85, accuracy));
 
       if (spec.explosive) {
         // Ratee, la roquette explose quand meme a cote de la cible.
@@ -4186,7 +4186,9 @@ export default function DuelScene({
       }
       if (Math.random() < accuracy) {
         // Une rafale qui touche, c'est plusieurs balles d'un coup.
-        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * (spec.burst ? spec.burst * 0.75 : 1) * botCfg.damage;
+        // Niveau pro : une partie des balles au but part dans la tete.
+        const head = spec.pellets === 1 && Math.random() < (botCfg.headshot ?? 0) ? 1.8 : 1;
+        const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * (spec.burst ? spec.burst * 0.75 : 1) * botCfg.damage * head;
         if (f.targetIsMe) {
           applyDamageToMe(dmg, f.x, f.z, f);
           effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 8);

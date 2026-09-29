@@ -141,7 +141,7 @@ export default function DuelOptionsPanel({
                   key={id}
                   type="button"
                   onClick={() => set("bots", id)}
-                  className={`rounded-lg border p-2 text-left transition ${
+                  className={`rounded-lg border p-2 text-left transition ${id === "legende" ? "col-span-2" : ""} ${
                     on ? "border-cyan-400 bg-cyan-500/15" : "border-white/10 bg-white/5 hover:border-white/30"
                   }`}
                 >

@@ -6,7 +6,7 @@
 
 export type CrosshairStyle = "croix" | "croix-point" | "point" | "cercle" | "chevrons" | "aucun";
 export type CrosshairColorId = "blanc" | "vert" | "cyan" | "jaune" | "rose" | "rouge" | "orange";
-export type BotLevelId = "detente" | "normal" | "difficile" | "cauchemar";
+export type BotLevelId = "detente" | "normal" | "difficile" | "cauchemar" | "legende";
 
 export interface DuelOptions {
   crosshair: CrosshairStyle;
@@ -65,6 +65,12 @@ export interface BotLevel {
   damage: number;
   /** Vivacite des pas de cote. */
   strafe: number;
+  /** Plafond de precision (0,85 par defaut). */
+  maxAccuracy?: number;
+  /** Part des balles au but qui touchent la tete (degats x1,8). */
+  headshot?: number;
+  /** Part de la penalite contre une cible en mouvement qu'il subit encore (1 par defaut). */
+  moveTracking?: number;
 }
 
 export const BOT_LEVELS: Record<BotLevelId, BotLevel> = {
@@ -108,9 +114,24 @@ export const BOT_LEVELS: Record<BotLevelId, BotLevel> = {
     damage: 1.25,
     strafe: 1.6,
   },
+  // Un joueur pro : il ne vise pas seulement juste, il vise la tete et suit
+  // les pas de cote au lieu de tirer la ou la cible etait.
+  legende: {
+    id: "legende",
+    label: "Légende",
+    tagline: "Un vrai joueur pro : il vise la tête et suit chacun de tes pas.",
+    reaction: 0.12,
+    accuracy: 0.93,
+    fireDelay: 0.5,
+    damage: 1.3,
+    strafe: 2,
+    maxAccuracy: 0.94,
+    headshot: 0.35,
+    moveTracking: 0.35,
+  },
 };
 
-export const BOT_ORDER: BotLevelId[] = ["detente", "normal", "difficile", "cauchemar"];
+export const BOT_ORDER: BotLevelId[] = ["detente", "normal", "difficile", "cauchemar", "legende"];
 
 export const DEFAULT_DUEL_OPTIONS: DuelOptions = {
   crosshair: "croix-point",

@@ -1238,7 +1238,7 @@ export default function DuelGame({ title, devAllowed = false }: { title: string;
                           key={b}
                           type="button"
                           onClick={() => changeOptions({ ...options, bots: b })}
-                          className={`rounded-md px-2 py-2 text-left ring-2 transition ${
+                          className={`rounded-md px-2 py-2 text-left ring-2 transition ${b === "legende" ? "col-span-2 sm:col-span-4" : ""} ${
                             options.bots === b ? "bg-yellow-300 text-black ring-yellow-300" : "bg-white/5 ring-white/10 hover:bg-white/10"
                           }`}
                         >
