@@ -373,6 +373,14 @@ export function createGunKit(
   const gloveTex = tex("glove", drawGlove);
   const sleeveTex = tex("sleeve", drawSleeve);
   const lensTex = tex("lens", drawLens);
+  // Teinte moyenne de chaque texture : l'arme vue de loin, sans texture
+  // (duelWeaponModelsProps), la reprend dans ses couleurs de sommet.
+  metalTex.userData.tone = 0xc3c8cd;
+  polyTex.userData.tone = 0xbfc2c5;
+  woodTex.userData.tone = 0x5f3b21;
+  gloveTex.userData.tone = 0xbcc0c4;
+  sleeveTex.userData.tone = 0xc2c2bc;
+  lensTex.userData.tone = 0x1b3441;
 
   const lambert = (map: THREE.Texture | null, color: number, wear: number) => {
     const m = keep(new THREE.MeshLambertMaterial({ map, color, vertexColors: true }));
@@ -442,6 +450,29 @@ export function createGunKit(
 // Modelage
 // ---------------------------------------------------------------------------
 
+/**
+ * Finesse du modelage : 1 pour l'arme tenue en main ; moins pour l'arme vue
+ * de loin, dans la main d'un soldat (biseaux d'une seule facette, arrondis et
+ * pieces tournees moins decoupes). Ne change que le temps d'un withDetail.
+ */
+let detail = 1;
+
+/** Construit avec un niveau de detail reduit (0 < level <= 1), puis revient au precedent. */
+export function withDetail<T>(level: number, build: () => T): T {
+  const before = detail;
+  detail = Math.min(1, Math.max(0.1, level));
+  try {
+    return build();
+  } finally {
+    detail = before;
+  }
+}
+
+/** Nombre de facettes d'un tour ou d'une sphere, selon le niveau de detail. */
+function facets(n: number, min: number): number {
+  return detail >= 1 ? n : Math.max(min, Math.round(n * detail));
+}
+
 /** Point d'un contour : [a, b], ou [a, b, rayon] pour arrondir ce coin. */
 export type Pt = readonly [number, number] | readonly [number, number, number];
 
@@ -503,8 +534,8 @@ function extrudeShape(shape: THREE.Shape, depth: number, o: ExtrudeOpts): THREE.
     bevelThickness: b,
     bevelSize: b,
     bevelOffset: -b,
-    bevelSegments: o.seg ?? 2,
-    curveSegments: o.curve ?? 5,
+    bevelSegments: detail >= 1 ? (o.seg ?? 2) : 1,
+    curveSegments: facets(o.curve ?? 5, 2),
   });
   g.translate(0, 0, -core / 2);
   return g;
@@ -596,7 +627,7 @@ export function lathe(pts: readonly Pt[], segments = 16): THREE.BufferGeometry {
       const p1 = new THREE.Vector2(p[0] + ((a[0] - p[0]) * ra) / la, p[1] + ((a[1] - p[1]) * ra) / la);
       const p2 = new THREE.Vector2(p[0] + ((b[0] - p[0]) * rb) / lb, p[1] + ((b[1] - p[1]) * rb) / lb);
       const c = new THREE.QuadraticBezierCurve(p1, new THREE.Vector2(p[0], p[1]), p2);
-      for (const q of c.getPoints(4)) cur.push(q);
+      for (const q of c.getPoints(detail >= 1 ? 4 : 2)) cur.push(q);
     } else {
       cur.push(new THREE.Vector2(p[0], p[1]));
       if (i > 0 && i < n - 1) runs.push([new THREE.Vector2(p[0], p[1])]);
@@ -607,7 +638,7 @@ export function lathe(pts: readonly Pt[], segments = 16): THREE.BufferGeometry {
     if (run.length < 2) continue;
     // Les rayons nuls genent le calcul des normales : un souffle suffit.
     const clean = run.map((v) => new THREE.Vector2(Math.max(1e-5, v.x), v.y));
-    const g = new THREE.LatheGeometry(clean, segments);
+    const g = new THREE.LatheGeometry(clean, facets(segments, 6));
     const ni = g.toNonIndexed();
     g.dispose();
     parts.push(ni);
@@ -680,7 +711,7 @@ export function block(w: number, h: number, d: number, bevel = 0.003): THREE.Buf
 }
 
 export function sphere(r: number, w = 10, h = 8): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(r, w, h);
+  const g = new THREE.SphereGeometry(r, facets(w, 6), facets(h, 4));
   g.userData.edgeAxis = -1;
   return g;
 }
@@ -688,7 +719,7 @@ export function sphere(r: number, w = 10, h = 8): THREE.BufferGeometry {
 /** Capsule entre deux points : phalanges, montants, tiges. */
 export function capsuleBetween(a: THREE.Vector3, b: THREE.Vector3, r: number, radial = 8): THREE.BufferGeometry {
   const len = a.distanceTo(b);
-  const g = new THREE.CapsuleGeometry(r, Math.max(1e-4, len), 3, radial);
+  const g = new THREE.CapsuleGeometry(r, Math.max(1e-4, len), detail >= 1 ? 3 : 1, facets(radial, 4));
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tmpDir.subVectors(b, a).normalize());
   g.applyQuaternion(q);
   g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
@@ -1147,6 +1178,8 @@ export function buildGloveHand(
   /** Inclinaison de la poignee : l'index reste a l'horizontale, le long de la carcasse. */
   tilt = 0,
 ): THREE.Group {
+  // En detail reduit, l'arme est tenue par la main du soldat : pas de gant.
+  if (detail < 1) return new THREE.Group();
   const key = `${shape}|${left ? 1 : 0}|${shape === "appui" ? 0 : tilt.toFixed(4)}`;
   let entry = handCache.get(key);
   if (!entry) {

@@ -61,9 +61,13 @@ const PLASTER_BOTTOM = 0.5;
 const STOREY = 2.9;
 /** Cases de ville dessinees autour de la carte, derriere le mur d'enceinte. */
 const RING = 7;
-/** Ombres : teinte du ciel bleu qui les eclaire, et force. */
-const SHADOW_TINT = 0x1b2a46;
-const SHADOW_OPACITY = 0.52;
+/**
+ * Ombres : elles MULTIPLIENT ce qu'elles recouvrent (le sable a l'ombre reste
+ * du sable, plus sombre et bleui par le ciel) au lieu de le voiler de gris.
+ * Facteur par canal, en sRGB : le rouge baisse plus que le bleu.
+ */
+const SHADOW_MUL = 0x96a3c6;
+const SHADOW_OPACITY = 1;
 /** Resolution du calque d'ombre au sol, en pixels par case. */
 const SHADOW_PX = 32;
 
@@ -994,7 +998,7 @@ export function buildDesertTown(map: DuelMap, cell: number, wallHeight: number):
   const unitPlane = keep(new THREE.PlaneGeometry(1, 1));
   const panelGeo = keep(new THREE.PlaneGeometry(cell, plasterH));
   plasterPanels.forEach((list, v) =>
-    addMesh(list.mesh(panelGeo, lambert({ map: tex(makePlasterTexture(v)), alphaTest: 0.5 }))),
+    addMesh(list.mesh(panelGeo, lambert({ map: tex(makePlasterTexture(v)) }))),
   );
   for (const style of ["bleu", "vert", "rideau"] as const) {
     addMesh(doors[style].mesh(unitPlane, lambert({ map: tex(makeDoorTexture(style)) })));
@@ -1041,9 +1045,14 @@ export function buildDesertTown(map: DuelMap, cell: number, wallHeight: number):
   // ---------------------------------------------------------------- les ombres
   const shadowMat = keep(
     new THREE.MeshBasicMaterial({
-      color: SHADOW_TINT,
+      color: SHADOW_MUL,
       transparent: true,
       opacity: SHADOW_OPACITY,
+      // Multiplication : resultat = fond x melange(blanc, couleur, alpha).
+      blending: THREE.MultiplyBlending,
+      premultipliedAlpha: true,
+      // Le brouillard s'applique deja au sol dessous : pas une seconde fois.
+      fog: false,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -3,

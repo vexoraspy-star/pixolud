@@ -58,6 +58,7 @@ import {
   type WeaponModel,
   type WeaponSpec,
 } from "@/lib/duelWeapons";
+import { createWeaponProps } from "@/lib/duelWeaponModelsProps";
 import { buildSoldier, poseSoldier, type SoldierParts } from "@/lib/duelSoldier";
 import { createDuelEffects, type CasingKind } from "@/lib/duelEffects";
 import {
@@ -828,6 +829,7 @@ export default function DuelScene({
               spawns: { a: [], b: [] },
               theme: "ile",
               trees: island.trees,
+              ground: island.ground,
             },
             DUEL_CELL,
             DUEL_WALL_HEIGHT,
@@ -1505,9 +1507,10 @@ export default function DuelScene({
     // tir en courant, mort. Il se charge en arriere-plan ; tant qu'il n'est
     // pas la (ou si le reseau echoue), on garde les soldats dessines en code.
     let sceneDisposed = false;
-    const botGunMat = new THREE.MeshLambertMaterial({ color: 0x23272c });
-    const botGunBody = new THREE.BoxGeometry(0.06, 0.1, 0.46);
-    const botGunBarrel = new THREE.CylinderGeometry(0.018, 0.018, 0.26, 6);
+    // Armes des soldats : le modele de chaque arme en detail reduit, une
+    // geometrie partagee par arme et un seul materiau (duelWeaponModelsProps).
+    // Construites ici, au chargement : un bot qui change d'arme ne fige rien.
+    const weaponProps = createWeaponProps(fighters.length > 0 ? SHOP_ORDER : []);
     const botFlashMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95 });
     const botFlashGeo = new THREE.SphereGeometry(0.09, 6, 5);
     // Couteaux des autres combattants : accroches a la main du soldat anime,
@@ -1541,16 +1544,14 @@ export default function DuelScene({
           const uniform = new THREE.Color(0x4a5058).lerp(new THREE.Color(f.color), 0.62).getHex();
           m.tint((n) => n === "Swat", uniform);
           const gun = new THREE.Group();
-          const body = new THREE.Mesh(botGunBody, botGunMat);
-          body.position.set(0, 0.03, 0.12);
-          const barrel = new THREE.Mesh(botGunBarrel, botGunMat);
-          barrel.rotation.x = Math.PI / 2;
-          barrel.position.set(0, 0.05, 0.47);
           const flash = new THREE.Mesh(botFlashGeo, botFlashMat);
           flash.position.set(0, 0.05, 0.64);
           flash.scale.set(1, 1, 1.7);
           flash.visible = false;
-          gun.add(body, barrel, flash);
+          gun.add(flash);
+          // Son arme du moment (l'eclair se place au bout du canon) ; la
+          // boucle de rendu la change quand il en change.
+          weaponProps.equip(gun, flash, f.weapon);
           m.attach("Wrist.R", gun, "Idle_Gun_Pointing");
           // Le couteau, dans la meme main : on bascule de l'un a l'autre.
           const blade = new THREE.Group();
@@ -4860,7 +4861,11 @@ export default function DuelScene({
         if (f.anim) f.anim.root.visible = visible;
         if (!visible) continue;
         const bare = WEAPONS[f.weapon].melee === true;
-        if (f.animGun) f.animGun.visible = !bare;
+        if (f.animGun) {
+          f.animGun.visible = !bare;
+          // Il a change d'arme : on voit laquelle (rien a faire sinon).
+          if (!bare) weaponProps.equip(f.animGun, f.animFlash, f.weapon);
+        }
         // Sans arme a feu, il tient son couteau ; a chaque coup, le poignet
         // le jette en avant et le ramene (un tiers de seconde).
         const blade = fighterKnife[f.id];
@@ -5158,9 +5163,7 @@ export default function DuelScene({
       espGeo.dispose();
       espMat.dispose();
       myAvatar?.dispose();
-      botGunMat.dispose();
-      botGunBody.dispose();
-      botGunBarrel.dispose();
+      weaponProps.dispose();
       botFlashMat.dispose();
       botFlashGeo.dispose();
       for (const id of Object.keys(weaponModels) as WeaponId[]) weaponModels[id].dispose();

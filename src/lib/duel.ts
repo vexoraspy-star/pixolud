@@ -237,11 +237,11 @@ export const DUEL_LIGHTING: Record<DuelTheme, DuelLighting> = {
   },
   // Plein soleil d'apres-midi : facades chaudes, ombres bleutees, voile de poussiere.
   poussiere: {
-    sky: 0xc4d6ee,
+    sky: 0xbcd0ec,
     ground: 0x8f7a60,
-    ambient: 2.4,
+    ambient: 2.05,
     key: 0xffdcaa,
-    keyPower: 3.3,
+    keyPower: 3.45,
     keyDir: DESERT_SUN,
     fill: 0x9cb4d8,
     fillPower: 0.4,
@@ -281,6 +281,8 @@ export interface DuelMap {
   marks: { x: number; y: number; label: string }[];
   /** Arbres (battle royale) : des cases pleines dessinees en arbres. */
   trees?: [number, number][];
+  /** Nature du sol case par case (battle royale, voir SOL_* dans duelIsland) : pour le detail du sol. */
+  ground?: Uint8Array;
   /** Deux apparitions par camp : on repart de la plus eloignee du tueur. */
   spawns: Record<DuelSide, [number, number][]>;
   theme: DuelTheme;

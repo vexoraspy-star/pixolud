@@ -5,6 +5,7 @@ import {
   makeBarrelTexture,
   makeBoulderTexture,
   makeCrateTexture,
+  makeGroundDetailTexture,
   makeSandbagTexture,
   makeSiteMarkTexture,
   makeWoodBeamTexture,
@@ -377,41 +378,66 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
 
   // --- Arbres (battle royale) : de vraies cases pleines, tronc et feuillage ---
   if (map.trees && map.trees.length > 0) {
-    const trunkMat = keep(new THREE.MeshLambertMaterial({ color: 0x7a5534 }));
-    const pineMat = keep(new THREE.MeshLambertMaterial({ color: 0x2f6f3a, flatShading: true }));
-    const leafMat = keep(new THREE.MeshLambertMaterial({ color: 0x4f9a3c, flatShading: true }));
-    const trunkGeo = keep(new THREE.CylinderGeometry(0.2, 0.28, 2.6, 7));
-    const coneGeo = keep(new THREE.ConeGeometry(1.25, 2.4, 8));
-    const ballGeo = keep(new THREE.IcosahedronGeometry(1.35, 0));
+    // Ecorce, aiguilles et feuillage : couleur de base blanche, la teinte
+    // vient de chaque instance (aucun arbre n'a exactement le meme vert).
+    const trunkMat = keep(new THREE.MeshLambertMaterial({ color: 0x6f4f33, flatShading: true }));
+    const pineMat = keep(new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }));
+    const leafMat = keep(new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }));
+    const trunkGeo = keep(new THREE.CylinderGeometry(0.16, 0.3, 2.6, 7));
+    // Etages de branches : cone dentele dont le bord retombe.
+    const coneGeo = keep(foliageCone(rng));
+    // Masse de feuillage : boule bosselee (icosaedre subdivise).
+    const ballGeo = keep(foliageBlob(rng));
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, map.trees.length);
-    const pines = new THREE.InstancedMesh(coneGeo, pineMat, map.trees.length * 2);
-    const leaves = new THREE.InstancedMesh(ballGeo, leafMat, map.trees.length);
+    const pines = new THREE.InstancedMesh(coneGeo, pineMat, map.trees.length * 3);
+    const leaves = new THREE.InstancedMesh(ballGeo, leafMat, map.trees.length * 3);
+    const pineTint = new THREE.Color();
     let pi = 0;
     let li = 0;
     map.trees.forEach(([tx, ty], i) => {
-      const x = (tx + 0.5) * cell;
-      const z = (ty + 0.5) * cell;
+      const x = (tx + 0.5) * cell + (rng() - 0.5) * 0.4;
+      const z = (ty + 0.5) * cell + (rng() - 0.5) * 0.4;
       const s = 0.85 + rng() * 0.45;
-      m4.compose(v3.set(x, 1.3 * s, z), q4.identity(), s3.set(s, s, s));
+      euler.set((rng() - 0.5) * 0.06, rng() * 6, (rng() - 0.5) * 0.06);
+      q4.setFromEuler(euler);
+      m4.compose(v3.set(x, 1.3 * s, z), q4, s3.set(s, s, s));
       trunks.setMatrixAt(i, m4);
       if (rng() < 0.55) {
-        // Sapin : deux cones empiles.
-        for (let k = 0; k < 2; k++) {
-          euler.set(0, rng() * 3, 0);
+        // Sapin : trois etages de branches, de plus en plus petits, vert sombre.
+        pineTint.setRGB(0.2 + rng() * 0.06, 0.36 + rng() * 0.08, 0.2 + rng() * 0.05, THREE.SRGBColorSpace);
+        const floors = 3;
+        for (let k = 0; k < floors; k++) {
+          euler.set(0, rng() * 6, 0);
           q4.setFromEuler(euler);
-          const ks = s * (1 - k * 0.28);
-          m4.compose(v3.set(x, (2.6 + k * 1.3) * s, z), q4, s3.set(ks, ks, ks));
-          pines.setMatrixAt(pi++, m4);
+          const ks = s * (1.15 - k * 0.24);
+          m4.compose(v3.set(x, (1.9 + k * 1.05) * s, z), q4, s3.set(ks, ks * 0.9, ks));
+          pines.setMatrixAt(pi, m4);
+          pines.setColorAt(pi++, tint.copy(pineTint).multiplyScalar(0.92 + k * 0.05));
         }
       } else {
-        euler.set(rng() * 3, rng() * 3, rng() * 3);
-        q4.setFromEuler(euler);
-        m4.compose(v3.set(x, 3.2 * s, z), q4, s3.set(s * 1.1, s, s * 1.1));
-        leaves.setMatrixAt(li++, m4);
+        // Feuillu : une grosse masse et deux plus petites autour.
+        const base = tint.setRGB(0.3 + rng() * 0.12, 0.5 + rng() * 0.1, 0.2 + rng() * 0.06, THREE.SRGBColorSpace).clone();
+        const blobs = 3;
+        for (let k = 0; k < blobs; k++) {
+          euler.set(rng() * 3, rng() * 3, rng() * 3);
+          q4.setFromEuler(euler);
+          const a = rng() * Math.PI * 2;
+          const off = k === 0 ? 0 : 0.8 + rng() * 0.3;
+          const ks = s * (k === 0 ? 1.3 : 0.8 + rng() * 0.25);
+          m4.compose(
+            v3.set(x + Math.cos(a) * off * s, (k === 0 ? 3.4 : 2.7 + rng() * 1.2) * s, z + Math.sin(a) * off * s),
+            q4,
+            s3.set(ks, ks * 0.85, ks),
+          );
+          leaves.setMatrixAt(li, m4);
+          leaves.setColorAt(li++, tint.copy(base).multiplyScalar(0.88 + rng() * 0.2));
+        }
       }
     });
     pines.count = pi;
     leaves.count = li;
+    if (pines.instanceColor) pines.instanceColor.needsUpdate = true;
+    if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
     group.add(trunks, pines, leaves);
   }
 
@@ -453,6 +479,51 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       }
     }
     group.add(mesh);
+  }
+
+  // --- Ile : le detail du sol vu de pres ---
+  // La texture du sol de l'ile n'a que 12 pixels par case (elle couvre
+  // 300 m) : de pres, un aplat. Un calque de grain repete a chaque case la
+  // MULTIPLIE (gravillons, brindilles, mottes), sauf sur l'eau.
+  if (map.theme === "ile" && map.ground && typeof document !== "undefined") {
+    const detail = keep(makeGroundDetailTexture());
+    detail.repeat.set(map.width, map.height);
+    const mc = document.createElement("canvas");
+    mc.width = map.width;
+    mc.height = map.height;
+    const mctx = mc.getContext("2d");
+    if (mctx) {
+      const img = mctx.createImageData(map.width, map.height);
+      // Force du grain : herbe, sable, beton, terre, eau, parquet.
+      const strength = [255, 140, 190, 255, 0, 110];
+      for (let i = 0; i < map.ground.length; i++) {
+        const v = strength[map.ground[i]] ?? 255;
+        img.data[i * 4] = v;
+        img.data[i * 4 + 1] = v;
+        img.data[i * 4 + 2] = v;
+        img.data[i * 4 + 3] = 255;
+      }
+      mctx.putImageData(img, 0, 0);
+      const mat = keep(
+        new THREE.MeshBasicMaterial({
+          map: detail,
+          alphaMap: keep(new THREE.CanvasTexture(mc)),
+          transparent: true,
+          blending: THREE.MultiplyBlending,
+          premultipliedAlpha: true,
+          fog: false,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        }),
+      );
+      const geo = keep(new THREE.PlaneGeometry(map.width * cell, map.height * cell).rotateX(-Math.PI / 2));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set((map.width * cell) / 2, 0.008, (map.height * cell) / 2);
+      mesh.renderOrder = 1;
+      group.add(mesh);
+    }
   }
 
   // --- Ombres de contact des accessoires ---
@@ -736,6 +807,63 @@ function rockGeometry(rng: () => number): THREE.BufferGeometry {
       bumps.set(key, k);
     }
     pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Un etage de branches de sapin (1,3 m de rayon, 1,8 m de haut) : le bord
+ * forme une etoile de pointes qui retombent, comme de vraies branches, au
+ * lieu d'un cone lisse.
+ */
+function foliageCone(rng: () => number): THREE.BufferGeometry {
+  const segments = 10;
+  const h = 1.8;
+  const geo = new THREE.ConeGeometry(1.3, h, segments, 1);
+  const pos = geo.getAttribute("position");
+  const moved = new Map<string, [number, number, number]>();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const key = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+    let m = moved.get(key);
+    if (!m) {
+      const r = Math.hypot(x, z);
+      m = [x, y, z];
+      if (r > 0.01) {
+        const step = (Math.PI * 2) / segments;
+        const odd = Math.round(Math.atan2(z, x) / step) % 2 !== 0;
+        const rim = y < -h / 2 + 0.01;
+        const k = (odd ? (rim ? 0.6 : 0.82) : 1.04) * (0.9 + rng() * 0.2);
+        // Les pointes des branches retombent sous leur propre poids.
+        const droop = rim && !odd ? 0.12 + rng() * 0.22 : (rng() - 0.5) * 0.08;
+        m = [x * k, y - droop, z * k];
+      }
+      moved.set(key, m);
+    }
+    pos.setXYZ(i, m[0], m[1], m[2]);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Masse de feuillage : icosaedre subdivise, bossele par un tirage fixe. */
+function foliageBlob(rng: () => number): THREE.BufferGeometry {
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const pos = geo.getAttribute("position");
+  const bumps = new Map<string, number>();
+  for (let i = 0; i < pos.count; i++) {
+    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
+    let k = bumps.get(key);
+    if (k === undefined) {
+      k = 0.82 + rng() * 0.32;
+      bumps.set(key, k);
+    }
+    // Le dessous est plus plat : le feuillage s'etale vers le haut.
+    const y = pos.getY(i);
+    pos.setXYZ(i, pos.getX(i) * k, (y < 0 ? y * 0.7 : y) * k, pos.getZ(i) * k);
   }
   geo.computeVertexNormals();
   return geo;

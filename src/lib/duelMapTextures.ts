@@ -185,7 +185,7 @@ function emboss(ctx: Ctx, w: number, h: number, height: Float32Array, strength: 
 }
 
 /** Fissure ramifiee : trait sombre avec un liseré clair (l'arete eclairee). */
-function crack(ctx: Ctx, rand: () => number, x: number, y: number, angle: number, len: number, width: number, depth = 0): void {
+function crack(ctx: Ctx, rand: () => number, x: number, y: number, angle: number, len: number, width: number, depth = 0, alpha = 0.72): void {
   const pts: number[] = [x, y];
   let a = angle;
   let px = x;
@@ -197,7 +197,7 @@ function crack(ctx: Ctx, rand: () => number, x: number, y: number, angle: number
     py += Math.sin(a) * (len / steps);
     pts.push(px, py);
     if (depth < 2 && rand() < 0.1) {
-      crack(ctx, rand, px, py, a + (rand() < 0.5 ? -1 : 1) * (0.5 + rand() * 0.6), len * (0.25 + rand() * 0.3), width * 0.7, depth + 1);
+      crack(ctx, rand, px, py, a + (rand() < 0.5 ? -1 : 1) * (0.5 + rand() * 0.6), len * (0.25 + rand() * 0.3), width * 0.7, depth + 1, alpha);
     }
   }
   const path = (ox: number, oy: number) => {
@@ -209,10 +209,10 @@ function crack(ctx: Ctx, rand: () => number, x: number, y: number, angle: number
   ctx.lineJoin = "round";
   ctx.lineWidth = width;
   path(0.8, 1);
-  ctx.strokeStyle = "rgba(255,245,225,0.2)";
+  ctx.strokeStyle = `rgba(255,245,225,${alpha * 0.28})`;
   ctx.stroke();
   path(0, 0);
-  ctx.strokeStyle = "rgba(38,27,17,0.72)";
+  ctx.strokeStyle = `rgba(38,27,17,${alpha})`;
   ctx.stroke();
 }
 
@@ -266,7 +266,7 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
   return memo("mur:" + theme, () => {
     if (theme === "entrepot") return makeWarehouseWall();
     if (theme === "gouffre") return makeRockWall();
-    if (theme === "poussiere") return paintPlaster(0);
+    if (theme === "poussiere") return paintPlaster(2, true);
     if (theme === "ile") return makeHouseWall();
     return makeTechWall();
   });
@@ -275,7 +275,8 @@ export function makeArenaWallTexture(theme: DuelTheme = "arene"): THREE.CanvasTe
 /** Sol : une tuile couvre deux cases (3,8 m), assez grand pour ne pas voir la repetition. */
 export function makeArenaFloorTexture(width: number, height: number, theme: DuelTheme = "arene"): THREE.CanvasTexture {
   const t = memo("sol:" + theme, () => {
-    if (theme === "poussiere") return paintPavingTexture();
+    // Terre battue : la ville y pose ses places dallees, avec leurs bordures.
+    if (theme === "poussiere") return paintDesertGround();
     if (theme === "entrepot") return makeConcreteFloor(1, 1);
     if (theme === "gouffre") return makeRockFloor(1, 1);
     if (theme === "ile") return makeSandFloor(1, 1);
@@ -706,7 +707,129 @@ function rockHeight(w: number, h: number, seed: number, cx: number, cy: number, 
   return out;
 }
 
-function paintRock(ctx: Ctx, w: number, h: number, height: Float32Array, seed: number, dark: RGB, light: RGB): void {
+/**
+ * Bruit cellulaire PERIODIQUE (Worley) : un point par maille, sur une grille
+ * de `cellsX` x `cellsY` mailles. Pour chaque pixel : la maille la plus
+ * proche (id), la distance a son point (f1) et l'ecart avec la seconde plus
+ * proche (gap = f2 - f1, en pixels : presque nul sur les frontieres).
+ */
+function cellular(
+  w: number,
+  h: number,
+  seed: number,
+  cellsX: number,
+  cellsY: number,
+  warp?: { dx: Float32Array; dy: Float32Array },
+): { id: Int32Array; f1: Float32Array; gap: Float32Array } {
+  const rand = seeded(seed);
+  const cw = w / cellsX;
+  const ch = h / cellsY;
+  const fx = new Float32Array(cellsX * cellsY);
+  const fy = new Float32Array(cellsX * cellsY);
+  for (let j = 0; j < cellsY; j++) {
+    for (let i = 0; i < cellsX; i++) {
+      fx[j * cellsX + i] = (i + 0.12 + rand() * 0.76) * cw;
+      fy[j * cellsX + i] = (j + 0.12 + rand() * 0.76) * ch;
+    }
+  }
+  const id = new Int32Array(w * h);
+  const f1 = new Float32Array(w * h);
+  const gap = new Float32Array(w * h);
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const p = py * w + px;
+      // Domaine deforme : les frontieres ondulent au lieu d'etre droites.
+      let x = warp ? px + warp.dx[p] : px;
+      let y = warp ? py + warp.dy[p] : py;
+      x = ((x % w) + w) % w;
+      y = ((y % h) + h) % h;
+      const gi = Math.floor(x / cw);
+      const gj = Math.floor(y / ch);
+      let d1 = Infinity;
+      let d2 = Infinity;
+      let best = 0;
+      for (let dj = -1; dj <= 1; dj++) {
+        const cj = gj + dj;
+        const jj = (cj + cellsY) % cellsY;
+        for (let di = -1; di <= 1; di++) {
+          const ci = gi + di;
+          const ii = (ci + cellsX) % cellsX;
+          const k = jj * cellsX + ii;
+          // La maille voisine au-dela du bord est la meme, decalee d'une tuile.
+          const ex = fx[k] + (ci - ii) * cw - x;
+          const ey = fy[k] + (cj - jj) * ch - y;
+          const d = ex * ex + ey * ey;
+          if (d < d1) {
+            d2 = d1;
+            d1 = d;
+            best = k;
+          } else if (d < d2) d2 = d;
+        }
+      }
+      id[p] = best;
+      // Distances au carre pendant la recherche : une seule racine par pixel.
+      f1[p] = Math.sqrt(d1);
+      gap[p] = Math.sqrt(d2) - f1[p];
+    }
+  }
+  return { id, f1, gap };
+}
+
+/**
+ * Facettes de roche eclatee : chaque cellule est un plan incline au hasard,
+ * eclaire depuis le haut a gauche, un peu bombe ; les frontieres sont des
+ * fissures. Rend un facteur de luminosite par pixel.
+ */
+function rockFacets(
+  w: number,
+  h: number,
+  seed: number,
+  cellsX: number,
+  cellsY: number,
+  strength: number,
+  crackWidth: number,
+  crackShare: number,
+): Float32Array {
+  const size = Math.min(w / cellsX, h / cellsY);
+  const wa = fbm(w, h, seed + 3, 4, 4, 3);
+  const wb = fbm(w, h, seed + 4, 4, 4, 3);
+  const amp = size * 0.55;
+  const dx = new Float32Array(w * h);
+  const dy = new Float32Array(w * h);
+  for (let p = 0; p < dx.length; p++) {
+    dx[p] = (wa[p] - 0.5) * amp;
+    dy[p] = (wb[p] - 0.5) * amp;
+  }
+  const { id, f1, gap } = cellular(w, h, seed, cellsX, cellsY, { dx, dy });
+  // Toutes les frontieres ne cassent pas : les fissures s'ouvrent par endroits.
+  const mask = fbm(w, h, seed + 5, 3, 3, 4);
+  const rand = seeded(seed + 7);
+  const slope = new Float32Array(cellsX * cellsY).map(() => (rand() - 0.5) * 2);
+  const out = new Float32Array(w * h);
+  for (let p = 0; p < out.length; p++) {
+    const s = slope[id[p]];
+    // Face tournee vers la lumiere (s > 0) : plus claire ; bombee au centre.
+    let k = (1 + s * strength) * (1.06 - Math.min(1, f1[p] / size) * 0.16);
+    const g = gap[p];
+    const open = smooth(1 - crackShare - 0.08, 1 - crackShare + 0.08, mask[p]);
+    if (g < crackWidth) k *= 1 - (0.58 - 0.58 * (g / crackWidth) * (g / crackWidth)) * open;
+    // Arete eclairee juste a cote de la fissure, cote lumiere.
+    else if (g < crackWidth * 2.2 && s > 0.2) k *= 1 + 0.1 * open;
+    out[p] = k;
+  }
+  return out;
+}
+
+function paintRock(
+  ctx: Ctx,
+  w: number,
+  h: number,
+  height: Float32Array,
+  seed: number,
+  dark: RGB,
+  light: RGB,
+  facets?: Float32Array,
+): void {
   const tint = fbm(w, h, seed + 1, 2, 3, 3);
   const ridge = fbm(w, h, seed + 2, 5, 7, 5);
   pixels(ctx, w, h, (d, i, p) => {
@@ -719,15 +842,32 @@ function paintRock(ctx: Ctx, w: number, h: number, height: Float32Array, seed: n
     let b = dark[2] + (light[2] - dark[2]) * k;
     r *= 1 - cool;
     b *= 1 + cool;
-    // Diaclases : les creux du bruit « arete » deviennent des fissures sombres.
-    const c = Math.abs(ridge[p] - 0.5);
-    const crackK = c < 0.018 ? 0.45 : c < 0.035 ? 0.75 : 1;
+    let crackK = 1;
+    if (facets) crackK = facets[p];
+    else {
+      // Diaclases : les creux du bruit « arete » deviennent des fissures sombres.
+      const c = Math.abs(ridge[p] - 0.5);
+      crackK = c < 0.018 ? 0.45 : c < 0.035 ? 0.75 : 1;
+    }
     d[i] = r * crackK;
     d[i + 1] = g * crackK;
     d[i + 2] = b * crackK;
     d[i + 3] = 255;
   });
-  emboss(ctx, w, h, height, 5);
+  emboss(ctx, w, h, height, facets ? 3 : 5);
+}
+
+/** Deux echelles de facettes (gros eclats, petits eclats) multipliees. */
+function rockFacetsMix(w: number, h: number, seed: number, big: [number, number], small: [number, number], cracks = 0.55): Float32Array {
+  const a = rockFacets(w, h, seed, big[0], big[1], 0.26, 2.2, cracks);
+  const b = rockFacets(w, h, seed + 31, small[0], small[1], 0.12, 1.2, cracks * 0.5);
+  for (let p = 0; p < a.length; p++) a[p] *= 0.35 + 0.65 * b[p];
+  // Les petits eclats assombrissent en moyenne : on recentre sur 1.
+  let sum = 0;
+  for (let p = 0; p < a.length; p++) sum += a[p];
+  const k = a.length / sum;
+  for (let p = 0; p < a.length; p++) a[p] *= k;
+  return a;
 }
 
 function makeRockWall(): THREE.CanvasTexture {
@@ -735,7 +875,7 @@ function makeRockWall(): THREE.CanvasTexture {
   const H = 512;
   const rand = seeded(511);
   const { canvas, ctx } = canvas2d(W, H);
-  paintRock(ctx, W, H, rockHeight(W, H, 512, 3, 5, 6), 513, [40, 36, 33], [132, 120, 104]);
+  paintRock(ctx, W, H, rockHeight(W, H, 512, 3, 5, 6), 513, [44, 39, 35], [140, 126, 108], rockFacetsMix(W, H, 515, [2, 6], [6, 17]));
   // Veines de mineral clair.
   ctx.strokeStyle = "rgba(170,176,180,0.22)";
   for (let i = 0; i < 6; i++) {
@@ -763,7 +903,7 @@ function makeRockFloor(width: number, height: number): THREE.CanvasTexture {
   const S = 512;
   const rand = seeded(521);
   const { canvas, ctx } = canvas2d(S, S);
-  paintRock(ctx, S, S, fbm(S, S, 522, 3, 3, 6, 0.55), 523, [34, 31, 28], [104, 94, 82]);
+  paintRock(ctx, S, S, fbm(S, S, 522, 3, 3, 6, 0.55), 523, [34, 31, 28], [104, 94, 82], rockFacetsMix(S, S, 526, [4, 5], [12, 14], 0.3));
   // Gravier et cailloux, recopies sur les bords pour le raccord.
   for (let i = 0; i < 420; i++) {
     const x = rand() * S;
@@ -785,7 +925,7 @@ function makeRockFloor(width: number, height: number): THREE.CanvasTexture {
 function makeRockCeiling(width: number, height: number): THREE.CanvasTexture {
   const S = 256;
   const { canvas, ctx } = canvas2d(S, S);
-  paintRock(ctx, S, S, fbm(S, S, 532, 2, 2, 6, 0.55), 533, [18, 16, 14], [66, 58, 50]);
+  paintRock(ctx, S, S, fbm(S, S, 532, 2, 2, 6, 0.55), 533, [18, 16, 14], [66, 58, 50], rockFacetsMix(S, S, 535, [3, 3], [8, 8]));
   grain(ctx, S, S, 534, 0.05);
   return finish(canvas, width / 2, height / 2);
 }
@@ -798,7 +938,7 @@ export function makeBoulderTexture(): THREE.CanvasTexture {
 function paintBoulderTexture(): THREE.CanvasTexture {
   const S = 128;
   const { canvas, ctx } = canvas2d(S, S);
-  paintRock(ctx, S, S, fbm(S, S, 541, 3, 3, 5, 0.55), 542, [46, 42, 38], [128, 116, 100]);
+  paintRock(ctx, S, S, fbm(S, S, 541, 3, 3, 5, 0.55), 542, [46, 42, 38], [128, 116, 100], rockFacetsMix(S, S, 544, [3, 3], [7, 7]));
   grain(ctx, S, S, 543, 0.06);
   return finish(canvas);
 }
@@ -811,12 +951,14 @@ function paintBoulderTexture(): THREE.CanvasTexture {
  * Appareil de gres : grands blocs tailles (95 x 42 cm), joints de mortier en
  * creux, aretes egrenees, salpetre qui remonte du sol. Se raccorde a gauche
  * et a droite (les rangees decalees tombent juste sur la largeur).
+ *
+ * Ce n'est plus une texture a part entiere : c'est la maconnerie que l'on
+ * voit la ou l'enduit est tombe (voir paintPlaster). Rend les pixels du
+ * canevas W x H, lus ensuite par l'enduit.
  */
-function makeSandstoneWall(): THREE.CanvasTexture {
-  const W = 288;
-  const H = 512;
-  const rand = seeded(1701);
-  const { canvas, ctx } = canvas2d(W, H);
+function paintSandstone(W: number, H: number, seed: number): Uint8ClampedArray {
+  const rand = seeded(1701 + seed);
+  const { ctx } = canvas2d(W, H);
   const mortar: RGB = [138, 114, 84];
   ctx.fillStyle = css(mortar);
   ctx.fillRect(0, 0, W, H);
@@ -830,8 +972,8 @@ function makeSandstoneWall(): THREE.CanvasTexture {
     [206, 172, 124],
     [190, 160, 118],
   ];
-  const block = (bx: number, by: number, bw: number, bh: number, c: RGB, seed: number) => {
-    const r = seeded(seed);
+  const block = (bx: number, by: number, bw: number, bh: number, c: RGB, blockSeed: number) => {
+    const r = seeded(blockSeed);
     const j = 2;
     ctx.fillStyle = css(c);
     ctx.fillRect(bx + j, by + j, bw - 2 * j, bh - 2 * j);
@@ -879,22 +1021,22 @@ function makeSandstoneWall(): THREE.CanvasTexture {
     const off = row % 2 === 0 ? 0 : blockW / 2;
     for (let k = 0; k < W / blockW; k++) {
       const c = jitter(palette[Math.floor(rand() * palette.length)], rand, 0.12);
-      const seed = 9000 + row * 17 + k;
+      const bs = 9000 + seed * 977 + row * 17 + k;
       const x = off + k * blockW;
-      block(x, y, blockW, rowH, c, seed);
+      block(x, y, blockW, rowH, c, bs);
       // Le bloc qui deborde a droite revient identique a gauche.
-      if (x + blockW > W) block(x - W, y, blockW, rowH, c, seed);
+      if (x + blockW > W) block(x - W, y, blockW, rowH, c, bs);
     }
   }
-  tone(ctx, W, H, fbm(W, H, 1702, 3, 5, 5), 0.34);
-  tone(ctx, W, H, fbm(W, H, 1703, 12, 21, 3), 0.12);
+  tone(ctx, W, H, fbm(W, H, 1702 + seed, 3, 5, 5), 0.34);
+  tone(ctx, W, H, fbm(W, H, 1703 + seed, 12, 21, 3), 0.12);
   // Piqures du gres.
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < (W * H) / 350; i++) {
     ctx.fillStyle = `rgba(80,56,32,${0.12 + rand() * 0.25})`;
     ctx.fillRect(rand() * W, rand() * H, 1 + rand() * 1.5, 1 + rand() * 1.5);
   }
   // Salpetre : un voile blanchatre qui remonte du sol.
-  const salt = fbm(W, H, 1704, 6, 10, 4);
+  const salt = fbm(W, H, 1704 + seed, 6, 10, 4);
   pixels(ctx, W, H, (d, i, p) => {
     const y = (p / W) | 0;
     const a = smooth(0.5, 0.78, salt[p]) * smooth(H * 0.62, H * 0.95, y) * 0.35;
@@ -904,85 +1046,109 @@ function makeSandstoneWall(): THREE.CanvasTexture {
     d[i + 2] += (210 - d[i + 2]) * a;
   });
   streaks(ctx, rand, W, 16, [74, 58, 40], 0.18, H * 0.45, 5);
-  ctx.fillStyle = "rgba(60,44,28,0.25)";
-  ctx.fillRect(0, 0, W, 8);
   footDirt(ctx, W, H, 110, [104, 80, 52], 0.5);
-  grain(ctx, W, H, 1705, 0.07);
-  return finish(canvas);
+  grain(ctx, W, H, 1705 + seed, 0.07);
+  return ctx.getImageData(0, 0, W, H).data;
 }
 
 /**
- * Enduit a la chaux, plaque sur les murs de gres. Il s'est decolle par
- * endroits (trous transparents qui laissent voir les blocs), fissure, coule
- * depuis le haut et se salit en bas. Teinte neutre : chaque facade le teinte
- * (ocre, creme, rose) par la couleur d'instance.
- * Couvre de 0,5 m (au-dessus du soubassement) jusque sous la corniche : 288 x 420.
+ * Enduit a la chaux, plaque sur les murs de gres. Il est tombe par endroits
+ * et laisse voir les blocs de gres (peints dans le trou, en retrait et dans
+ * l'ombre du bord de l'enduit), il fissure, coule depuis le haut et se salit
+ * en bas. Aucun pixel transparent : un trou transparent sur un materiau
+ * opaque sortait NOIR a l'ecran.
+ *
+ * - Panneau de facade (defaut) : teinte neutre, chaque facade le teinte
+ *   (ocre, creme, rose) par la couleur d'instance. Couvre de 0,5 m (au-dessus
+ *   du soubassement) jusque sous la corniche : 288 x 420. Pas de trou sur
+ *   les bords verticaux (la facade voisine peut etre nue ou enduite).
+ * - Mur (`wall`) : la face entiere d'un mur de la grille (1,9 x 3,4 m,
+ *   288 x 512), deja ocre, beaucoup plus decrepie : le bas est ronge par
+ *   l'humidite et le gres apparait en larges plaques. Se raccorde a gauche et
+ *   a droite (murs voisins).
  */
 export function makePlasterTexture(variant = 0): THREE.CanvasTexture {
   return memo("enduit:" + variant, () => paintPlaster(variant));
 }
 
-function paintPlaster(variant: number): THREE.CanvasTexture {
+function paintPlaster(variant: number, wall = false): THREE.CanvasTexture {
   const k = variant * 101;
   const W = 288;
-  const H = 420;
+  const H = wall ? 512 : 420;
   const rand = seeded(2203 + k);
   const { canvas, ctx } = canvas2d(W, H);
-  ctx.fillStyle = "#ecdfc6";
+  ctx.fillStyle = wall ? "#dcc49c" : "#ecdfc6";
   ctx.fillRect(0, 0, W, H);
   tone(ctx, W, H, fbm(W, H, 2204 + k, 3, 4, 5), 0.24);
   tone(ctx, W, H, fbm(W, H, 2205 + k, 16, 22, 3), 0.08);
-  // Coups de taloche.
-  for (let i = 0; i < 70; i++) {
+  // Coups de taloche : a peine visibles, sinon on voit des cercles.
+  for (let i = 0; i < 40; i++) {
     const x = rand() * W;
     const y = rand() * H;
-    ctx.strokeStyle = rand() < 0.5 ? "rgba(255,250,240,0.12)" : "rgba(120,96,64,0.07)";
-    ctx.lineWidth = 2 + rand() * 5;
+    ctx.strokeStyle = rand() < 0.5 ? "rgba(255,250,240,0.05)" : "rgba(120,96,64,0.035)";
+    ctx.lineWidth = 3 + rand() * 6;
     ctx.beginPath();
-    ctx.arc(x, y, 12 + rand() * 30, rand() * 6, rand() * 6 + 1.2);
+    ctx.arc(x, y, 14 + rand() * 30, rand() * 6, rand() * 6 + 0.9);
     ctx.stroke();
   }
   // Reprises d'enduit : rectangles d'un ton un peu different.
   for (let i = 0; i < 2; i++) {
     const w = 40 + rand() * 80;
     const h = 30 + rand() * 60;
-    ctx.fillStyle = rand() < 0.5 ? "rgba(255,248,232,0.16)" : "rgba(150,122,86,0.1)";
+    ctx.fillStyle = rand() < 0.5 ? "rgba(255,248,232,0.14)" : "rgba(150,122,86,0.09)";
     ctx.fillRect(20 + rand() * (W - w - 40), rand() * (H - h), w, h);
   }
-  for (let i = 0; i < 5; i++) {
-    crack(ctx, rand, 20 + rand() * (W - 40), rand() * H * 0.8, Math.PI / 2 + (rand() - 0.5) * 1.6, 50 + rand() * 140, 1.3);
+  // Fissures fines : les plus longues partent des angles des ouvertures.
+  for (let i = 0; i < 4; i++) {
+    crack(ctx, rand, 20 + rand() * (W - 40), rand() * H * 0.8, Math.PI / 2 + (rand() - 0.5) * 1.6, 40 + rand() * 120, 1, 0, 0.5);
   }
   streaks(ctx, rand, W, 14, [104, 84, 58], 0.2, H * 0.55, 6);
-  footDirt(ctx, W, H, 120, [118, 88, 54], 0.42);
+  footDirt(ctx, W, H, wall ? 150 : 120, [118, 88, 54], 0.42);
   grain(ctx, W, H, 2206 + k, 0.035);
-  // Enduit tombe : trous a bord irregulier, jamais sur les bords verticaux
-  // (la facade voisine peut etre nue ou enduite).
+
+  // Ce qui reste d'enduit : v < 1 dans un trou, liseré entre 1 et 1,1.
   const holes: { x: number; y: number; r: number }[] = [];
-  const n = 1 + Math.floor(rand() * 2);
-  for (let i = 0; i < n; i++) holes.push({ x: W * (0.25 + rand() * 0.5), y: H * (0.3 + rand() * 0.6), r: 26 + rand() * 40 });
+  const n = wall ? 2 + Math.floor(rand() * 2) : 1 + Math.floor(rand() * 2);
+  for (let i = 0; i < n; i++) {
+    holes.push({ x: W * (wall ? rand() : 0.25 + rand() * 0.5), y: H * (0.2 + rand() * 0.55), r: wall ? 30 + rand() * 46 : 26 + rand() * 40 });
+  }
   holes.push({ x: W * 0.8, y: H * 0.08, r: 18 });
   const edge = fbm(W, H, 2207 + k, 6, 8, 4);
+  const chips = fbm(W, H, 2208 + k, 18, 26, 3);
+  const stone = paintSandstone(W, H, variant);
   pixels(ctx, W, H, (d, i, p) => {
     const x = p % W;
     const y = (p / W) | 0;
+    // Bord ebreche : grandes echancrures et petits eclats.
+    const wobble = (edge[p] - 0.5) * 0.75 + (chips[p] - 0.5) * 0.45;
     let v = Infinity;
     for (const hole of holes) {
-      const q = Math.hypot((x - hole.x) / (hole.r * 1.3), (y - hole.y) / hole.r);
-      v = Math.min(v, q + (edge[p] - 0.5) * 0.9);
+      let dx = Math.abs(x - hole.x);
+      if (wall) dx = Math.min(dx, W - dx);
+      v = Math.min(v, Math.hypot(dx / (hole.r * 1.3), (y - hole.y) / hole.r) + wobble);
     }
-    const margin = Math.min(x, W - 1 - x);
-    if (margin < 10) v = Math.max(v, 1.2);
-    if (v < 1) d[i + 3] = 0;
-    else if (v < 1.1) {
-      // Epaisseur de l'enduit : un liseré sombre autour du trou.
-      d[i] *= 0.66;
-      d[i + 1] *= 0.64;
-      d[i + 2] *= 0.62;
+    // Mur : l'humidite qui remonte du sol a ronge l'enduit sur le bas.
+    if (wall) v = Math.min(v, 1.45 - 0.95 * smooth(H * 0.6, H * 0.93, y) + wobble * 1.3);
+    else if (Math.min(x, W - 1 - x) < 10) v = Math.max(v, 1.2);
+    if (v < 1) {
+      // Le gres, en retrait : plus sombre pres du bord (ombre de l'enduit).
+      const s = 0.7 + 0.3 * smooth(1, 0.86, v);
+      d[i] = stone[i] * s;
+      d[i + 1] = stone[i + 1] * s;
+      d[i + 2] = stone[i + 2] * s;
+      d[i + 3] = 255;
+    } else if (v < 1.05) {
+      // Tranche de l'enduit arrache : un liseré sombre autour du trou.
+      d[i] *= 0.76;
+      d[i + 1] *= 0.74;
+      d[i + 2] *= 0.72;
     }
   });
   const t = finish(canvas, 1, 1, 4);
-  t.wrapS = THREE.ClampToEdgeWrapping;
-  t.wrapT = THREE.ClampToEdgeWrapping;
+  if (!wall) {
+    t.wrapS = THREE.ClampToEdgeWrapping;
+    t.wrapT = THREE.ClampToEdgeWrapping;
+  }
   return t;
 }
 
@@ -1376,19 +1542,21 @@ function paintPavingTexture(): THREE.CanvasTexture {
   const S = 512;
   const rand = seeded(4409);
   const { canvas, ctx } = canvas2d(S, S);
-  ctx.fillStyle = "#b39469";
+  // Joints garnis de sable tasse, plus sombre que les dalles.
+  ctx.fillStyle = "#9c7e58";
   ctx.fillRect(0, 0, S, S);
   const rowH = S / 4;
   const pal: RGB[] = [
-    [198, 180, 148],
-    [186, 168, 138],
-    [206, 190, 158],
-    [178, 160, 128],
     [194, 172, 136],
+    [178, 156, 122],
+    [204, 184, 150],
+    [170, 148, 114],
+    [190, 164, 126],
+    [186, 152, 120],
   ];
   const stone = (x: number, y: number, w: number, h: number) => {
     if (rand() < 0.05) return; // dalle manquante : le sable affleure
-    const c = jitter(pal[Math.floor(rand() * pal.length)], rand, 0.12);
+    const c = jitter(pal[Math.floor(rand() * pal.length)], rand, 0.16);
     const j = 3;
     const e = () => j + rand() * 3;
     const x0 = x + e();
@@ -1430,6 +1598,15 @@ function paintPavingTexture(): THREE.CanvasTexture {
     ctx.fillStyle = wear;
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     if (rand() < 0.25) crack(ctx, rand, x0 + rand() * (x1 - x0), y0, Math.PI / 2 + (rand() - 0.5), (y1 - y0) * 1.1, 1.2);
+    // Coin epaufre : un eclat de dalle rempli de sable.
+    if (rand() < 0.35) {
+      const qx = rand() < 0.5 ? x0 : x1;
+      const qy = rand() < 0.5 ? y0 : y1;
+      ctx.fillStyle = "#a3845c";
+      ctx.beginPath();
+      ctx.ellipse(qx, qy, 6 + rand() * 12, 4 + rand() * 9, rand() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   };
   for (let r = 0; r < 4; r++) {
@@ -1444,7 +1621,9 @@ function paintPavingTexture(): THREE.CanvasTexture {
   tone(ctx, S, S, fbm(S, S, 4410, 2, 2, 5), 0.24);
   tone(ctx, S, S, fbm(S, S, 4411, 16, 16, 3), 0.1);
   // Sable souffle sur les dalles.
-  stain(ctx, S, S, fbm(S, S, 4412, 3, 3, 5), 0.6, 0.82, [204, 178, 134], 0.75);
+  stain(ctx, S, S, fbm(S, S, 4412, 3, 3, 5), 0.56, 0.8, [204, 176, 130], 0.75);
+  // Salissures sombres : taches d'huile, suie, eau renversee.
+  stain(ctx, S, S, fbm(S, S, 4414, 4, 4, 4), 0.7, 0.9, [96, 80, 62], 0.35);
   for (let i = 0; i < 180; i++) {
     const c = jitter([120, 104, 84], rand, 0.4);
     pebble(ctx, rand() * S, rand() * S, 1 + rand() * 2, c, rand() * 3);
@@ -1500,6 +1679,102 @@ function makeSandFloor(width: number, height: number): THREE.CanvasTexture {
   }
   grain(ctx, S, S, 5506, 0.11);
   return finish(canvas, width / 2, height / 2, 8);
+}
+
+/**
+ * Sol des rues de Poussiere (une tuile pour deux cases, 3,8 m) : terre battue
+ * et sable, tasses par le passage. Plaques plus sombres la ou l'on marche,
+ * rides de sable la ou le vent l'a amasse, gravier, eclats de tuile et de
+ * pierre, croutes de boue sechee craquelee, traces de pneus. Periodique.
+ */
+function paintDesertGround(): THREE.CanvasTexture {
+  const S = 512;
+  const rand = seeded(5801);
+  const { canvas, ctx } = canvas2d(S, S);
+  const large = fbm(S, S, 5802, 2, 2, 6, 0.55);
+  const sandy = fbm(S, S, 5803, 3, 3, 4);
+  const warp = fbm(S, S, 5804, 4, 4, 3);
+  const earth: RGB = [158, 128, 92];
+  const sand: RGB = [204, 172, 124];
+  pixels(ctx, S, S, (d, i, p) => {
+    const x = p % S;
+    const y = (p / S) | 0;
+    // Sable meuble (clair, ride) ou terre tassee (plus sombre, plus rouge).
+    const s = smooth(0.42, 0.7, sandy[p]);
+    const k = 0.9 + large[p] * 0.2;
+    const ripple = 1 + Math.sin(((x * 0.8 + y * 0.45) / S) * Math.PI * 2 * 22 + warp[p] * 10) * 0.028 * s;
+    d[i] = (earth[0] + (sand[0] - earth[0]) * s) * k * ripple;
+    d[i + 1] = (earth[1] + (sand[1] - earth[1]) * s) * k * ripple;
+    d[i + 2] = (earth[2] + (sand[2] - earth[2]) * s) * k * ripple;
+    d[i + 3] = 255;
+  });
+  tone(ctx, S, S, fbm(S, S, 5805, 10, 10, 4), 0.12);
+  // Croutes de boue sechee : un reseau de petites fissures, par plaques.
+  for (let c = 0; c < 3; c++) {
+    const cx = rand() * S;
+    const cy = rand() * S;
+    const rad = 40 + rand() * 50;
+    for (let i = 0; i < 14; i++) {
+      const a = rand() * Math.PI * 2;
+      const r = rand() * rad;
+      crack(ctx, rand, cx + Math.cos(a) * r, cy + Math.sin(a) * r, rand() * Math.PI * 2, 12 + rand() * 22, 0.9, 1, 0.38);
+    }
+  }
+  // Traces de pneus : deux bandes paralleles a peine plus sombres, avec leurs crampons.
+  for (let t = 0; t < 2; t++) {
+    const y0 = 60 + rand() * (S - 120);
+    const bend = (rand() - 0.5) * 60;
+    for (const off of [0, 44]) {
+      ctx.strokeStyle = "rgba(70,52,32,0.07)";
+      ctx.lineWidth = 13;
+      ctx.beginPath();
+      ctx.moveTo(-10, y0 + off);
+      ctx.quadraticCurveTo(S / 2, y0 + off + bend, S + 10, y0 + off);
+      ctx.stroke();
+      ctx.setLineDash([3, 6]);
+      ctx.strokeStyle = "rgba(60,44,26,0.08)";
+      ctx.lineWidth = 11;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // Gravier, cailloux et eclats de tuile, recopies sur les bords pour le raccord.
+  const wrap = (x: number, y: number, m: number, fn: (x: number, y: number) => void) => {
+    for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]]) {
+      if (x + ox < -m || x + ox > S + m || y + oy < -m || y + oy > S + m) continue;
+      fn(x + ox, y + oy);
+    }
+  };
+  for (let i = 0; i < 520; i++) {
+    const x = rand() * S;
+    const y = rand() * S;
+    const r = 0.8 + rand() * rand() * (i < 40 ? 9 : 3.5);
+    const c = jitter([132, 112, 86], rand, 0.5);
+    const rot = rand() * 3;
+    wrap(x, y, 12, (px, py) => pebble(ctx, px, py, r, c, rot));
+  }
+  for (let i = 0; i < 26; i++) {
+    const x = rand() * S;
+    const y = rand() * S;
+    const w = 3 + rand() * 7;
+    const h = 2 + rand() * 4;
+    const rot = rand() * Math.PI;
+    const c = rand() < 0.5 ? jitter([176, 96, 62], rand, 0.2) : jitter([214, 200, 172], rand, 0.15);
+    wrap(x, y, 10, (px, py) => {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(rot);
+      ctx.fillStyle = "rgba(50,36,22,0.35)";
+      ctx.fillRect(-w / 2 + 1, -h / 2 + 1, w, h);
+      ctx.fillStyle = css(c);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+    });
+  }
+  // Plaques tassees la ou l'on marche : plus sombres et plus lisses.
+  stain(ctx, S, S, fbm(S, S, 5806, 3, 3, 4), 0.62, 0.86, [140, 112, 80], 0.35);
+  grain(ctx, S, S, 5807, 0.09);
+  return finish(canvas, 1, 1, 8);
 }
 
 /**
@@ -2120,12 +2395,19 @@ function paintSiteMarkTexture(label: string): THREE.CanvasTexture {
   ctx.textBaseline = "middle";
   ctx.fillText(label, S / 2, S / 2 + 6);
   ctx.shadowBlur = 0;
-  // Peinture ecaillee : on gratte quelques pixels.
+  // Peinture usee par les semelles : elle palit par plaques et s'ecaille en
+  // petits eclats ronds (le sol reapparait dessous).
   const rand = seeded(label.charCodeAt(0) * 31 + 7);
+  const wear = fbm(S, S, label.charCodeAt(0) * 17 + 3, 4, 4, 5);
+  pixels(ctx, S, S, (d, i, p) => {
+    d[i + 3] *= 0.45 + 0.55 * smooth(0.75, 0.35, wear[p]);
+  });
   ctx.globalCompositeOperation = "destination-out";
-  for (let i = 0; i < 260; i++) {
-    ctx.fillStyle = "rgba(0,0,0,1)";
-    ctx.fillRect(rand() * S, rand() * S, 2 + rand() * 6, 2 + rand() * 5);
+  ctx.fillStyle = "rgba(0,0,0,0.9)";
+  for (let i = 0; i < 420; i++) {
+    ctx.beginPath();
+    ctx.ellipse(rand() * S, rand() * S, 0.6 + rand() * rand() * 3.5, 0.5 + rand() * 2, rand() * 3, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.globalCompositeOperation = "source-over";
   const t = new THREE.CanvasTexture(canvas);
@@ -2137,46 +2419,115 @@ function paintSiteMarkTexture(label: string): THREE.CanvasTexture {
 // L'ile de la battle royale
 // ---------------------------------------------------------------------------
 
-/** Mur de maison : enduit clair, colombages de bois, une fenetre a volets. */
+/**
+ * Mur de maison de l'ile (une face de 1,9 x 3,4 m, 256 x 458) : enduit a la
+ * chaux sur un soubassement de moellons, poteaux et sabliere en chene vieilli
+ * (a colombages), une fenetre a petits carreaux avec ses volets, appui de
+ * pierre. Les poteaux tombent sur les bords : deux murs voisins partagent
+ * leur poteau.
+ */
 function makeHouseWall(): THREE.CanvasTexture {
-  const S = 256;
+  const W = 256;
+  const H = 458;
   const rand = seeded(8101);
-  const { canvas, ctx } = canvas2d(S, S);
-  ctx.fillStyle = "#e6dcc6";
-  ctx.fillRect(0, 0, S, S);
-  tone(ctx, S, S, fbm(S, S, 8102, 3, 3, 5), 0.18);
-  // Colombages.
-  ctx.fillStyle = "#6b4a2c";
-  ctx.fillRect(0, 0, S, 14);
-  ctx.fillRect(0, S - 22, S, 22);
-  ctx.fillRect(0, 0, 12, S);
-  ctx.fillRect(S - 12, 0, 12, S);
-  ctx.save();
-  ctx.translate(S / 2, S / 2);
-  ctx.rotate(0.6);
-  ctx.fillRect(-150, -6, 300, 12);
-  ctx.restore();
-  // Fenetre avec ses volets.
-  ctx.fillStyle = "#3d6f8f";
-  ctx.fillRect(86, 70, 84, 70);
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  ctx.fillRect(92, 76, 30, 20);
-  ctx.strokeStyle = "#f2efe6";
-  ctx.lineWidth = 6;
-  ctx.strokeRect(86, 70, 84, 70);
-  ctx.beginPath();
-  ctx.moveTo(128, 70);
-  ctx.lineTo(128, 140);
-  ctx.moveTo(86, 105);
-  ctx.lineTo(170, 105);
-  ctx.stroke();
-  ctx.fillStyle = "#3f7a4a";
-  ctx.fillRect(62, 70, 20, 70);
-  ctx.fillRect(174, 70, 20, 70);
-  for (let i = 0; i < 3; i++) crack(ctx, rand, 20 + rand() * 200, 150 + rand() * 60, -Math.PI / 2 + (rand() - 0.5), 20 + rand() * 30, 1);
-  streaks(ctx, rand, S, 8, [100, 80, 50], 0.12, 120, 4, 14);
-  footDirt(ctx, S, S, 64, [80, 60, 30], 0.35);
-  grain(ctx, S, S, 8103, 0.04);
+  const { canvas, ctx } = canvas2d(W, H);
+  const px = H / 3.4; // pixels par metre
+  // Enduit.
+  ctx.fillStyle = "#e4d9c2";
+  ctx.fillRect(0, 0, W, H);
+  tone(ctx, W, H, fbm(W, H, 8102, 3, 5, 5), 0.2);
+  tone(ctx, W, H, fbm(W, H, 8104, 14, 24, 3), 0.07);
+  stain(ctx, W, H, fbm(W, H, 8105, 4, 6, 4), 0.62, 0.85, [170, 150, 118], 0.35);
+  // Soubassement de moellons (60 cm) : pierres grises irregulieres, joints clairs.
+  const baseTop = H - 0.6 * px;
+  ctx.fillStyle = "#b9b1a2";
+  ctx.fillRect(0, baseTop, W, H - baseTop);
+  for (let y = baseTop + 2; y < H; y += 18 + rand() * 6) {
+    let x = -rand() * 20;
+    const rowH = 16 + rand() * 6;
+    while (x < W) {
+      const w = 22 + rand() * 30;
+      const c = jitter([128, 124, 116], rand, 0.3);
+      ctx.fillStyle = css(c);
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + rowH / 2, w / 2 - 1.5, rowH / 2 - 1.5, (rand() - 0.5) * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2 - 2, y + rowH / 2 - 3, w / 2 - 5, rowH / 4, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      x += w;
+    }
+  }
+  // Bois : poteaux sur les bords, sabliere en haut, lisse au pied de l'enduit.
+  const wood = (x: number, y: number, w: number, h: number) => {
+    ctx.fillStyle = "#5a3f28";
+    ctx.fillRect(x, y, w, h);
+    const vertical = h > w;
+    for (let k = 0; k < (vertical ? w : h) / 2; k++) {
+      ctx.fillStyle = `rgba(${30 + rand() * 30},${20 + rand() * 16},10,${0.15 + rand() * 0.3})`;
+      if (vertical) ctx.fillRect(x + rand() * w, y, 1, h);
+      else ctx.fillRect(x, y + rand() * h, w, 1);
+    }
+    ctx.fillStyle = "rgba(255,230,190,0.1)";
+    if (vertical) ctx.fillRect(x, y, 2, h);
+    else ctx.fillRect(x, y, w, 2);
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    if (vertical) ctx.fillRect(x + w - 2, y, 2, h);
+    else ctx.fillRect(x, y + h - 2, w, 2);
+  };
+  wood(0, 0, W, 16);
+  wood(0, baseTop - 12, W, 12);
+  wood(-9, 0, 18, baseTop);
+  wood(W - 9, 0, 18, baseTop);
+  // Fenetre (80 x 110 cm) a hauteur d'appui (1 m).
+  const ww = 0.8 * px;
+  const wh = 1.1 * px;
+  const wx = (W - ww) / 2;
+  const wy = H - 1.0 * px - wh;
+  // Tableau (ebrasement) sombre, vitres qui refletent le ciel, rideau.
+  ctx.fillStyle = "#3a352e";
+  ctx.fillRect(wx - 5, wy - 5, ww + 10, wh + 10);
+  const glass = ctx.createLinearGradient(wx, wy, wx + ww, wy + wh);
+  glass.addColorStop(0, "#9fb9cf");
+  glass.addColorStop(0.45, "#4b5d6c");
+  glass.addColorStop(1, "#2c3640");
+  ctx.fillStyle = glass;
+  ctx.fillRect(wx, wy, ww, wh);
+  ctx.fillStyle = "rgba(230,222,205,0.55)";
+  ctx.fillRect(wx + ww * 0.55, wy + 4, ww * 0.4, wh - 8);
+  // Croisee blanche a petits carreaux.
+  ctx.fillStyle = "#ece8de";
+  ctx.fillRect(wx, wy, ww, 5);
+  ctx.fillRect(wx, wy + wh - 5, ww, 5);
+  ctx.fillRect(wx, wy, 5, wh);
+  ctx.fillRect(wx + ww - 5, wy, 5, wh);
+  ctx.fillRect(wx + ww / 2 - 2.5, wy, 5, wh);
+  for (const f of [1 / 3, 2 / 3]) ctx.fillRect(wx, wy + wh * f - 1.5, ww, 3);
+  // Volets pleins ouverts, vert sapin, planches et barres.
+  for (const sx of [wx - ww / 2 - 8, wx + ww + 8]) {
+    ctx.fillStyle = "#3f6a4a";
+    ctx.fillRect(sx, wy - 3, ww / 2, wh + 6);
+    for (let k = 1; k < 3; k++) {
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(sx + (k * ww) / 6, wy - 3, 1.5, wh + 6);
+    }
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(sx, wy + wh * 0.2, ww / 2, 5);
+    ctx.fillRect(sx, wy + wh * 0.75, ww / 2, 5);
+  }
+  // Appui de pierre et linteau de bois.
+  ctx.fillStyle = "#cfc6b4";
+  ctx.fillRect(wx - 10, wy + wh + 4, ww + 20, 9);
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fillRect(wx - 10, wy + wh + 13, ww + 20, 3);
+  wood(wx - 12, wy - 16, ww + 24, 11);
+  // Usure : taches, fissures, coulures, salissure au pied.
+  stain(ctx, W, H, fbm(W, H, 8106, 8, 12, 4), 0.72, 0.86, [120, 110, 92], 0.6);
+  for (let i = 0; i < 3; i++) crack(ctx, rand, 20 + rand() * 200, baseTop - 20 - rand() * 60, -Math.PI / 2 + (rand() - 0.5), 20 + rand() * 40, 1, 0, 0.45);
+  streaks(ctx, rand, W, 10, [100, 84, 60], 0.14, 160, 4, 16);
+  footDirt(ctx, W, H, 80, [74, 62, 44], 0.45);
+  grain(ctx, W, H, 8103, 0.04);
   return finish(canvas);
 }
 
@@ -2184,55 +2535,157 @@ function makeHouseWall(): THREE.CanvasTexture {
  * Le sol de toute l'ile, peint case par case : herbe, sable de plage, beton
  * des docks, terre des chemins, parquet des maisons, eau autour. Une seule
  * texture pour toute la carte, donc un seul appel de rendu.
+ *
+ * 12 pixels par case seulement (l'ile fait 150 cases) : le detail de pres
+ * vient d'un second calque repete (makeGroundDetailTexture, dans duelDecor).
+ * Ici, on soigne les grandes masses : frontieres irregulieres entre l'herbe,
+ * le sable et la terre (le beton et les parquets gardent leurs bords droits),
+ * nuances de l'herbe, sable mouille au bord de l'eau, ornieres des chemins.
  */
 export function makeIslandGroundTexture(island: IslandMap): THREE.CanvasTexture {
   const P = 12;
   const W = island.width;
   const H = island.height;
-  const { canvas, ctx } = canvas2d(W * P, H * P);
-  const palette = ["#5f9a3e", "#e2cf94", "#9a9c98", "#9b7a4e", "#2f8fd0", "#9a6c42"];
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const g = island.ground[y * W + x];
-      ctx.fillStyle = palette[g] ?? palette[0];
-      ctx.fillRect(x * P, y * P, P, P);
-    }
-  }
-  // Variations : touffes d'herbe, grain du sable, planches du parquet.
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const g = island.ground[y * W + x];
-      const px = x * P;
-      const py = y * P;
-      if (g === 0) {
-        for (let k = 0; k < 4; k++) {
-          ctx.fillStyle = Math.random() > 0.5 ? "rgba(140,190,90,0.5)" : "rgba(50,90,30,0.45)";
-          ctx.fillRect(px + Math.random() * P, py + Math.random() * P, 2, 3);
-        }
-      } else if (g === 1) {
-        ctx.fillStyle = "rgba(180,150,90,0.35)";
-        ctx.fillRect(px + Math.random() * P, py + Math.random() * P, 2, 2);
-      } else if (g === 5) {
-        ctx.fillStyle = "rgba(60,36,18,0.45)";
-        ctx.fillRect(px, py + P - 1, P, 1);
-      } else if (g === 2) {
-        ctx.strokeStyle = "rgba(60,60,60,0.25)";
-        ctx.strokeRect(px + 0.5, py + 0.5, P - 1, P - 1);
-      } else if (g === 4) {
-        // Eau plus claire pres du rivage.
-        const nearLand =
-          (x > 0 && island.ground[y * W + x - 1] !== 4) ||
-          (x < W - 1 && island.ground[y * W + x + 1] !== 4) ||
-          (y > 0 && island.ground[(y - 1) * W + x] !== 4) ||
-          (y < H - 1 && island.ground[(y + 1) * W + x] !== 4);
-        if (nearLand) {
-          ctx.fillStyle = "rgba(140,220,240,0.55)";
-          ctx.fillRect(px, py, P, P);
-        }
+  const CW = W * P;
+  const CH = H * P;
+  const { canvas, ctx } = canvas2d(CW, CH);
+  const rand = seeded(island.width * 131 + island.trees.length * 7 + island.structures.length);
+  // Champs de bruit a quatre pixels par case, lus au plus proche.
+  const FW = W * 4;
+  const FH = H * 4;
+  const warpA = fbm(FW, FH, 9101, Math.max(2, W >> 3), Math.max(2, H >> 3), 4);
+  const warpB = fbm(FW, FH, 9102, Math.max(2, W >> 3), Math.max(2, H >> 3), 4);
+  const patch = fbm(FW, FH, 9103, Math.max(2, W >> 4), Math.max(2, H >> 4), 5);
+  const fine = fbm(FW, FH, 9104, Math.max(2, W >> 1), Math.max(2, H >> 1), 3);
+  const g = island.ground;
+  const at = (x: number, y: number) => g[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+  const straight = (t: number) => t === 2 || t === 5;
+  const img = ctx.createImageData(CW, CH);
+  const d = img.data;
+  for (let y = 0; y < CH; y++) {
+    const cy = (y + 0.5) / P;
+    const fy = Math.min(FH - 1, (y * 4) / P) | 0;
+    for (let x = 0; x < CW; x++) {
+      const cx = (x + 0.5) / P;
+      const fx = Math.min(FW - 1, (x * 4) / P) | 0;
+      const f = fy * FW + fx;
+      const t0 = at(cx | 0, cy | 0);
+      let t = t0;
+      if (!straight(t0)) {
+        // Frontiere ondulee : on lit la case d'un point deplace par le bruit.
+        const wt = at((cx + (warpA[f] - 0.5) * 1.6) | 0, (cy + (warpB[f] - 0.5) * 1.6) | 0);
+        if (!straight(wt)) t = wt;
       }
+      const n = fine[f];
+      const q = patch[f];
+      const r = rand();
+      let c0: number;
+      let c1: number;
+      let c2: number;
+      if (t === 0) {
+        // Herbe : vert franc ou jauni par plaques, brins plus clairs ou plus sombres.
+        const dry = smooth(0.55, 0.8, q);
+        c0 = 86 + dry * 52;
+        c1 = 142 + dry * 8;
+        c2 = 58 + dry * 12;
+        const k = 0.86 + n * 0.24 + (r - 0.5) * 0.16;
+        c0 *= k;
+        c1 *= k;
+        c2 *= k;
+      } else if (t === 1) {
+        // Sable : plus sombre et plus froid la ou l'eau l'a mouille.
+        const wet = at(cx | 0, (cy | 0) + 1) === 4 || at(cx | 0, (cy | 0) - 1) === 4 || at((cx | 0) + 1, cy | 0) === 4 || at((cx | 0) - 1, cy | 0) === 4;
+        const k = (0.93 + n * 0.12 + (r - 0.5) * 0.06) * (wet ? 0.82 : 1);
+        c0 = 226 * k;
+        c1 = 207 * k;
+        c2 = (wet ? 160 : 148) * k;
+      } else if (t === 2) {
+        // Beton des docks : dalles de deux cases, joints, taches.
+        const joint = x % (P * 2) === 0 || y % (P * 2) === 0;
+        const k = (0.9 + q * 0.14 + (r - 0.5) * 0.05) * (joint ? 0.72 : 1);
+        c0 = 154 * k;
+        c1 = 156 * k;
+        c2 = 150 * k;
+      } else if (t === 3) {
+        // Terre battue : ornieres plus sombres au milieu des chemins.
+        const k = 0.84 + n * 0.22 + (r - 0.5) * 0.12;
+        c0 = 150 * k;
+        c1 = 118 * k;
+        c2 = 78 * k;
+      } else if (t === 4) {
+        const shore = at((cx | 0) + 1, cy | 0) !== 4 || at((cx | 0) - 1, cy | 0) !== 4 || at(cx | 0, (cy | 0) + 1) !== 4 || at(cx | 0, (cy | 0) - 1) !== 4;
+        c0 = shore ? 88 : 47;
+        c1 = shore ? 178 : 143;
+        c2 = shore ? 214 : 208;
+      } else {
+        // Parquet : lames de 20 cm, joints sombres.
+        const k = (y % 4 === 0 ? 0.7 : 1) * (0.9 + ((Math.floor(y / 4) * 7) % 5) * 0.04 + (r - 0.5) * 0.06);
+        c0 = 154 * k;
+        c1 = 108 * k;
+        c2 = 66 * k;
+      }
+      const i = (y * CW + x) * 4;
+      d[i] = c0;
+      d[i + 1] = c1;
+      d[i + 2] = c2;
+      d[i + 3] = 255;
     }
   }
+  ctx.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(canvas);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   return t;
+}
+
+/**
+ * Detail du sol vu de pres (une tuile par case, repetee sur toute l'ile) :
+ * gris clair neutre qui MULTIPLIE la couleur du sol. Grain, gravillons,
+ * brindilles, petites mottes : rien qui ne soit propre a une matiere, pour
+ * aller sur l'herbe comme sur la terre ou le beton.
+ */
+export function makeGroundDetailTexture(): THREE.CanvasTexture {
+  return memo("detail-sol", () => paintGroundDetail());
+}
+
+function paintGroundDetail(): THREE.CanvasTexture {
+  const S = 256;
+  const rand = seeded(9201);
+  const { canvas, ctx } = canvas2d(S, S);
+  const big = fbm(S, S, 9202, 3, 3, 4);
+  const mid = fbm(S, S, 9203, 12, 12, 3);
+  pixels(ctx, S, S, (d, i, p) => {
+    const v = 214 + big[p] * 28 + (mid[p] - 0.5) * 30 + (rand() - 0.5) * 26;
+    d[i] = v;
+    d[i + 1] = v;
+    d[i + 2] = v;
+    d[i + 3] = 255;
+  });
+  // Gravillons et mottes, recopies sur les bords pour le raccord.
+  for (let n = 0; n < 150; n++) {
+    const x = rand() * S;
+    const y = rand() * S;
+    const r = 0.8 + rand() * rand() * 4;
+    const c = 120 + rand() * 70;
+    const rot = rand() * 3;
+    for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]]) {
+      if (x + ox < -8 || x + ox > S + 8 || y + oy < -8 || y + oy > S + 8) continue;
+      pebble(ctx, x + ox, y + oy, r, [c, c, c], rot);
+    }
+  }
+  // Brindilles et brins couches.
+  for (let n = 0; n < 90; n++) {
+    const x = rand() * S;
+    const y = rand() * S;
+    const a = rand() * Math.PI * 2;
+    const l = 3 + rand() * 9;
+    ctx.strokeStyle = `rgba(90,90,90,${0.25 + rand() * 0.35})`;
+    ctx.lineWidth = 0.8 + rand() * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    ctx.stroke();
+  }
+  // Pas de couleur : c'est un facteur de luminosite. On garde le gris.
+  return finish(canvas, 1, 1, 8);
 }
