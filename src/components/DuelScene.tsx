@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import * as THREE from "three";
 import {
   buildDuelMap,
@@ -50,7 +50,6 @@ import {
   buildWeaponModel,
   rollLootWeapon,
   shopIndexFromKey,
-  shopKeyLabel,
   type MechCue,
   type WeaponAnim,
   type WeaponId,
@@ -148,6 +147,24 @@ import { DRILLS, trainingScore, type DrillId, type TrainingResult } from "@/lib/
 import { NO_CHEATS, anyCheat, type DuelCheats } from "@/lib/duelCheats";
 import { DANCES, DANCE_ORDER, createDancer, type DanceId, type Dancer } from "@/lib/duelDances";
 import Game3DSettings from "./Game3DSettings";
+import {
+  DuelAmmo,
+  DuelDamageIndicator,
+  DuelDeathCard,
+  DuelKillFeed,
+  DuelLoadout,
+  DuelMoney,
+  DuelRoundBanner,
+  DuelStreakBanner,
+  DuelTopBar,
+  DuelVitals,
+  formatClock,
+  type KillFeedEntry,
+  type KilledBy,
+} from "./DuelHud";
+import { HudIcon, weaponIconId, type HudIconId } from "./DuelHudIcons";
+import DuelHudScoreboard, { type ScoreRow } from "./DuelHudScoreboard";
+import DuelBuyMenu from "./DuelBuyMenu";
 
 /** Boite aux lettres partagee avec le parent : aucune mise a jour React par paquet recu. */
 export interface DuelLink {
@@ -194,12 +211,9 @@ interface StreakBanner {
 const MULTI_KILL_WINDOW = 4;
 const MULTI_NAMES = ["Doublé !", "Triplé !", "Quadruplé !", "Carnage !"];
 const STREAK_NAMES: Record<number, string> = { 3: "En feu", 5: "Inarrêtable", 8: "Légendaire" };
-
-interface KillFeedEntry {
-  id: number;
-  text: string;
-  mine: boolean;
-}
+/** Fil des eliminations : au plus tant de lignes, chacune tant de millisecondes. */
+const FEED_MAX = 5;
+const FEED_MS = 5000;
 
 const LOOK_SENSITIVITY = 0.0034;
 
@@ -350,15 +364,24 @@ export default function DuelScene({
   const [hp, setHp] = useState(DUEL_MAX_HP);
   const [ammo, setAmmo] = useState(WEAPONS[mode.startWeapon].magSize);
   const [magSize, setMagSize] = useState(WEAPONS[mode.startWeapon].magSize);
-  const [weaponName, setWeaponName] = useState(WEAPONS[mode.startWeapon].short);
+  const [weaponName, setWeaponName] = useState(WEAPONS[mode.startWeapon].name);
+  /** L'arme en main, pour sa silhouette dans l'interface. */
+  const [heldWeapon, setHeldWeapon] = useState<WeaponId>(mode.startWeapon);
   const [reloading, setReloading] = useState(false);
   const [myScore, setMyScore] = useState(0);
   const [bestRival, setBestRival] = useState(0);
   const [respawnIn, setRespawnIn] = useState(0);
   const [hitMarker, setHitMarker] = useState(0);
   const [damageFlash, setDamageFlash] = useState(0);
-  const [damageFrom, setDamageFrom] = useState<number | null>(null);
+  /** Degats recus : angle a l'ecran (sens horaire, 0 = devant) et opacite qui s'eteint. */
+  const [damageFrom, setDamageFrom] = useState<{ angle: number; fade: number } | null>(null);
   const [feed, setFeed] = useState<KillFeedEntry[]>([]);
+  /** Ecran de mort : qui nous a eu, et avec quoi. */
+  const [killedBy, setKilledBy] = useState<KilledBy | null>(null);
+  /** Tableau des scores (Tab maintenu, ou appui sur le score au doigt) ; null : ferme. */
+  const [board, setBoard] = useState<ScoreRow[] | null>(null);
+  /** Minuterie du haut : secondes de partie (ou de manche en Economie). */
+  const [matchClock, setMatchClock] = useState(0);
   const [locked, setLocked] = useState(false);
   /** Lunette (carabine, sniper) : masque noir. */
   const [zoomed, setZoomed] = useState(false);
@@ -461,6 +484,8 @@ export default function DuelScene({
     /** Bouton tactile : appuyer pour viser, relacher pour lancer. */
     nadeDown: (kind?: GrenadeKind) => void;
     nadeUp: () => void;
+    /** Tableau des scores : l'ouvrir (instantane rafraichi) ou le fermer. */
+    board: (open: boolean) => void;
   } | null>(null);
   const stickOrigin = useRef<{ x: number; y: number } | null>(null);
   const [stickOffset, setStickOffset] = useState({ x: 0, y: 0 });
@@ -1010,7 +1035,8 @@ export default function DuelScene({
       setAmmo(me.mag);
       setMagSize(spec.magSize);
       // Le couteau s'affiche sous son nom du casier (« Karambit »...).
-      setWeaponName(spec.melee ? KNIVES[myKnife].name.toUpperCase() : spec.short);
+      setWeaponName(spec.melee ? KNIVES[myKnife].name : spec.name);
+      setHeldWeapon(me.weapon);
       setReloading(me.reloadUntil > 0);
       // Couteau en main (-1) : aucun emplacement d'arme a feu n'est allume.
       setInventory({ slots: me.inv.map((s) => s.weapon), cur: me.inv.length > 0 && !spec.melee ? me.cur : -1 });
@@ -1966,6 +1992,9 @@ export default function DuelScene({
     let damageLevel = 0;
     let lastDamageYaw: number | null = null;
     let lastDamageAt = -10;
+    /** Derniere valeur envoyee a l'indicateur de degats (evite de redessiner pour rien). */
+    let shownDmgAngle = 0;
+    let shownDmgFade = 0;
     let feedId = 0;
     /** Combien de bots me tirent dessus en ce moment, et le plafond en cours. */
     let engagingMe = 0;
@@ -1993,11 +2022,70 @@ export default function DuelScene({
     let burstWeapon: WeaponId = "fusil";
     let wasFiring = false;
 
-    function addFeed(text: string, mine: boolean) {
+    /** Une ligne du fil des eliminations : tueur (null : la zone), arme, tete, victime. */
+    function addFeed(killer: string | null, victim: string, icon: HudIconId, head: boolean, killerMe: boolean, victimMe: boolean) {
       feedId += 1;
       const id = feedId;
-      setFeed((f) => [...f.slice(-3), { id, text, mine }]);
-      window.setTimeout(() => setFeed((f) => f.filter((e) => e.id !== id)), 4000);
+      setFeed((f) => [...f.slice(-(FEED_MAX - 1)), { id, killer, victim, icon, head, killerMe, victimMe }]);
+      window.setTimeout(() => setFeed((f) => f.filter((e) => e.id !== id)), FEED_MS);
+    }
+
+    /**
+     * Ce que le fil doit montrer du coup qui part : une arme imposee (grenade)
+     * et le tir a la tete. Pose juste avant damageFighter / applyDamageToMe,
+     * qui le lisent et le remettent a zero aussitot (meme sans elimination).
+     */
+    let cueIcon: HudIconId | null = null;
+    let cueHead = false;
+    /** Dernier coup porte a l'adversaire en ligne : tete, grenade (sa mort arrive par le reseau). */
+    let lastRemoteHead = false;
+    let lastRemoteIcon: HudIconId | null = null;
+
+    /** Silhouette de l'arme d'une elimination. */
+    function feedIcon(byMe: boolean, killer: Fighter | null | undefined, icon: HudIconId | null): HudIconId {
+      if (icon) return icon;
+      if (byMe) return weaponIconId(me.weapon, myKnife);
+      if (killer) return weaponIconId(killer.weapon, fighterKnifeId[killer.id]);
+      return "zone";
+    }
+
+    // ------------------------------------------------ tableau des scores
+    /** Eliminations, morts et tirs a la tete de chacun (-1 : le joueur). */
+    const tally = new Map<number, { kills: number; deaths: number; heads: number }>();
+    function tallyOf(id: number) {
+      let t = tally.get(id);
+      if (!t) {
+        t = { kills: 0, deaths: 0, heads: 0 };
+        tally.set(id, t);
+      }
+      return t;
+    }
+    let boardOpen = false;
+    let nextBoardAt = 0;
+    /** Envoie a React un instantane du tableau (seulement quand il est ouvert). */
+    function pushBoard() {
+      const mine = tallyOf(-1);
+      // Course a l'armement : arme atteinte, 1 = la premiere (plafonnee a la derniere).
+      const top = GUN_GAME_ORDER.length;
+      const rows: ScoreRow[] = [
+        { id: -1, name: "Toi", me: true, ...mine, alive: me.alive, level: Math.min(top, me.rank + 1) },
+        ...fighters.map((f) => ({
+          id: f.id,
+          name: f.name,
+          me: false,
+          ...tallyOf(f.id),
+          alive: f.alive,
+          level: Math.min(top, f.rank + 1),
+        })),
+      ];
+      setBoard(rows);
+    }
+    function openBoard(open: boolean) {
+      if (training) return;
+      boardOpen = open;
+      nextBoardAt = elapsed + 0.5;
+      if (open) pushBoard();
+      else setBoard(null);
     }
 
     function circleHitsWall(px: number, pz: number): boolean {
@@ -2279,7 +2367,7 @@ export default function DuelScene({
       syncWeaponUi();
     }
 
-    function registerMyDeath(killerName: string, killer: Fighter | null) {
+    function registerMyDeath(killerName: string, killer: Fighter | null, icon: HudIconId | null = null, head = false) {
       if (me.dead) return;
       me.dead = true;
       me.hp = 0;
@@ -2299,7 +2387,17 @@ export default function DuelScene({
           if (killer.isBot && killer.rank < GUN_GAME_ORDER.length) botSetOnly(killer, GUN_GAME_ORDER[killer.rank]);
         }
       }
-      addFeed(`${killerName} t'a éliminé`, false);
+      // Fil des eliminations, tableau des scores et ecran de mort.
+      const shown = feedIcon(false, killer, icon);
+      const killerLabel = killer ? killer.name : killerName === "La zone" ? null : killerName;
+      addFeed(killerLabel, "Toi", shown, head, false, true);
+      tallyOf(-1).deaths += 1;
+      if (killer) {
+        const t = tallyOf(killer.id);
+        t.kills += 1;
+        if (head) t.heads += 1;
+      }
+      setKilledBy({ name: killerLabel ?? killerName, icon: shown, head });
       maybeTaunt(killer);
       if (!bot) link.current.send("died", {});
       if (!mode.respawn) {
@@ -2311,7 +2409,14 @@ export default function DuelScene({
     }
 
     /** Elimination d'un bot. `byMe` distingue mes frags de ceux des bots. */
-    function registerFighterDeath(f: Fighter, killerName: string, byMe: boolean, killer?: Fighter) {
+    function registerFighterDeath(
+      f: Fighter,
+      killerName: string,
+      byMe: boolean,
+      killer?: Fighter,
+      icon: HudIconId | null = null,
+      head = false,
+    ) {
       if (f.dead) return;
       f.dead = true;
       f.hp = 0;
@@ -2347,10 +2452,16 @@ export default function DuelScene({
           me.rank = Math.min(GUN_GAME_ORDER.length, me.rank + 1);
           if (me.rank < GUN_GAME_ORDER.length) setOnlyWeapon(GUN_GAME_ORDER[me.rank]);
         }
-        addFeed(`Tu as éliminé ${f.name}`, true);
+        addFeed("Toi", f.name, feedIcon(true, null, icon), head, true, false);
         announceMyKill();
       } else {
-        addFeed(`${killerName} a éliminé ${f.name}`, false);
+        addFeed(killerName === "La zone" ? null : killerName, f.name, feedIcon(false, killer, icon), head, false, false);
+      }
+      tallyOf(f.id).deaths += 1;
+      const scorer = byMe ? tallyOf(-1) : killer ? tallyOf(killer.id) : null;
+      if (scorer) {
+        scorer.kills += 1;
+        if (head) scorer.heads += 1;
       }
       if (!mode.respawn) {
         f.alive = false;
@@ -2372,6 +2483,11 @@ export default function DuelScene({
     }
 
     function applyDamageToMe(amount: number, fromX?: number, fromZ?: number, killer?: Fighter, unlocked = false) {
+      // L'indice du fil (arme imposee, tete) ne vaut que pour ce coup-ci.
+      const icon = cueIcon;
+      const head = cueHead;
+      cueIcon = null;
+      cueHead = false;
       if (me.dead || ended || !me.alive || cheatsRef.current.god) return;
       if (elapsed < me.safeUntil) return;
       // Le plafond ne s'applique qu'aux tirs des bots : un vrai joueur en
@@ -2389,10 +2505,14 @@ export default function DuelScene({
         lastDamageAt = elapsed;
       }
       playHurt(audio.ctx, audio.master);
-      if (me.hp <= 0) registerMyDeath(killer?.name ?? opponentName, killer ?? null);
+      if (me.hp <= 0) registerMyDeath(killer?.name ?? opponentName, killer ?? null, icon, head);
     }
 
     function damageFighter(f: Fighter, amount: number, byMe: boolean, killerName: string, attacker?: Fighter) {
+      const icon = cueIcon;
+      const head = cueHead;
+      cueIcon = null;
+      cueHead = false;
       if (f.dead || !f.alive || ended) return;
       if (elapsed < f.safeUntil) return;
       f.hp = Math.max(0, f.hp - amount);
@@ -2408,7 +2528,7 @@ export default function DuelScene({
         f.targetRef = byMe ? null : (attacker ?? null);
         f.provokedUntil = elapsed + 6;
       }
-      if (f.hp <= 0) registerFighterDeath(f, killerName, byMe, attacker);
+      if (f.hp <= 0) registerFighterDeath(f, killerName, byMe, attacker, icon, head);
     }
 
     // ----------------------------------------------------- constructions
@@ -2605,7 +2725,11 @@ export default function DuelScene({
         effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
         if (attacker) damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, attacker.name, attacker);
         else if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
-        else link.current.send("hit", { damage: dmg });
+        else {
+          lastRemoteHead = false;
+          lastRemoteIcon = null;
+          link.current.send("hit", { damage: dmg });
+        }
       }
       // Pas de degats sur soi : seul un tir ennemi blesse le joueur.
       if (attacker && !me.dead && me.alive) {
@@ -2814,13 +2938,20 @@ export default function DuelScene({
         if (owner === f || owner === "distant" || owner === null) continue;
         const dmg = blastDamage(d);
         effects.blood(f.x * DUEL_CELL, 1.2, f.z * DUEL_CELL, 10);
+        // Fil des eliminations : c'est la grenade qui tue, pas l'arme en main.
+        cueIcon = "grenade";
         if (owner === "moi") {
           touched = true;
           if (f.isBot) damageFighter(f, dmg * (cheatsRef.current.oneShot ? 50 : 1), true, "Toi");
-          else link.current.send("hit", { damage: dmg });
+          else {
+            lastRemoteHead = false;
+            lastRemoteIcon = "grenade";
+            link.current.send("hit", { damage: dmg, n: 1 });
+          }
         } else {
           damageFighter(f, dmg * BOT_VS_BOT_DAMAGE, false, owner.name, owner);
         }
+        cueIcon = null;
       }
       if (touched) {
         hitMarkerLevel = 1;
@@ -2841,6 +2972,7 @@ export default function DuelScene({
         if (d < BLAST_RADIUS * 0.45 && jumpY <= 0.001) jumpV = Math.max(jumpV, 2.6);
         if (owner !== null && owner !== "moi" && owner !== "distant") {
           const cfg = BOT_LEVELS[optionsRef.current.bots] ?? BOT_LEVELS.normal;
+          cueIcon = "grenade";
           applyDamageToMe(blastDamage(d) * cfg.damage, ex, ez, owner, true);
         }
       }
@@ -3038,9 +3170,14 @@ export default function DuelScene({
         else playHitmarker(audio.ctx, audio.master);
         effects.blood(end.x, end.y, end.z, headshot ? 24 : 12);
         if (hitTarget.isBot) {
+          cueHead = headshot;
           damageFighter(hitTarget, dmg, true, "Toi");
         } else {
-          link.current.send("hit", { damage: dmg });
+          // `h` : tir a la tete, pour son fil des eliminations (ignore par une
+          // version plus ancienne du jeu en face).
+          lastRemoteHead = headshot;
+          lastRemoteIcon = null;
+          link.current.send("hit", { damage: dmg, h: headshot ? 1 : 0 });
         }
       } else {
         // Un mur construit encaisse la balle : il finira par ceder.
@@ -3114,7 +3251,11 @@ export default function DuelScene({
         if (back) playHeadshot(audio.ctx, audio.master);
         effects.blood(target.x * DUEL_CELL, 1.25, target.z * DUEL_CELL, back ? 22 : heavy ? 14 : 9);
         if (target.isBot) damageFighter(target, dmg, true, "Toi");
-        else link.current.send("hit", { damage: dmg });
+        else {
+          lastRemoteHead = false;
+          lastRemoteIcon = null;
+          link.current.send("hit", { damage: dmg });
+        }
         return;
       }
       // Personne : la lame rencontre-t-elle un mur, ou une construction ?
@@ -3403,6 +3544,14 @@ export default function DuelScene({
       // Espace : sans ca, le navigateur fait defiler la page sous le jeu a
       // chaque saut.
       if (e.code === "Space") e.preventDefault();
+      // Tab maintenu : le tableau des scores (sans que le navigateur deplace le focus).
+      if (e.code === "Tab") {
+        e.preventDefault();
+        if (!e.repeat) openBoard(true);
+        return;
+      }
+      // Echap pendant la phase d'achat : referme le menu d'achat.
+      if (e.key === "Escape" && eco && buying()) setShopOpen(false);
       if (e.key.toLowerCase() === "r" && !nadeAiming) startReload();
       // L : allumer ou eteindre le laser sans ouvrir aucun menu.
       if (e.key.toLowerCase() === "l" && !e.repeat) {
@@ -3493,6 +3642,7 @@ export default function DuelScene({
     }
     function onKeyUp(e: KeyboardEvent) {
       keys.delete(e.key.toLowerCase());
+      if (e.code === "Tab" && boardOpen) openBoard(false);
       if (nadeAiming && nadeAimKey === e.key.toLowerCase()) releaseNade();
     }
     function onContextMenu(e: MouseEvent) {
@@ -3598,6 +3748,7 @@ export default function DuelScene({
       nadeUp: () => {
         if (nadeAimKey === "doigt") releaseNade();
       },
+      board: (open) => openBoard(open),
     };
 
     renderer.domElement.addEventListener("mousedown", onMouseDown);
@@ -3619,6 +3770,8 @@ export default function DuelScene({
       touchRef.current.moveX = 0;
       touchRef.current.moveZ = 0;
       touchRef.current.firing = false;
+      // Alt+Tab : le relachement de Tab n'arrive jamais, le tableau resterait ouvert.
+      if (boardOpen) openBoard(false);
     }
     window.addEventListener("blur", onBlur);
 
@@ -3631,6 +3784,9 @@ export default function DuelScene({
       while (box.length) {
         const msg = box.shift()!;
         if (msg.event === "hit") {
+          // Fil des eliminations : tir a la tete (h), grenade (n).
+          cueHead = Number(msg.payload.h) === 1;
+          cueIcon = Number(msg.payload.n) === 1 ? "grenade" : null;
           applyDamageToMe(
             Number(msg.payload.damage) || WEAPONS.fusil.damage,
             remote?.x,
@@ -3638,7 +3794,7 @@ export default function DuelScene({
             remote ?? undefined,
           );
         } else if (msg.event === "died") {
-          if (remote && !remote.dead) registerFighterDeath(remote, "Toi", true);
+          if (remote && !remote.dead) registerFighterDeath(remote, "Toi", true, undefined, lastRemoteIcon, lastRemoteHead);
         } else if (msg.event === "ping") {
           // On renvoie l'horodatage tel quel : c'est l'autre qui calcule.
           link.current.send("pong", { t: Number(msg.payload.t) || 0 });
@@ -4189,12 +4345,15 @@ export default function DuelScene({
         // Niveau pro : une partie des balles au but part dans la tete.
         const head = spec.pellets === 1 && Math.random() < (botCfg.headshot ?? 0) ? 1.8 : 1;
         const dmg = spec.damage * spec.pellets * (spec.pellets > 1 ? 0.55 : 1) * (spec.burst ? spec.burst * 0.75 : 1) * botCfg.damage * head;
+        // Fil des eliminations : l'icone de la tete si c'est elle qui a pris.
+        cueHead = head > 1;
         if (f.targetIsMe) {
           applyDamageToMe(dmg, f.x, f.z, f);
           effects.blood(me.x * DUEL_CELL, 1.2, me.z * DUEL_CELL, 8);
         } else if (f.targetRef) {
           damageFighter(f.targetRef, dmg * BOT_VS_BOT_DAMAGE, false, f.name, f);
         }
+        cueHead = false;
       } else {
         effects.sparks(to.x + (Math.random() - 0.5), to.y + Math.random() * 0.6, to.z + (Math.random() - 0.5), 6);
       }
@@ -5038,8 +5197,9 @@ export default function DuelScene({
         frameCount = 0;
         fpsTimer = 0;
       }
-      // Ping : un aller-retour toutes les deux secondes sur le canal du duel.
-      if (!bot && optionsRef.current.showPing && elapsed >= nextPingAt) {
+      // Ping : un aller-retour toutes les deux secondes sur le canal du duel
+      // (affiche en haut a gauche, ou dans le tableau des scores).
+      if (!bot && (optionsRef.current.showPing || boardOpen) && elapsed >= nextPingAt) {
         nextPingAt = elapsed + 2;
         lastPingSentAt = performance.now();
         link.current.send("ping", { t: lastPingSentAt });
@@ -5073,10 +5233,25 @@ export default function DuelScene({
             ? fighters.reduce((m, f) => Math.max(m, f.rank), 0)
             : fighters.reduce((m, f) => Math.max(m, f.score), 0),
         );
-        // Indicateur de direction des degats : il s'efface en deux secondes.
-        setDamageFrom(
-          lastDamageYaw !== null && elapsed - lastDamageAt < 2 ? lastDamageYaw - me.yaw : null,
-        );
+        // Indicateur de direction des degats : angle a l'ecran (sens horaire,
+        // 0 = devant ; l'ancien calcul le montrait a l'oppose), qui s'efface
+        // en deux secondes. Arrondi, et envoye seulement quand il change.
+        const dmgSince = elapsed - lastDamageAt;
+        const dmgOn = lastDamageYaw !== null && dmgSince < 2;
+        const dmgAngle = dmgOn && lastDamageYaw !== null ? Math.round((Math.PI - (lastDamageYaw - me.yaw)) * 20) / 20 : 0;
+        const dmgFade = dmgOn ? Math.round((1 - dmgSince / 2) * 20) / 20 : 0;
+        if (dmgAngle !== shownDmgAngle || dmgFade !== shownDmgFade) {
+          shownDmgAngle = dmgAngle;
+          shownDmgFade = dmgFade;
+          setDamageFrom(dmgOn ? { angle: dmgAngle, fade: dmgFade } : null);
+        }
+        // Minuterie du haut : la manche en Economie (apres les achats), sinon la partie.
+        setMatchClock(Math.floor(eco ? Math.max(0, elapsed - buyUntil) : elapsed));
+        // Tableau des scores ouvert : rafraichi deux fois par seconde.
+        if (boardOpen && elapsed >= nextBoardAt) {
+          nextBoardAt = elapsed + 0.5;
+          pushBoard();
+        }
         if (mode.shrinkingZone || ch.radarAll) {
           while (blips.length && blips[0].until < elapsed) blips.shift();
           setRadar({
@@ -5229,8 +5404,88 @@ export default function DuelScene({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side, bot, modeId]);
 
-  const hpPct = Math.max(0, Math.round(hp));
   const scoreGoal = infinite ? "∞" : mode.gunGame ? GUN_GAME_ORDER.length : mode.scoreToWin;
+
+  // ------------------------------------------------ interface en jeu
+  const knifeId: KnifeId = isKnifeId(knife) ? knife : DEFAULT_KNIFE;
+  const knifeIcon = weaponIconId("poings", knifeId);
+  /** Un contre un (duel, Economie, construction, en ligne) : deux camps face a face. */
+  const versus = mode.bots === 1 && !training;
+  const buyPhase = Boolean(mode.economy) && buyLeft > 0;
+  const shopShown = buyPhase && shopOpen;
+  /** Au doigt (pas de touche Tab) : un appui sur le score ouvre ou ferme le tableau. */
+  const toggleBoardByTouch = touchDevice && !training ? () => sceneApiRef.current?.board(board === null) : undefined;
+  // Consignes sous les munitions : seulement quand elles servent.
+  const ammoHint =
+    magSize > 0
+      ? reloading
+        ? "Rechargement…"
+        : ammo === 0
+          ? touchDevice
+            ? "Chargeur vide"
+            : "R pour recharger"
+          : undefined
+      : [
+          island && inventory.slots.length === 0 ? "Couteau seul · trouve une arme" : null,
+          touchDevice
+            ? null
+            : `Clic gauche : entaille · clic droit : coup lourd · ${mode.build ? "V" : "F"} : inspecter${
+                inventory.slots.length > 0 ? " · 1-3 : armes" : ""
+              }`,
+        ]
+          .filter(Boolean)
+          .join(" · ") || undefined;
+  // Haut de l'ecran : score, minuterie et legende, selon le mode.
+  let topBar: ReactNode;
+  if (training) {
+    const t = trainingHud;
+    const left = t ? t.left : training.seconds;
+    topBar = (
+      <DuelTopBar
+        neutral
+        left={{ value: t?.kills ?? 0, label: "Cibles" }}
+        right={{ value: `${Math.round((t?.accuracy ?? 0) * 100)}%`, label: "Précision" }}
+        clock={formatClock(Math.ceil(left))}
+        tone={t && t.countdown <= 0 && left <= 5 ? "urgent" : "normal"}
+        caption={`${t?.score ?? 0} pts`}
+      />
+    );
+  } else if (mode.shrinkingZone) {
+    topBar = (
+      <DuelTopBar
+        neutral
+        left={{ value: alive, label: "En vie" }}
+        right={{ value: myScore, label: "Élim." }}
+        clock={formatClock(zoneLeft)}
+        tone={zoneLeft <= 30 ? "urgent" : "normal"}
+        caption="Zone"
+        onPress={toggleBoardByTouch}
+      />
+    );
+  } else {
+    topBar = (
+      <DuelTopBar
+        left={{ value: myScore, label: "Toi" }}
+        right={{ value: bestRival, label: versus ? opponentName : "Meilleur" }}
+        clock={formatClock(buyPhase ? Math.ceil(buyLeft) : matchClock)}
+        tone={buyPhase ? "buy" : "normal"}
+        caption={
+          buyPhase
+            ? touchDevice
+              ? "Achats"
+              : "Achats · B"
+            : mode.economy
+              ? `Manche ${round}`
+              : infinite
+                ? "Partie libre"
+                : mode.gunGame
+                  ? `${scoreGoal} armes`
+                  : `Objectif ${scoreGoal}`
+        }
+        onPress={toggleBoardByTouch}
+      />
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black select-none">
@@ -5289,10 +5544,12 @@ export default function DuelScene({
       {/* Chute en parachute */}
       {island && !dropOpen && fallMeters > 0 && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-30 flex flex-col items-center">
-          <p className="rounded-full bg-black/60 px-5 py-2 text-2xl font-black uppercase italic text-yellow-300">
-            🪂 {fallMeters} m
+          <p className="flex items-center gap-2.5 rounded-[3px] bg-black/65 px-4 py-1.5 ring-1 ring-white/10">
+            <HudIcon id="parachute" height={22} className="text-zinc-100" />
+            <span className="font-sans text-2xl font-semibold tabular-nums text-white">{fallMeters}</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">m</span>
           </p>
-          <p className="mt-1 rounded bg-black/50 px-3 py-1 text-xs font-semibold text-white">
+          <p className="mt-1 rounded-[3px] bg-black/55 px-3 py-1 text-[11px] font-semibold text-zinc-200">
             ZQSD pour te diriger · la souris pour regarder
           </p>
         </div>
@@ -5316,50 +5573,107 @@ export default function DuelScene({
         </div>
       )}
 
-      {/* Images/seconde et ping */}
-      {(options.showFps || (options.showPing && !bot)) && (
-        <div className="pointer-events-none absolute left-3 top-14 flex flex-col items-start gap-0.5 rounded-lg bg-black/55 px-2 py-1 font-mono text-[11px] leading-tight backdrop-blur">
-          {options.showFps && (
-            <span className={fps >= 50 ? "text-emerald-300" : fps >= 30 ? "text-amber-300" : "text-red-400"}>
-              {fps} IPS
+      {/* Haut gauche, facon jeu de tir tactique : radar (battle royale ou
+          radar admin), images/s et ping, argent, puis le mode admin. Sous le
+          score sur un telephone en hauteur, dans le coin au-dela. */}
+      <div className="pointer-events-none absolute left-3 top-[5.5rem] z-30 flex flex-col items-start gap-2 sm:top-3">
+        {((mode.shrinkingZone && radar.zone) || shownCheats.radarAll) && (
+          <div className="relative size-28 overflow-hidden rounded-[4px] bg-black/60 ring-1 ring-white/15 sm:size-32">
+            <svg viewBox="0 0 100 100" className="size-full">
+              {radar.zone && (
+                <circle
+                  cx={radar.zone[0] * 100}
+                  cy={radar.zone[1] * 100}
+                  r={radar.zone[2] * 100}
+                  fill="rgba(73,182,255,0.10)"
+                  stroke="#49b6ff"
+                  strokeWidth="1.2"
+                />
+              )}
+              {radar.all?.map((b, i) => (
+                <circle key={`a${i}`} cx={b[0] * 100} cy={b[1] * 100} r="1.6" fill="#ff3bd4" />
+              ))}
+              {radar.blips.map((b, i) => (
+                <circle key={i} cx={b[0] * 100} cy={b[1] * 100} r="1.8" fill="#ff6a4a" />
+              ))}
+              <circle cx={radar.me[0] * 100} cy={radar.me[1] * 100} r="2.4" fill="#7ff0ff" />
+            </svg>
+            <span className="absolute bottom-0.5 left-0 w-full text-center text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+              {island ? "M : carte" : "Coups de feu"}
             </span>
-          )}
-          {options.showPing && !bot && (
-            <span className={ping === null ? "text-zinc-500" : ping < 80 ? "text-emerald-300" : ping < 160 ? "text-amber-300" : "text-red-400"}>
-              {ping === null ? "— ms" : `${ping} ms`}
-            </span>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+        {(options.showFps || (options.showPing && !bot)) && (
+          <div className="flex flex-col items-start gap-0.5 rounded-[3px] bg-black/60 px-2 py-1 font-mono text-[11px] leading-tight">
+            {options.showFps && (
+              <span className={fps >= 50 ? "text-emerald-300" : fps >= 30 ? "text-amber-300" : "text-red-400"}>
+                {fps} IPS
+              </span>
+            )}
+            {options.showPing && !bot && (
+              <span className={ping === null ? "text-zinc-500" : ping < 80 ? "text-emerald-300" : ping < 160 ? "text-amber-300" : "text-red-400"}>
+                {ping === null ? "— ms" : `${ping} ms`}
+              </span>
+            )}
+          </div>
+        )}
+        {/* Argent du mode Economie : le menu d'achat l'affiche deja quand il est ouvert. */}
+        {mode.economy && !shopShown && <DuelMoney money={money} />}
+        {adminEnabled && (
+          <button
+            type="button"
+            onClick={() => setAdminOpen((o) => !o)}
+            className={`pointer-events-auto flex h-8 items-center gap-1.5 rounded-[3px] px-2.5 text-[11px] font-bold uppercase tracking-[0.16em] ring-1 ring-inset transition ${
+              anyCheat(cheats)
+                ? "bg-fuchsia-600/85 text-white ring-fuchsia-300/60"
+                : "bg-black/70 text-fuchsia-200 ring-fuchsia-400/30 hover:bg-black/90"
+            }`}
+          >
+            Admin <span className="font-mono text-[10px] opacity-60">F2</span>
+          </button>
+        )}
+        {adminEnabled && adminOpen && (
+          <div className="pointer-events-auto">
+            <DuelAdminPanel
+              cheats={cheats}
+              onChange={changeCheats}
+              onAction={(a) => sceneApiRef.current?.admin(a)}
+              onClose={() => setAdminOpen(false)}
+              island={Boolean(island)}
+            />
+          </div>
+        )}
+      </div>
 
-      {/* Laser : un vrai bouton, visible en permanence (ou la touche L) */}
+      {/* Haut droit : reglages du jeu (engrenage, dans le coin), reglages du
+          tir, et le laser — un vrai bouton, toujours visible (ou la touche L).
+          En colonne serree, pour laisser la place au fil des eliminations. */}
+      <button
+        type="button"
+        onClick={() => setOptionsOpen((o) => !o)}
+        aria-label="Réglages du tir"
+        title="Réglages du tir"
+        className="absolute right-3 top-14 z-30 flex size-9 items-center justify-center rounded-full bg-black/70 text-zinc-100 ring-1 ring-inset ring-white/10 transition hover:bg-black/90"
+      >
+        <HudIcon id="viseur" height={20} />
+      </button>
       <button
         type="button"
         onClick={() => changeOptions({ ...options, laser: !options.laser })}
         aria-pressed={options.laser}
         aria-label={options.laser ? "Éteindre le laser" : "Allumer le laser"}
-        className={`absolute right-14 top-[6.5rem] z-30 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-black uppercase tracking-wider backdrop-blur transition ${
+        title={options.laser ? "Laser allumé (L)" : "Laser éteint (L)"}
+        className={`absolute right-3 top-[6.25rem] z-30 flex size-9 flex-col items-center justify-center gap-0.5 rounded-full ring-1 ring-inset transition ${
           options.laser
-            ? "bg-red-600/90 text-white shadow-[0_0_14px_rgba(255,60,60,0.7)] hover:bg-red-500"
-            : "bg-black/70 text-zinc-300 hover:bg-black/90"
+            ? "bg-red-600/90 text-white ring-red-300/60 shadow-[0_0_12px_rgba(255,60,60,0.6)] hover:bg-red-500"
+            : "bg-black/70 text-zinc-300 ring-white/10 hover:bg-black/90"
         }`}
       >
-        <span className={`size-2 rounded-full ${options.laser ? "bg-white" : "bg-red-500"}`} />
-        Laser
-        <span className="font-mono text-[10px] opacity-60">L</span>
-      </button>
-
-      {/* Réglages du tir : réticule, laser, affichage, bots */}
-      <button
-        type="button"
-        onClick={() => setOptionsOpen((o) => !o)}
-        aria-label="Réglages du tir"
-        className="absolute right-3 top-[6.5rem] z-30 flex size-9 items-center justify-center rounded-full bg-black/70 text-base text-white backdrop-blur transition hover:bg-black/90"
-      >
-        🎯
+        <span className={`size-1.5 rounded-full ${options.laser ? "bg-white" : "bg-red-500"}`} />
+        <span className="font-mono text-[9px] font-bold leading-none">L</span>
       </button>
       {optionsOpen && (
-        <div className="absolute right-3 top-[9.5rem] z-40 max-h-[70vh] overflow-y-auto">
+        <div className="absolute right-3 top-[9.25rem] z-40 max-h-[70vh] overflow-y-auto">
           <DuelOptionsPanel
             options={options}
             onChange={changeOptions}
@@ -5378,32 +5692,7 @@ export default function DuelScene({
           sensitivityRef.current = s;
         }}
         onQuality={(q) => sceneApiRef.current?.applyQuality(q)}
-        className="top-14"
       />
-
-      {/* Mode admin : bouton, badge et panneau (F2) */}
-      {adminEnabled && (
-        <button
-          type="button"
-          onClick={() => setAdminOpen((o) => !o)}
-          className={`absolute left-3 top-[6.5rem] z-30 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-black uppercase tracking-wider backdrop-blur transition ${
-            anyCheat(cheats) ? "bg-fuchsia-600/90 text-white" : "bg-black/70 text-fuchsia-200 hover:bg-black/90"
-          }`}
-        >
-          🛠 Admin <span className="font-mono text-[10px] opacity-60">F2</span>
-        </button>
-      )}
-      {adminEnabled && adminOpen && (
-        <div className="absolute left-3 top-[9.5rem] z-40">
-          <DuelAdminPanel
-            cheats={cheats}
-            onChange={changeCheats}
-            onAction={(a) => sceneApiRef.current?.admin(a)}
-            onClose={() => setAdminOpen(false)}
-            island={Boolean(island)}
-          />
-        </div>
-      )}
 
       {/* Vision a travers les murs : etiquettes */}
       {shownCheats.esp &&
@@ -5422,8 +5711,13 @@ export default function DuelScene({
       {/* Entrainement : compte a rebours au centre */}
       {training && trainingHud && trainingHud.countdown > 0 && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-7xl font-black text-yellow-300 drop-shadow-lg">{Math.ceil(trainingHud.countdown)}</p>
-          <p className="mt-2 rounded bg-black/60 px-3 py-1 text-sm font-bold text-white">
+          <p
+            className="font-sans text-7xl font-bold tabular-nums text-white"
+            style={{ textShadow: "0 2px 10px rgba(0,0,0,0.8)" }}
+          >
+            {Math.ceil(trainingHud.countdown)}
+          </p>
+          <p className="mt-2 rounded-[3px] bg-black/65 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-200">
             {training.name} · 1 à 9 pour changer d&apos;arme
           </p>
         </div>
@@ -5431,280 +5725,116 @@ export default function DuelScene({
 
       {/* Menu des danses (G) */}
       {emoteMenu && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-black/80 p-3 text-white ring-1 ring-white/20 backdrop-blur">
-          <p className="mb-2 text-center text-xs font-black uppercase tracking-wider text-yellow-300">Danses · appuie sur un chiffre</p>
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 -translate-x-1/2 -translate-y-1/2 rounded-[4px] bg-zinc-950/85 p-3 text-white ring-1 ring-white/10">
+          <p className="mb-2 border-b border-white/10 pb-1.5 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-300">
+            Danses · appuie sur un chiffre
+          </p>
           <div className="grid grid-cols-2 gap-1.5">
             {dances.map((id, i) => (
-              <div key={id} className="rounded-lg bg-white/10 px-2 py-1.5 text-sm font-bold">
-                <span className="mr-1.5 font-mono text-xs text-yellow-300">{i + 1}</span>
+              <div key={id} className="flex items-center rounded-[3px] bg-white/[0.06] px-2 py-1.5 text-sm font-semibold ring-1 ring-inset ring-white/10">
+                <span className="mr-2 rounded-[2px] bg-white/10 px-1 font-mono text-[10px] font-bold text-zinc-300">{i + 1}</span>
                 {DANCES[id].name}
               </div>
             ))}
           </div>
-          <p className="mt-2 text-center text-[10px] text-zinc-400">G ou Échap pour fermer · d&apos;autres danses au casier</p>
+          <p className="mt-2 text-center text-[10px] text-zinc-500">G ou Échap pour fermer · d&apos;autres danses au casier</p>
         </div>
       )}
       {emoting && (
-        <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-sm font-bold text-yellow-200">
-          💃 {DANCES[emoting].name} · bouge ou tire pour arrêter
+        <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[3px] bg-black/70 px-3 py-1.5 text-xs font-semibold text-zinc-100 ring-1 ring-white/10">
+          <span className="font-bold uppercase tracking-[0.14em] text-amber-300">{DANCES[emoting].name}</span> · bouge ou tire pour arrêter
         </div>
       )}
 
-      {/* Score / progression */}
-      <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/70 px-4 py-1.5 backdrop-blur">
-        {training && trainingHud ? (
-          <>
-            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{training.name}</span>
-            <span className="font-mono text-lg font-black text-yellow-300">{Math.ceil(trainingHud.left)} s</span>
-            <span className="text-xs text-zinc-600">·</span>
-            <span className="text-sm font-black text-cyan-300">{trainingHud.kills} cibles</span>
-            <span className="text-xs text-zinc-600">·</span>
-            <span className="font-mono text-sm text-emerald-300">{Math.round(trainingHud.accuracy * 100)} %</span>
-            <span className="text-xs text-zinc-600">·</span>
-            <span className="font-mono text-sm font-black text-white">{trainingHud.score} pts</span>
-          </>
-        ) : mode.shrinkingZone ? (
-          <>
-            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              En vie
-            </span>
-            <span className="text-lg font-black text-cyan-300">{alive}</span>
-            <span className="text-xs text-zinc-600">·</span>
-            <span className="font-mono text-sm text-sky-300">
-              {Math.floor(zoneLeft / 60)}:{String(Math.floor(zoneLeft % 60)).padStart(2, "0")}
-            </span>
-          </>
-        ) : (
-          <>
-            {mode.economy && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Manche {round}
-              </span>
-            )}
-            <span className="text-lg font-black text-cyan-300">
-              {mode.gunGame ? `${myScore}` : myScore}
-            </span>
-            <span className="text-xs text-zinc-500">— {scoreGoal} —</span>
-            <span className="text-lg font-black text-red-400">{bestRival}</span>
-            {mode.economy && (
-              <span className="ml-1 rounded-full bg-emerald-950/80 px-2 py-0.5 font-mono text-sm font-black text-emerald-300">
-                ${money}
-              </span>
-            )}
-          </>
+      {/* Haut, au centre : score, minuterie (au doigt : ouvre le tableau des scores) */}
+      {topBar}
+
+      {/* Bas gauche : vie (et, en 1v1 construction, les materiaux au-dessus) */}
+      <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col items-start gap-2">
+        {mode.build && buildHud.on && (
+          <div className="max-w-[min(26rem,80vw)] rounded-[3px] bg-amber-500/90 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-black">
+            Construction · clic : poser (tenir pour enchaîner) · clic droit : retirer · 1-3 : armes
+          </div>
         )}
+        {mode.build && (
+          <div className="flex items-center gap-2 rounded-[3px] bg-black/60 px-2.5 py-1 ring-1 ring-inset ring-amber-300/35">
+            <HudIcon id="materiaux" height={16} className="text-amber-200" />
+            <span className="font-sans text-base font-bold tabular-nums text-amber-100">{buildHud.mats}</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-400">F : construire</span>
+          </div>
+        )}
+        <DuelVitals hp={hp} />
       </div>
 
-      {/* Mini-carte : en Zone (terrain trop grand), ou partout avec le radar admin. */}
-      {((mode.shrinkingZone && radar.zone) || shownCheats.radarAll) && (
-        <div className="pointer-events-none absolute right-3 top-24 size-28 rounded-lg border border-white/15 bg-black/60 backdrop-blur sm:size-32">
-          <svg viewBox="0 0 100 100" className="size-full">
-            {radar.zone && (
-              <circle
-                cx={radar.zone[0] * 100}
-                cy={radar.zone[1] * 100}
-                r={radar.zone[2] * 100}
-                fill="rgba(73,182,255,0.10)"
-                stroke="#49b6ff"
-                strokeWidth="1.2"
-              />
-            )}
-            {radar.all?.map((b, i) => (
-              <circle key={`a${i}`} cx={b[0] * 100} cy={b[1] * 100} r="1.6" fill="#ff3bd4" />
-            ))}
-            {radar.blips.map((b, i) => (
-              <circle key={i} cx={b[0] * 100} cy={b[1] * 100} r="1.8" fill="#ff6a4a" />
-            ))}
-            <circle cx={radar.me[0] * 100} cy={radar.me[1] * 100} r="2.4" fill="#7ff0ff" />
-          </svg>
-          <span className="absolute bottom-0.5 left-0 w-full text-center text-[9px] uppercase tracking-wider text-zinc-500">
-            {island ? "M : carte" : "Coups de feu"}
-          </span>
-        </div>
-      )}
-
-      {/* Vie */}
-      <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-zinc-400">♥</span>
-          <div className="h-2.5 w-44 overflow-hidden rounded-full bg-black/70">
-            <div
-              className={`h-full rounded-full transition-all ${
-                hpPct < 30 ? "bg-red-500" : hpPct < 60 ? "bg-amber-400" : "bg-emerald-400"
-              }`}
-              style={{ width: `${hpPct}%` }}
-            />
-          </div>
-          <span className="font-mono text-sm font-bold text-white">{hpPct}</span>
-        </div>
+      {/* Bas droit : armes portees (1 a 3, couteau 4), grenades, puis l'arme en
+          main et ses munitions. Au doigt, les emplacements laissent la place
+          aux boutons de tir. */}
+      <div className="pointer-events-none absolute bottom-3 right-3 flex flex-col items-end gap-2">
+        <DuelLoadout
+          slots={inventory.slots}
+          cur={inventory.cur}
+          knifeIcon={knifeIcon}
+          knifeColor={RARITY[KNIVES[knifeId].rarity].color}
+          slotColors={inventory.slots.map((w) => RARITY[WEAPON_RARITY[w]].color)}
+          showGuns={!touchDevice && !mode.gunGame && (inventory.slots.length > 0 || Boolean(island))}
+          nades={nadesInMode ? { grenade: nadeHud.grenade, fumigene: nadeHud.fumigene, aiming: nadeHud.aiming, key: nadeKey } : null}
+        />
+        <DuelAmmo
+          icon={heldWeapon === "poings" ? knifeIcon : heldWeapon}
+          name={weaponName}
+          ammo={ammo}
+          magSize={magSize}
+          reloading={reloading}
+          hint={ammoHint}
+        />
       </div>
-
-      {/* Arme + munitions, et l'inventaire : touches 1 a 3 ou molette */}
-      <div className="pointer-events-none absolute bottom-16 right-4 flex flex-col items-end gap-1.5 text-right sm:bottom-4">
-        {/* Grenades : combien il en reste, et la touche pour les lancer */}
-        {nadesInMode && (
-          <div className="flex gap-1">
-            {(["grenade", "fumigene"] as const).map((k) => {
-              const count = nadeHud[k];
-              const held = nadeHud.aiming === k;
-              return (
-                <div
-                  key={k}
-                  className={`flex h-8 items-center gap-1.5 rounded-md px-2 ring-1 ${
-                    held ? "bg-lime-500/30 ring-lime-300" : "bg-black/60 ring-white/10"
-                  } ${count === 0 && !held ? "opacity-40" : ""}`}
-                >
-                  <span
-                    className={`h-3.5 w-2.5 rounded-[3px] ${k === "grenade" ? "bg-[#6b7b34]" : "bg-[#9aa1a7]"}`}
-                    style={{ boxShadow: "inset 0 2px 0 rgba(0,0,0,0.35)" }}
-                  />
-                  <span className="text-[11px] font-black uppercase leading-none text-white">{GRENADES[k].name}</span>
-                  <span className="font-mono text-sm font-black leading-none text-lime-200">{count}</span>
-                  <span className="rounded bg-white/10 px-1 font-mono text-[9px] font-bold leading-4 text-zinc-300">
-                    {k === "grenade" ? nadeKey : "X"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {!mode.gunGame && (inventory.slots.length > 0 || island) && (
-          <div className="flex gap-1">
-            {Array.from({ length: 3 }).map((_, i) => {
-              const w = inventory.slots[i];
-              if (!w) {
-                return (
-                  <div key={i} className="flex h-10 min-w-[4.4rem] items-center justify-center rounded-md bg-black/35 ring-1 ring-white/10">
-                    <span className="font-mono text-[10px] text-zinc-600">{i + 1}</span>
-                  </div>
-                );
-              }
-              return (
-                <div
-                  key={i}
-                  className={`flex h-10 min-w-[4.4rem] flex-col items-start justify-center rounded-md px-2 ring-1 ${
-                    i === inventory.cur ? "bg-cyan-500/30 ring-cyan-300" : "bg-black/60 ring-white/10"
-                  }`}
-                  style={{ boxShadow: `inset 0 -3px 0 ${RARITY[WEAPON_RARITY[w]].color}` }}
-                >
-                  <span className="font-mono text-[9px] font-bold leading-none text-zinc-400">{i + 1}</span>
-                  <span className="text-[11px] font-black uppercase leading-tight text-white">{WEAPONS[w].short}</span>
-                </div>
-              );
-            })}
-            {/* Le couteau du casier : toujours la, touche 4 (allume quand il est en main). */}
-            <div
-              className={`flex h-10 min-w-[4.4rem] flex-col items-start justify-center rounded-md px-2 ring-1 ${
-                inventory.cur < 0 ? "bg-cyan-500/30 ring-cyan-300" : "bg-black/60 ring-white/10"
-              }`}
-              style={{ boxShadow: `inset 0 -3px 0 ${RARITY[KNIVES[isKnifeId(knife) ? knife : DEFAULT_KNIFE].rarity].color}` }}
-            >
-              <span className="font-mono text-[9px] font-bold leading-none text-zinc-400">4</span>
-              <span className="text-[11px] font-black uppercase leading-tight text-white">{WEAPONS.poings.short}</span>
-            </div>
-          </div>
-        )}
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">{weaponName}</p>
-        {magSize > 0 ? (
-          <>
-            <p className="font-mono text-3xl font-black text-white">
-              {reloading ? "—" : ammo}
-              <span className="ml-1 text-base text-zinc-500">/ {magSize}</span>
-            </p>
-            <p className="text-xs font-semibold text-zinc-400">
-              {reloading ? "Rechargement..." : ammo === 0 ? "R pour recharger" : "R : recharger"}
-            </p>
-          </>
-        ) : (
-          <>
-            {island && inventory.slots.length === 0 && (
-              <p className="text-xs font-semibold text-amber-200">Couteau seul · trouve une arme</p>
-            )}
-            <p className="text-[11px] font-semibold text-zinc-400">
-              Clic gauche : entaille · clic droit : coup lourd · {mode.build ? "V" : "F"} : inspecter
-              {inventory.slots.length > 0 ? " · 1-3 : armes" : ""}
-            </p>
-          </>
-        )}
-      </div>
-
-      {/* 1v1 construction : materiaux, et le mode construction quand il est actif */}
-      {mode.build && (
-        <div className="pointer-events-none absolute bottom-14 left-4 flex flex-col items-start gap-1.5">
-          <div className="flex items-center gap-2 rounded-md bg-black/60 px-2.5 py-1 ring-1 ring-amber-300/40">
-            <span className="text-base">🧱</span>
-            <span className="font-mono text-sm font-black text-amber-200">{buildHud.mats}</span>
-            <span className="text-[10px] font-bold uppercase text-zinc-400">F : construire</span>
-          </div>
-          {buildHud.on && (
-            <div className="rounded-md bg-amber-500/90 px-3 py-1.5 text-xs font-black uppercase text-black shadow-lg">
-              Construction · clic : poser (tenir pour enchaîner) · clic droit : retirer · 1-3 : armes
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Quitter : toujours possible, c'est la seule fin d'une partie infinie */}
       {(!locked || touchDevice) && !dropOpen && (
         <button
           type="button"
           onClick={() => sceneApiRef.current?.quit()}
-          className="absolute left-1/2 top-14 z-30 -translate-x-1/2 rounded-full bg-black/75 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-zinc-100 ring-1 ring-white/25 backdrop-blur transition hover:bg-red-600/80"
+          className="absolute left-1/2 top-14 z-30 -translate-x-1/2 whitespace-nowrap rounded-[3px] bg-black/75 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-100 ring-1 ring-inset ring-white/20 transition hover:bg-red-700/85"
         >
-          {infinite ? "⏹ Terminer la partie" : "Quitter la partie"}
+          {infinite ? "Terminer la partie" : "Quitter la partie"}
         </button>
       )}
 
       {/* Inventaire plein : l'objet au sol s'echange avec E */}
       {pickupHint && (
-        <div className="pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-lg bg-black/75 px-4 py-2 text-sm font-bold text-yellow-200 ring-1 ring-yellow-400/40">
+        <div className="pointer-events-none absolute bottom-44 left-1/2 max-w-[90vw] -translate-x-1/2 rounded-[3px] bg-black/75 px-3.5 py-1.5 text-center text-xs font-semibold text-zinc-100 ring-1 ring-inset ring-amber-400/40">
           {pickupHint}
         </div>
       )}
 
       {/* Series : eliminations rapprochees et serie sans mourir */}
-      {streakBanner && (
-        <div
-          key={streakBanner.id}
-          className="pointer-events-none absolute inset-x-0 top-[22%] flex flex-col items-center gap-1"
-          style={{ animation: "horror-act-in 2.3s ease-out forwards" }}
-        >
-          {streakBanner.multi && (
-            <p className="rounded-xl bg-black/70 px-6 py-2 text-3xl font-black uppercase italic tracking-wider text-yellow-300 drop-shadow-lg">
-              {streakBanner.multi}
-            </p>
-          )}
-          {streakBanner.streak && (
-            <p className="rounded-full bg-orange-600/85 px-4 py-1 text-sm font-black uppercase tracking-[0.2em] text-white ring-1 ring-orange-300/60">
-              🔥 {streakBanner.streak}
-            </p>
-          )}
-        </div>
-      )}
+      {streakBanner && <DuelStreakBanner key={streakBanner.id} multi={streakBanner.multi} streak={streakBanner.streak} />}
 
       {/* Grenade ennemie tout pres */}
       {nadeWarn && (
-        <div className="pointer-events-none absolute left-1/2 top-[40%] -translate-x-1/2 rounded-full bg-red-600/85 px-3 py-1 text-xs font-black uppercase tracking-wider text-white ring-1 ring-red-300/70 animate-pulse">
-          Grenade !
+        <div className="pointer-events-none absolute left-1/2 top-[40%] flex -translate-x-1/2 items-center gap-1.5 rounded-[3px] bg-red-700/85 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-white ring-1 ring-inset ring-red-300/60 animate-pulse">
+          <HudIcon id="grenade" height={14} />
+          Grenade
         </div>
       )}
 
       {/* Grenade en main : comment la lancer */}
       {nadeHud.aiming && (
-        <div className="pointer-events-none absolute left-1/2 top-[58%] -translate-x-1/2 whitespace-nowrap rounded-lg bg-black/70 px-3 py-1.5 text-xs font-bold text-lime-200 ring-1 ring-lime-400/40">
+        <div className="pointer-events-none absolute left-1/2 top-[58%] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[3px] bg-black/70 px-3 py-1.5 text-xs font-semibold text-zinc-100 ring-1 ring-inset ring-lime-400/35">
+          <HudIcon id={nadeHud.aiming} height={16} className="text-lime-200" />
           {GRENADES[nadeHud.aiming].name} : relâche pour lancer{touchDevice ? "" : " · clic droit : annuler"}
         </div>
       )}
 
       {/* Arme ramassee */}
       {pickupToast && (
-        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 rounded-full bg-cyan-950/90 px-4 py-1.5 text-sm font-bold text-cyan-200 ring-1 ring-cyan-600">
+        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[3px] bg-black/75 px-3.5 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-zinc-100 ring-1 ring-inset ring-sky-400/40">
           {pickupToast}
         </div>
       )}
 
-      {/* Réticule : regle par le joueur, il s'ouvre a la course et au tir */}
-      {!aiming && <DuelCrosshair options={options} spread={spread} hit={hitMarker} />}
+      {/* Reticule : regle par le joueur, il s'ouvre a la course et au tir (cache une fois mort) */}
+      {!aiming && respawnIn === 0 && <DuelCrosshair options={options} spread={spread} hit={hitMarker} />}
       {/* En visee sans lunette : un point rouge au centre, la ou part la balle */}
       {aiming && !zoomed && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500 shadow-[0_0_4px_rgba(255,60,60,0.9)]" />
@@ -5726,109 +5856,78 @@ export default function DuelScene({
         </div>
       )}
 
-      {/* D'ou viennent les tirs recus */}
-      {damageFrom !== null && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div
-            className="size-48"
-            style={{ transform: `rotate(${-damageFrom}rad)` }}
-          >
-            <div
-              className="absolute left-1/2 top-0 h-8 w-16 -translate-x-1/2"
-              style={{
-                background:
-                  "linear-gradient(180deg, rgba(255,60,40,0.85), rgba(255,60,40,0))",
-                clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* D'ou viennent les tirs recus : un arc rouge autour du centre */}
+      {damageFrom && <DuelDamageIndicator angle={damageFrom.angle} fade={damageFrom.fade} />}
 
-      {/* Journal des éliminations */}
-      <div className="pointer-events-none absolute right-4 top-14 flex flex-col items-end gap-1">
-        {feed.map((f) => (
-          <span
-            key={f.id}
-            className={`rounded px-2.5 py-1 text-xs font-semibold backdrop-blur ${
-              f.mine ? "bg-cyan-900/70 text-cyan-200" : "bg-red-950/70 text-red-200"
-            }`}
-          >
-            {f.text}
-          </span>
-        ))}
+      {/* Fil des eliminations, en haut a droite (a gauche de la colonne de
+          boutons ; sous le score et le bouton Quitter sur un telephone) */}
+      <div className="pointer-events-none absolute right-14 top-[5.5rem] z-10 sm:top-2">
+        <DuelKillFeed entries={feed} />
       </div>
 
       {/* Economie : fin de manche */}
-      {mode.economy && roundBanner && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/3 flex justify-center">
-          <p
-            className={`rounded-xl bg-black/70 px-6 py-3 text-2xl font-black uppercase tracking-wider ${
-              roundBanner === "Manche gagnée" ? "text-emerald-300" : "text-red-400"
-            }`}
-          >
-            {roundBanner}
-          </p>
-        </div>
+      {mode.economy && roundBanner && <DuelRoundBanner text={roundBanner} win={roundBanner === "Manche gagnée"} />}
+
+      {/* Economie : menu d'achat pendant la phase d'achat (B ou Echap pour le
+          fermer ; les chiffres achetent meme menu ferme) */}
+      {mode.economy && shopShown && (
+        <DuelBuyMenu
+          money={money}
+          buyLeft={buyLeft}
+          round={round}
+          slots={inventory.slots}
+          cur={inventory.cur}
+          knifeName={KNIVES[knifeId].name}
+          knifeIcon={knifeIcon}
+          nades={nadeHud}
+          nadeKey={nadeKey}
+          economy={mode.economy}
+          touch={touchDevice}
+          onBuy={(id) => sceneApiRef.current?.buy(id)}
+          onClose={() => setShopOpen(false)}
+        />
+      )}
+      {mode.economy && buyPhase && !shopOpen && (
+        <button
+          type="button"
+          onClick={() => setShopOpen(true)}
+          className="absolute left-1/2 top-[5.75rem] z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[3px] bg-black/75 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300 ring-1 ring-inset ring-amber-400/40 transition hover:bg-black/90"
+        >
+          Menu d&apos;achat
+          {!touchDevice && <span className="rounded-[2px] bg-white/10 px-1 font-mono text-[10px] text-zinc-300">B</span>}
+        </button>
       )}
 
-      {/* Economie : phase d'achat */}
-      {mode.economy && buyLeft > 0 && (
-        <div className="absolute inset-x-0 top-14 flex flex-col items-center gap-2 px-3">
-          <div className="pointer-events-none flex items-center gap-3 rounded-full bg-black/75 px-4 py-1.5 backdrop-blur">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Phase d&apos;achat</span>
-            <span className="font-mono text-sm font-black text-white">{buyLeft.toFixed(1)}s</span>
-            <span className="text-[11px] text-zinc-400">1-9, 0, Maj+chiffre : acheter · B boutique</span>
-          </div>
-          {shopOpen && (
-            <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-zinc-950/92 p-3 shadow-2xl backdrop-blur">
-              <div className="mb-2 flex items-baseline justify-between">
-                <p className="text-sm font-black uppercase tracking-wider text-white">Boutique</p>
-                <p className="font-mono text-lg font-black text-emerald-300">${money}</p>
-              </div>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-7">
-                {SHOP_ORDER.map((id, i) => {
-                  const w = WEAPONS[id];
-                  const price = WEAPON_PRICES[id];
-                  const owned = weaponName === w.short;
-                  const affordable = price <= money;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => sceneApiRef.current?.buy(id)}
-                      disabled={owned || !affordable}
-                      className={`flex flex-col items-start rounded-lg px-2.5 py-2 text-left ring-1 transition ${
-                        owned
-                          ? "bg-cyan-900/50 ring-cyan-500"
-                          : affordable
-                            ? "bg-white/5 ring-white/10 hover:bg-white/10"
-                            : "cursor-not-allowed bg-white/[0.02] opacity-40 ring-white/5"
-                      }`}
-                    >
-                      <span className="text-[10px] font-bold text-zinc-500">{shopKeyLabel(i)}</span>
-                      <span className="text-xs font-bold text-white">{w.name}</span>
-                      <span className={`font-mono text-xs font-bold ${price === 0 ? "text-zinc-400" : "text-emerald-300"}`}>
-                        {owned ? "Équipée" : price === 0 ? "Gratuit" : `$${price}`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-                Manche gagnée : +$2800 · perdue : +$1500. Si tu meurs, tu repars au pistolet.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Ecran de mort : qui, avec quoi, et le temps avant de revenir */}
+      {respawnIn > 0 && <DuelDeathCard killedBy={killedBy} respawnIn={respawnIn} total={DUEL_RESPAWN_SECONDS} />}
 
-      {/* Écran de mort */}
-      {respawnIn > 0 && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55">
-          <p className="text-2xl font-black text-red-400">Éliminé</p>
-          <p className="text-sm text-zinc-300">Réapparition dans {respawnIn.toFixed(1)}s</p>
-        </div>
+      {/* Tableau des scores : Tab maintenu (ou appui sur le score au doigt) */}
+      {board && (
+        <DuelHudScoreboard
+          rows={board}
+          versus={versus}
+          title={mode.name}
+          caption={
+            !bot
+              ? "En ligne"
+              : mode.shrinkingZone
+                ? `${alive} en vie`
+                : mode.economy
+                  ? `Manche ${round}`
+                  : infinite
+                    ? "Partie libre"
+                    : mode.gunGame
+                      ? `${scoreGoal} armes`
+                      : `Objectif ${scoreGoal}`
+          }
+          ping={ping}
+          online={!bot}
+          maxLevel={mode.gunGame ? GUN_GAME_ORDER.length : undefined}
+          battleRoyale={mode.shrinkingZone}
+          teamScores={versus ? [myScore, bestRival] : undefined}
+          rivalLabel={versus ? opponentName : undefined}
+          onClose={touchDevice ? () => sceneApiRef.current?.board(false) : undefined}
+        />
       )}
 
       {/* Commandes tactiles */}
@@ -5884,13 +5983,13 @@ export default function DuelScene({
           <button
             type="button"
             aria-label="Tirer"
-            className="absolute bottom-32 right-5 size-20 touch-none rounded-full border border-red-400/40 bg-red-600/70 text-2xl text-white active:scale-95 sm:bottom-24 sm:right-6"
+            className="absolute bottom-32 right-5 flex size-20 touch-none items-center justify-center rounded-full border border-red-400/40 bg-red-600/70 text-white active:scale-95 sm:bottom-24 sm:right-6"
             onPointerDown={() => (touchRef.current.firing = true)}
             onPointerUp={() => (touchRef.current.firing = false)}
             onPointerLeave={() => (touchRef.current.firing = false)}
             onPointerCancel={() => (touchRef.current.firing = false)}
           >
-            🔥
+            <HudIcon id="viseur" height={34} />
           </button>
           <button
             type="button"
@@ -5915,11 +6014,11 @@ export default function DuelScene({
               onPointerDown={() => sceneApiRef.current?.nadeDown("grenade")}
               onPointerUp={() => sceneApiRef.current?.nadeUp()}
               onPointerCancel={() => sceneApiRef.current?.nadeUp()}
-              className={`absolute bottom-[18.5rem] right-8 size-14 touch-none rounded-full border border-lime-300/40 bg-black/60 text-lg font-bold text-white active:scale-95 sm:bottom-[12rem] sm:right-7 ${
+              className={`absolute bottom-[18.5rem] right-8 flex size-14 touch-none items-center justify-center rounded-full border border-lime-300/40 bg-black/60 text-lime-100 active:scale-95 sm:bottom-[12rem] sm:right-7 ${
                 nadeHud.grenade === 0 ? "opacity-40" : ""
               }`}
             >
-              💣
+              <HudIcon id="grenade" height={26} />
             </button>
           )}
           {/* Le fumigene a son bouton : au doigt, on ne pouvait le lancer qu'une fois les grenades epuisees. */}
@@ -5930,22 +6029,24 @@ export default function DuelScene({
               onPointerDown={() => sceneApiRef.current?.nadeDown("fumigene")}
               onPointerUp={() => sceneApiRef.current?.nadeUp()}
               onPointerCancel={() => sceneApiRef.current?.nadeUp()}
-              className={`absolute bottom-[18.5rem] right-[5.5rem] size-12 touch-none rounded-full border border-zinc-300/40 bg-black/60 text-base font-bold text-white active:scale-95 sm:bottom-[16rem] sm:right-8 ${
+              className={`absolute bottom-[18.5rem] right-[5.5rem] flex size-12 touch-none items-center justify-center rounded-full border border-zinc-300/40 bg-black/60 text-zinc-100 active:scale-95 sm:bottom-[16rem] sm:right-8 ${
                 nadeHud.fumigene === 0 ? "opacity-40" : ""
               }`}
             >
-              💨
+              <HudIcon id="fumigene" height={24} />
             </button>
           )}
         </>
       )}
 
       {/* Invite de verrouillage souris (inutile au doigt) */}
-      {!locked && respawnIn === 0 && !touchDevice && (
+      {!locked && respawnIn === 0 && !touchDevice && !shopShown && !board && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <span className="max-w-md rounded-lg bg-black/80 px-5 py-3 text-center text-sm font-semibold text-white ring-1 ring-white/20">
-            Clique pour jouer · ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
-            R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses
+          <span className="max-w-md rounded-[4px] bg-black/80 px-5 py-3 text-center text-sm font-medium leading-relaxed text-zinc-100 ring-1 ring-inset ring-white/15">
+            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.24em] text-white">Clique pour jouer</span>
+            ZQSD/WASD · clic gauche : tirer · clic droit : viser · Maj : sprint ·
+            R : recharger · C : s&apos;accroupir · 1-3 ou molette : changer d&apos;arme · E : échanger · G : danses · Tab : scores
+            {mode.economy ? " · B : menu d'achat" : ""}
             {nadesInMode ? ` · ${nadeKey} ou clic molette : grenade · X : fumigène (maintenir pour viser, relâcher pour lancer)` : ""}
             {mode.build ? " · F : construire" : ""}
             {` · 4 : couteau (clic gauche entaille, clic droit coup lourd, dans le dos il élimine, ${mode.build ? "V" : "F"} : l'inspecter)`} · Échap :

@@ -72,7 +72,7 @@ export default function DuelHudScoreboard({
         <p className="font-sans text-sm font-bold uppercase tracking-[0.22em] text-white">{title}</p>
         <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{caption}</p>
       </div>
-      <div className="max-h-[60dvh] overflow-y-auto px-2 pb-2 sm:px-3">
+      <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto px-2 pb-2 sm:px-3">
         {versus ? (
           <>
             <TeamBlock tone="mine" label="Ton équipe" score={teamScores?.[0]} rows={mine} ping={ping} online={online} maxLevel={maxLevel} />
@@ -106,12 +106,12 @@ export default function DuelHudScoreboard({
 
   if (onClose) {
     return (
-      <div className="absolute inset-x-0 top-16 z-40 flex justify-center px-2" onClick={onClose}>
+      <div className="absolute inset-x-0 top-24 z-40 flex justify-center px-2" onClick={onClose}>
         {body}
       </div>
     );
   }
-  return <div className="pointer-events-none absolute inset-x-0 top-16 z-40 flex justify-center px-2">{body}</div>;
+  return <div className="pointer-events-none absolute inset-x-0 top-24 z-40 flex justify-center px-2">{body}</div>;
 }
 
 function TeamBlock({

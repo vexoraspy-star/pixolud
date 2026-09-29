@@ -63,6 +63,7 @@ export function DuelTopBar({
   clock,
   tone = "normal",
   caption,
+  neutral = false,
   onPress,
 }: {
   left: TopBarSide;
@@ -71,14 +72,22 @@ export function DuelTopBar({
   /** « buy » : phase d'achat (ambre) ; « urgent » : dernieres secondes (rouge). */
   tone?: "normal" | "buy" | "urgent";
   caption?: string;
+  /** Pas deux camps (battle royale, entrainement) : les deux cotes en gris. */
+  neutral?: boolean;
   onPress?: () => void;
 }) {
   const clockColor = tone === "buy" ? "text-amber-300" : tone === "urgent" ? "text-red-400" : "text-zinc-50";
+  const leftBg = neutral ? "from-zinc-500/40 to-zinc-900/65" : "from-sky-500/45 to-sky-950/60";
+  const rightBg = neutral ? "from-zinc-500/40 to-zinc-900/65" : "from-red-500/45 to-red-950/60";
   const body = (
     <>
-      <div className="flex min-w-[3.6rem] flex-col items-center justify-center bg-gradient-to-b from-sky-500/45 to-sky-950/60 px-2.5 py-1 sm:min-w-[4.5rem]">
+      <div className={`flex min-w-[3.6rem] flex-col items-center justify-center bg-gradient-to-b px-2.5 py-1 sm:min-w-[4.5rem] ${leftBg}`}>
         <span className="font-sans text-xl font-bold leading-none tabular-nums text-white sm:text-2xl">{left.value}</span>
-        <span className="mt-0.5 max-w-[5.5rem] truncate text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-100/80">
+        <span
+          className={`mt-0.5 max-w-[5.5rem] truncate text-[9px] font-semibold uppercase tracking-[0.14em] ${
+            neutral ? "text-zinc-300" : "text-sky-100/80"
+          }`}
+        >
           {left.label}
         </span>
       </div>
@@ -90,9 +99,13 @@ export function DuelTopBar({
           </span>
         )}
       </div>
-      <div className="flex min-w-[3.6rem] flex-col items-center justify-center bg-gradient-to-b from-red-500/45 to-red-950/60 px-2.5 py-1 sm:min-w-[4.5rem]">
+      <div className={`flex min-w-[3.6rem] flex-col items-center justify-center bg-gradient-to-b px-2.5 py-1 sm:min-w-[4.5rem] ${rightBg}`}>
         <span className="font-sans text-xl font-bold leading-none tabular-nums text-white sm:text-2xl">{right.value}</span>
-        <span className="mt-0.5 max-w-[5.5rem] truncate text-[9px] font-semibold uppercase tracking-[0.14em] text-red-100/80">
+        <span
+          className={`mt-0.5 max-w-[5.5rem] truncate text-[9px] font-semibold uppercase tracking-[0.14em] ${
+            neutral ? "text-zinc-300" : "text-red-100/80"
+          }`}
+        >
           {right.label}
         </span>
       </div>
@@ -227,7 +240,7 @@ export function DuelLoadout({
   cur: number;
   knifeIcon: HudIconId;
   knifeColor: string;
-  /** Couleur de rarete de chaque arme portee (liseré). */
+  /** Couleur de rarete de chaque arme portee (lisere). */
   slotColors: string[];
   showGuns: boolean;
   nades: { grenade: number; fumigene: number; aiming: "grenade" | "fumigene" | null; key: string } | null;
@@ -372,6 +385,51 @@ export function DuelDamageIndicator({ angle, fade }: { angle: number; fade: numb
         <path d="M82.9 27.1 A100 100 0 0 1 157.1 27.1" fill="none" stroke="rgba(235,45,30,0.9)" strokeWidth="9" />
         <path d="M95.5 38 A88 88 0 0 1 144.5 38" fill="none" stroke="rgba(255,120,90,0.55)" strokeWidth="2" />
       </svg>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ annonces
+/**
+ * Fin de manche (mode Economie) : un bandeau sombre en travers de l'ecran,
+ * lisere a la couleur du camp gagnant, comme un tableau d'affichage.
+ */
+export function DuelRoundBanner({ text, win }: { text: string; win: boolean }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[30%] flex justify-center" style={{ animation: "horror-quest-in 0.3s ease-out" }}>
+      <div
+        className={`flex w-full max-w-xl flex-col items-center bg-gradient-to-r from-transparent via-black/80 to-transparent py-3 ${
+          win ? "text-sky-200" : "text-red-300"
+        }`}
+      >
+        <span className={`h-px w-2/3 ${win ? "bg-sky-400/70" : "bg-red-500/70"}`} />
+        <p className="py-2 font-sans text-xl font-bold uppercase tracking-[0.32em] sm:text-2xl">{text}</p>
+        <span className={`h-px w-2/3 ${win ? "bg-sky-400/70" : "bg-red-500/70"}`} />
+      </div>
+    </div>
+  );
+}
+
+/** Eliminations rapprochees et serie sans mourir : gros mot au centre, sobre. */
+export function DuelStreakBanner({ multi, streak }: { multi: string | null; streak: string | null }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-[22%] flex flex-col items-center gap-1.5"
+      style={{ animation: "horror-act-in 2.3s ease-out forwards" }}
+    >
+      {multi && (
+        <p
+          className="font-sans text-2xl font-bold uppercase tracking-[0.24em] text-white sm:text-3xl"
+          style={{ textShadow: "0 2px 6px rgba(0,0,0,0.85)" }}
+        >
+          {multi}
+        </p>
+      )}
+      {streak && (
+        <p className="rounded-[3px] bg-black/65 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.28em] text-amber-300 ring-1 ring-inset ring-amber-400/40">
+          Série · {streak}
+        </p>
+      )}
     </div>
   );
 }

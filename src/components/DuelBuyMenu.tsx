@@ -63,8 +63,10 @@ export default function DuelBuyMenu({
 }) {
   const inHand = cur >= 0 ? slots[cur] : null;
   return (
-    <div className="absolute inset-x-0 bottom-3 top-[4.75rem] z-20 flex justify-center px-2 sm:bottom-6 sm:px-4">
-      <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-[4px] bg-zinc-950/90 text-zinc-100 shadow-[0_10px_50px_rgba(0,0,0,0.65)] ring-1 ring-white/10">
+    // Le cadre laisse passer les clics autour du panneau : un clic sur la scene
+    // reprend la souris, et les chiffres achetent encore.
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 top-[5.75rem] z-20 flex justify-center px-2 sm:bottom-[5.25rem] sm:px-4">
+      <div className="pointer-events-auto flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-[4px] bg-zinc-950/90 text-zinc-100 shadow-[0_10px_50px_rgba(0,0,0,0.65)] ring-1 ring-white/10">
         {/* En-tete : argent restant, temps d'achat, fermeture */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-white/10 bg-white/[0.04] px-3 py-2 sm:px-4">
           <div className="flex items-baseline gap-3">
