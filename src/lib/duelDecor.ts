@@ -1,11 +1,15 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { DuelMap, DuelTheme } from "./duel";
 import {
   makeBarrelTexture,
+  makeBoulderTexture,
   makeCrateTexture,
   makeSandbagTexture,
   makeSiteMarkTexture,
-} from "./duelTextures";
+  makeWoodBeamTexture,
+} from "./duelMapTextures";
+import { buildDesertTown } from "./duelTown";
 
 /**
  * Le decor d'une carte du Duel.
@@ -20,8 +24,10 @@ import {
  *   bloquent rien. Ils sont donc tous bas — moins d'un metre — pour ne jamais
  *   sembler arreter une balle tiree a hauteur d'yeux.
  *
- * Tout est instancie : une carte entierement decoree coute une quinzaine d'appels de
- * rendu.
+ * La carte « Poussiere » recoit en plus toute une ville (duelTown).
+ *
+ * Tout est instancie : une carte entierement decoree coute une quinzaine
+ * d'appels de rendu (une vingtaine de plus pour la ville du desert).
  */
 export interface DuelDecor {
   group: THREE.Group;
@@ -48,16 +54,35 @@ interface ThemeProps {
   rochers: number;
   caissons: number;
   buissons: number;
-  /** Teinte des bidons (l'Arene est plus technique que rouillee). */
-  barilColor: number;
+  /** Peintures des bidons (l'Arene est plus technique que rouillee). */
+  barilColors: number[];
 }
 
 const THEME_PROPS: Record<DuelTheme, ThemeProps> = {
-  arene: { every: 6, barils: 0.35, sacs: 0, palettes: 0, rochers: 0, caissons: 0.65, buissons: 0, barilColor: 0x6d7681 },
-  entrepot: { every: 5, barils: 0.35, sacs: 0.1, palettes: 0.5, rochers: 0, caissons: 0.1, buissons: 0, barilColor: 0xb5793a },
-  gouffre: { every: 6, barils: 0.2, sacs: 0.15, palettes: 0.1, rochers: 0.55, caissons: 0, buissons: 0, barilColor: 0x7a6a52 },
-  poussiere: { every: 4, barils: 0.3, sacs: 0.35, palettes: 0.2, rochers: 0.05, caissons: 0, buissons: 0.3, barilColor: 0xb5793a },
-  ile: { every: 9, barils: 0.25, sacs: 0.15, palettes: 0.3, rochers: 0.1, caissons: 0, buissons: 0.4, barilColor: 0x4f7fb5 },
+  arene: { every: 6, barils: 0.35, sacs: 0, palettes: 0, rochers: 0, caissons: 0.65, buissons: 0, barilColors: [0x6d7681, 0x5a636e, 0x8a929b] },
+  entrepot: {
+    every: 5,
+    barils: 0.35,
+    sacs: 0.1,
+    palettes: 0.5,
+    rochers: 0,
+    caissons: 0.1,
+    buissons: 0,
+    barilColors: [0x3f6fa8, 0xb5793a, 0x4d6b3c, 0x9a3a2a, 0xc9a23a],
+  },
+  gouffre: { every: 6, barils: 0.2, sacs: 0.15, palettes: 0.1, rochers: 0.55, caissons: 0, buissons: 0, barilColors: [0x7a6a52, 0x5d6448, 0x8a4a2c] },
+  // Le sable, les herbes et les palmiers de Poussiere viennent de la ville.
+  poussiere: {
+    every: 4,
+    barils: 0.4,
+    sacs: 0.25,
+    palettes: 0.45,
+    rochers: 0,
+    caissons: 0,
+    buissons: 0,
+    barilColors: [0x3f6fa8, 0x2f5f94, 0xa04a2c, 0x6b7045, 0xc9a23a, 0x8f8f86],
+  },
+  ile: { every: 9, barils: 0.25, sacs: 0.15, palettes: 0.3, rochers: 0.1, caissons: 0, buissons: 0.4, barilColors: [0x4f7fb5, 0xa04a2c, 0x5d7a45] },
 };
 
 export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): DuelDecor {
@@ -72,6 +97,7 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
 
   const solid = new Set(map.walls.map(([x, y]) => `${x},${y}`));
   const isSolid = (x: number, y: number) => x < 0 || y < 0 || x >= map.width || y >= map.height || solid.has(`${x},${y}`);
+  const crateCells = new Set(map.crates.map(([x, y]) => `${x},${y}`));
   const spawnCells = new Set(
     [...map.spawns.a, ...map.spawns.b].flatMap(([x, y]) => [
       `${x},${y}`,
@@ -87,38 +113,66 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
   const v3 = new THREE.Vector3();
   const s3 = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
+  const tint = new THREE.Color();
+
+  // Les caisses (grille et accessoires) partagent une geometrie : un cube a
+  // montants en relief sur les douze aretes.
+  const crateTex = keep(makeCrateTexture());
+  const crateMat = keep(new THREE.MeshLambertMaterial({ map: crateTex }));
+  const crateGeo = keep(crateGeometry());
+
+  // Ombre de contact sous les accessoires : un disque flou pose au sol.
+  const blobs: THREE.Matrix4[] = [];
+  const addBlob = (x: number, z: number, sx: number, sz: number, yaw: number) => {
+    euler.set(0, yaw, 0);
+    q4.setFromEuler(euler);
+    blobs.push(new THREE.Matrix4().compose(v3.set(x, 0.01, z), q4, s3.set(sx, 1, sz)));
+  };
 
   // --- Caisses empilees : elles remplacent le mur sur ces cases ---
   if (map.crates.length > 0) {
-    const crateMat = keep(new THREE.MeshLambertMaterial({ map: keep(makeCrateTexture()) }));
-    const geo = keep(new THREE.BoxGeometry(1, 1, 1));
-    const mesh = new THREE.InstancedMesh(geo, crateMat, map.crates.length * 3);
+    const mesh = new THREE.InstancedMesh(crateGeo, crateMat, map.crates.length * 6);
     let i = 0;
+    /** Une caisse de cote `w` (profondeur `d`), haute de `h`, posee a `y0`. */
+    const put = (x: number, z: number, y0: number, w: number, h: number, d: number, yaw: number) => {
+      euler.set(0, yaw, 0);
+      q4.setFromEuler(euler);
+      m4.compose(v3.set(x, y0 + h / 2, z), q4, s3.set(w, h, d));
+      mesh.setMatrixAt(i, m4);
+      // Bois plus ou moins grise par le temps.
+      const k = 0.82 + rng() * 0.22;
+      mesh.setColorAt(i, tint.setRGB(k, k * (0.96 + rng() * 0.04), k * (0.9 + rng() * 0.1)));
+      i++;
+    };
     for (const [cx, cy] of map.crates) {
       const x = (cx + 0.5) * cell;
       const z = (cy + 0.5) * cell;
-      // Deux grosses caisses l'une sur l'autre, plus une petite de traviole
-      // posee sur le dessus : c'est la silhouette qui fait « entrepot ».
-      const hBig = wallHeight / 2;
-      for (let k = 0; k < 2; k++) {
-        euler.set(0, (rng() - 0.5) * 0.09, 0);
-        q4.setFromEuler(euler);
-        m4.compose(v3.set(x, hBig / 2 + k * hBig, z), q4, s3.set(cell * 0.99, hBig * 0.99, cell * 0.99));
-        mesh.setMatrixAt(i++, m4);
-      }
-      if (rng() < 0.35) {
-        const s = cell * 0.42;
-        euler.set(0, rng() * 1.2, 0);
-        q4.setFromEuler(euler);
-        m4.compose(
-          v3.set(x + (rng() - 0.5) * cell * 0.3, wallHeight + s / 2, z + (rng() - 0.5) * cell * 0.3),
-          q4,
-          s3.set(s, s, s),
-        );
-        mesh.setMatrixAt(i++, m4);
+      const jit = () => (rng() - 0.5) * 0.08;
+      const r = rng();
+      // Toujours pleine largeur jusqu'a hauteur de tete : ce qui semble
+      // couvrir doit couvrir. Au-dessus, les piles varient.
+      if (r < 0.35) {
+        // Deux grosses caisses l'une sur l'autre.
+        const h = wallHeight / 2;
+        put(x, z, 0, cell * 0.98, h * 0.99, cell * 0.98, jit());
+        put(x, z, h, cell * 0.95, h * 0.99, cell * 0.95, jit() * 1.5);
+      } else if (r < 0.72) {
+        // Trois tailles, de plus en plus petites et de travers.
+        put(x, z, 0, cell * 0.98, 1.3, cell * 0.98, jit());
+        put(x, z, 1.3, cell * 0.9, 1.15, cell * 0.9, jit() * 2);
+        const s = 0.95 + rng() * 0.3;
+        put(x + (rng() - 0.5) * 0.3, z + (rng() - 0.5) * 0.3, 2.45, s, wallHeight - 2.45, s, (rng() - 0.5) * 0.9);
+      } else {
+        // Quatre petites caisses au sol, une grande dessus, une moyenne au sommet.
+        const hs = 0.92;
+        for (const ox of [-1, 1]) for (const oz of [-1, 1]) put(x + ox * cell * 0.245, z + oz * cell * 0.245, 0, cell * 0.48, hs, cell * 0.48, jit() * 0.5);
+        put(x, z, hs, cell * 0.96, 1.4, cell * 0.96, jit());
+        const s = 1.0 + rng() * 0.25;
+        put(x + (rng() - 0.5) * 0.25, z + (rng() - 0.5) * 0.25, hs + 1.4, s, wallHeight - hs - 1.4, s, (rng() - 0.5) * 0.7);
       }
     }
     mesh.count = i;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     group.add(mesh);
   }
 
@@ -180,29 +234,50 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
     x: (spot.x + 0.5 + spot.dx * (0.5 - inset)) * cell + (spot.dx === 0 ? (rng() - 0.5) * cell * 0.4 : 0),
     z: (spot.y + 0.5 + spot.dy * (0.5 - inset)) * cell + (spot.dy === 0 ? (rng() - 0.5) * cell * 0.4 : 0),
   });
+  /** Direction le long du mur d'un emplacement. */
+  const alongOf = (spot: Spot) => (spot.dx !== 0 ? { ax: 0, az: 1 } : { ax: 1, az: 0 });
 
   if (barils.length > 0) {
-    const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeBarrelTexture()), color: plan.barilColor }));
-    const geo = keep(new THREE.CylinderGeometry(0.29, 0.29, 0.88, 12));
-    const lidMat = keep(new THREE.MeshLambertMaterial({ color: 0x3f3a33 }));
-    const lidGeo = keep(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 12));
-    const mesh = new THREE.InstancedMesh(geo, mat, barils.length);
-    const lids = new THREE.InstancedMesh(lidGeo, lidMat, barils.length);
-    barils.forEach((spot, i) => {
-      const p = place(spot, 0.22);
-      euler.set(0, rng() * Math.PI, 0);
-      q4.setFromEuler(euler);
-      m4.compose(v3.set(p.x, 0.44, p.z), q4, s3.set(1, 1, 1));
-      mesh.setMatrixAt(i, m4);
-      m4.compose(v3.set(p.x, 0.9, p.z), q4, s3.set(1, 1, 1));
-      lids.setMatrixAt(i, m4);
-    });
-    group.add(mesh, lids);
+    // Un a trois futs cercles cote a cote ; parfois un fut couche devant.
+    const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeBarrelTexture()) }));
+    const geo = keep(barrelGeometry());
+    const mesh = new THREE.InstancedMesh(geo, mat, barils.length * 4);
+    let i = 0;
+    for (const spot of barils) {
+      const p = place(spot, 0.2);
+      const { ax, az } = alongOf(spot);
+      const n = 1 + Math.floor(rng() * 3);
+      for (let k = 0; k < n; k++) {
+        const off = (k - (n - 1) / 2) * 0.62;
+        euler.set(0, rng() * Math.PI * 2, 0);
+        q4.setFromEuler(euler);
+        m4.compose(v3.set(p.x + ax * off, 0, p.z + az * off), q4, s3.set(1, 0.97 + rng() * 0.06, 1));
+        mesh.setMatrixAt(i, m4);
+        mesh.setColorAt(i, tint.set(plan.barilColors[Math.floor(rng() * plan.barilColors.length)]));
+        i++;
+      }
+      if (rng() < 0.2) {
+        // Fut couche, pose devant les autres.
+        const out = 0.62;
+        euler.set(Math.PI / 2, (spot.dx !== 0 ? 0 : Math.PI / 2) + (rng() - 0.5) * 0.4, 0, "YXZ");
+        q4.setFromEuler(euler);
+        m4.compose(v3.set(p.x - spot.dx * out + ax * 0.44, 0.3, p.z - spot.dy * out + az * 0.44), q4, s3.set(1, 1, 1));
+        mesh.setMatrixAt(i, m4);
+        mesh.setColorAt(i, tint.set(plan.barilColors[Math.floor(rng() * plan.barilColors.length)]));
+        i++;
+        euler.order = "XYZ";
+      }
+      addBlob(p.x, p.z, 0.75 + n * 0.55, 0.9, spot.dx !== 0 ? Math.PI / 2 : 0);
+    }
+    mesh.count = i;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
   }
 
   if (sacs.length > 0) {
     const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeSandbagTexture()) }));
-    const geo = keep(new THREE.BoxGeometry(0.55, 0.22, 0.34));
+    // Sac bourre : une sphere ecrasee a 10 x 6 facettes, pas une boite.
+    const geo = keep(new THREE.SphereGeometry(1, 10, 6).scale(0.29, 0.12, 0.18));
     const mesh = new THREE.InstancedMesh(geo, mat, sacs.length * 5);
     let i = 0;
     for (const spot of sacs) {
@@ -213,9 +288,9 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
         for (let j = 0; j < 2; j++) {
           euler.set(0, yaw + (rng() - 0.5) * 0.2, 0);
           q4.setFromEuler(euler);
-          const off = (j - 0.5) * 0.58;
+          const off = (j - 0.5) * 0.56 + (k === 1 ? 0.14 : 0);
           m4.compose(
-            v3.set(p.x + (spot.dx !== 0 ? 0 : off), 0.11 + k * 0.22, p.z + (spot.dx !== 0 ? off : 0)),
+            v3.set(p.x + (spot.dx !== 0 ? 0 : off), 0.1 + k * 0.2, p.z + (spot.dx !== 0 ? off : 0)),
             q4,
             s3.set(1, 1, 1),
           );
@@ -224,61 +299,79 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       }
       euler.set(0, yaw + (rng() - 0.5) * 0.5, 0);
       q4.setFromEuler(euler);
-      m4.compose(v3.set(p.x, 0.55, p.z), q4, s3.set(1, 1, 1));
+      m4.compose(v3.set(p.x, 0.5, p.z), q4, s3.set(1, 1, 1));
       mesh.setMatrixAt(i++, m4);
+      addBlob(p.x, p.z, 1.5, 0.75, yaw);
     }
     mesh.count = i;
     group.add(mesh);
   }
 
   if (palettes.length > 0) {
-    const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeCrateTexture()), color: 0xb9a184 }));
-    const plankGeo = keep(new THREE.BoxGeometry(0.9, 0.06, 0.16));
-    const mesh = new THREE.InstancedMesh(plankGeo, mat, palettes.length * 6);
-    const crateMat = keep(new THREE.MeshLambertMaterial({ map: keep(makeCrateTexture()) }));
-    const crateGeo = keep(new THREE.BoxGeometry(0.62, 0.62, 0.62));
-    const crates = new THREE.InstancedMesh(crateGeo, crateMat, palettes.length);
-    let i = 0;
+    // Palette de manutention (planches sur trois longerons) et des caisses de
+    // tailles variees dessus : jamais plus haut que 95 cm.
+    const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeWoodBeamTexture()), color: 0xc9b89e }));
+    const geo = keep(palletGeometry());
+    const mesh = new THREE.InstancedMesh(geo, mat, palettes.length);
+    const boxes = new THREE.InstancedMesh(crateGeo, crateMat, palettes.length * 3);
     let c = 0;
-    for (const spot of palettes) {
-      const p = place(spot, 0.24);
+    const box = (x: number, y0: number, z: number, s: number, yaw: number) => {
+      euler.set(0, yaw, 0);
+      q4.setFromEuler(euler);
+      m4.compose(v3.set(x, y0 + s / 2, z), q4, s3.set(s, s, s));
+      boxes.setMatrixAt(c, m4);
+      const k = 0.85 + rng() * 0.2;
+      boxes.setColorAt(c, tint.setRGB(k, k, k * (0.92 + rng() * 0.08)));
+      c++;
+    };
+    palettes.forEach((spot, i) => {
+      const p = place(spot, 0.28);
       const yaw = (spot.dx !== 0 ? Math.PI / 2 : 0) + (rng() - 0.5) * 0.3;
       euler.set(0, yaw, 0);
       q4.setFromEuler(euler);
-      for (let k = 0; k < 4; k++) {
-        m4.compose(
-          v3.set(p.x + Math.cos(yaw) * (k - 1.5) * 0.24, 0.06, p.z - Math.sin(yaw) * (k - 1.5) * 0.24),
-          q4,
-          s3.set(1, 1, 1),
-        );
-        mesh.setMatrixAt(i++, m4);
+      m4.compose(v3.set(p.x, 0, p.z), q4, s3.set(1, 1, 1));
+      mesh.setMatrixAt(i, m4);
+      const top = 0.14;
+      const ax = Math.cos(yaw);
+      const az = -Math.sin(yaw);
+      const r = rng();
+      if (r < 0.35) {
+        box(p.x, top, p.z, 0.62 + rng() * 0.14, yaw + (rng() - 0.5) * 0.3);
+      } else if (r < 0.7) {
+        for (const s of [-1, 1]) box(p.x + ax * s * 0.29, top, p.z + az * s * 0.29, 0.46 + rng() * 0.1, yaw + (rng() - 0.5) * 0.25);
+      } else if (r < 0.9) {
+        const s1 = 0.52 + rng() * 0.06;
+        box(p.x, top, p.z, s1, yaw + (rng() - 0.5) * 0.2);
+        box(p.x + (rng() - 0.5) * 0.1, top + s1, p.z + (rng() - 0.5) * 0.1, 0.24 + rng() * 0.05, yaw + (rng() - 0.5) * 1.2);
       }
-      // Une caisse posee dessus une fois sur deux.
-      if (rng() < 0.55) {
-        euler.set(0, yaw + (rng() - 0.5) * 0.6, 0);
-        q4.setFromEuler(euler);
-        m4.compose(v3.set(p.x, 0.41, p.z), q4, s3.set(1, 1, 1));
-        crates.setMatrixAt(c++, m4);
-      }
-    }
-    mesh.count = i;
-    crates.count = c;
+      addBlob(p.x, p.z, 1.45, 1.05, yaw);
+    });
+    boxes.count = c;
+    if (boxes.instanceColor) boxes.instanceColor.needsUpdate = true;
     group.add(mesh);
-    if (c > 0) group.add(crates);
+    if (c > 0) group.add(boxes);
   }
 
   if (rochers.length > 0) {
-    const mat = keep(new THREE.MeshLambertMaterial({ color: 0x4a443c, flatShading: true }));
-    const geo = keep(new THREE.IcosahedronGeometry(0.42, 0));
-    const mesh = new THREE.InstancedMesh(geo, mat, rochers.length);
-    rochers.forEach((spot, i) => {
+    const mat = keep(new THREE.MeshLambertMaterial({ map: keep(makeBoulderTexture()), flatShading: true }));
+    const geo = keep(rockGeometry(rng));
+    const mesh = new THREE.InstancedMesh(geo, mat, rochers.length * 2);
+    let i = 0;
+    for (const spot of rochers) {
       const p = place(spot, 0.2);
-      euler.set(rng() * 3, rng() * 3, rng() * 3);
-      q4.setFromEuler(euler);
-      const s = 0.6 + rng() * 0.7;
-      m4.compose(v3.set(p.x, 0.2 * s, p.z), q4, s3.set(s, s * 0.7, s));
-      mesh.setMatrixAt(i, m4);
-    });
+      const n = rng() < 0.4 ? 2 : 1;
+      for (let k = 0; k < n; k++) {
+        euler.set(rng() * 3, rng() * 3, rng() * 3);
+        q4.setFromEuler(euler);
+        const s = (0.6 + rng() * 0.7) * (k === 1 ? 0.55 : 1);
+        const ox = k === 1 ? (rng() - 0.5) * 0.8 : 0;
+        const oz = k === 1 ? (rng() - 0.5) * 0.8 : 0;
+        m4.compose(v3.set(p.x + ox, 0.2 * s, p.z + oz), q4, s3.set(s, s * 0.7, s));
+        mesh.setMatrixAt(i++, m4);
+      }
+      addBlob(p.x, p.z, 1.2, 1.2, 0);
+    }
+    mesh.count = i;
     group.add(mesh);
   }
 
@@ -338,11 +431,12 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       bodies.setMatrixAt(i, m4);
       m4.compose(v3.set(p.x, 0.5, p.z), q4, s3.set(1, 1, 1));
       glows.setMatrixAt(i, m4);
+      addBlob(p.x, p.z, 1.3, 0.9, spot.dx !== 0 ? Math.PI / 2 : 0);
     });
     group.add(bodies, glows);
   }
 
-  // --- Buissons secs (Poussiere) ---
+  // --- Buissons (ile) ---
   if (buissons.length > 0) {
     const mat = keep(new THREE.MeshLambertMaterial({ color: 0x7d7a3e, flatShading: true }));
     const geo = keep(new THREE.IcosahedronGeometry(0.3, 0));
@@ -361,6 +455,28 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
     group.add(mesh);
   }
 
+  // --- Ombres de contact des accessoires ---
+  if (blobs.length > 0) {
+    const tex = keep(makeBlobTexture());
+    const mat = keep(
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        alphaMap: tex,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    const geo = keep(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    const mesh = new THREE.InstancedMesh(geo, mat, blobs.length);
+    blobs.forEach((m, i) => mesh.setMatrixAt(i, m));
+    mesh.renderOrder = 1;
+    group.add(mesh);
+  }
+
   // --- Habillage des murs et du plafond ---
   // Tout ce qui est accroche aux murs reste soit tres plat (panneaux), soit
   // au-dessus des tetes (neons, tuyaux, poutres) : jamais un faux couvert.
@@ -374,7 +490,7 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         if (!isSolid(x + dx, y + dy)) continue;
         // Les caisses ne portent pas de decor mural.
-        if (map.crates.some(([cx, cy]) => cx === x + dx && cy === y + dy)) continue;
+        if (crateCells.has(`${x + dx},${y + dy}`)) continue;
         faces.push({ x: (x + 0.5 + dx * 0.5) * cell, z: (y + 0.5 + dy * 0.5) * cell, nx: -dx, nz: -dy });
       }
     }
@@ -482,9 +598,9 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
     group.add(postMesh, beamMesh);
   }
 
-  if (map.theme === "entrepot" || map.theme === "gouffre" || map.theme === "poussiere") {
-    // Lampes suspendues (ou lanternes) au-dessus des passages.
-    const lampCells = openCells.filter(([x, y]) => (x * 7 + y * 13) % (map.theme === "poussiere" ? 11 : 6) === 0);
+  if (map.theme === "entrepot" || map.theme === "gouffre") {
+    // Lampes suspendues au-dessus des passages.
+    const lampCells = openCells.filter(([x, y]) => (x * 7 + y * 13) % 6 === 0);
     const cableMesh = new THREE.InstancedMesh(
       keep(new THREE.BoxGeometry(0.02, 0.7, 0.02)),
       keep(new THREE.MeshLambertMaterial({ color: 0x1b1a18 })),
@@ -492,7 +608,7 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
     );
     const shadeMesh = new THREE.InstancedMesh(
       keep(new THREE.ConeGeometry(0.3, 0.22, 10, 1, true)),
-      keep(new THREE.MeshLambertMaterial({ color: map.theme === "poussiere" ? 0x6a4a2a : 0x3a3f3a, side: THREE.DoubleSide })),
+      keep(new THREE.MeshLambertMaterial({ color: 0x3a3f3a, side: THREE.DoubleSide })),
       Math.max(1, lampCells.length),
     );
     const bulbMesh = new THREE.InstancedMesh(
@@ -513,48 +629,13 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
     cableMesh.count = lampCells.length;
     shadeMesh.count = lampCells.length;
     bulbMesh.count = lampCells.length;
-    // Poussiere se joue dehors : pas de cables au ciel, seulement les lanternes
-    // accrochees aux poutres.
-    if (map.theme !== "poussiere") group.add(cableMesh, shadeMesh, bulbMesh);
+    group.add(cableMesh, shadeMesh, bulbMesh);
   }
 
+  // --- Poussiere : toute une ville du desert autour de la grille ---
   if (map.theme === "poussiere") {
-    // Poutres qui depassent du haut des murs, et auvents de toile.
-    const beams = pick(faces, 0.3);
-    const beamMesh = new THREE.InstancedMesh(
-      keep(new THREE.BoxGeometry(0.16, 0.16, 0.9)),
-      keep(new THREE.MeshLambertMaterial({ color: 0x6b4a2c })),
-      Math.max(1, beams.length * 2),
-    );
-    let bi = 0;
-    for (const f of beams) {
-      for (const along of [-0.45, 0.45]) {
-        euler.set(0, Math.atan2(f.nx, f.nz), 0);
-        q4.setFromEuler(euler);
-        m4.compose(
-          v3.set(f.x + f.nx * 0.45 + f.nz * along, wallHeight - 0.25, f.z + f.nz * 0.45 - f.nx * along),
-          q4,
-          s3.set(1, 1, 1),
-        );
-        beamMesh.setMatrixAt(bi++, m4);
-      }
-    }
-    beamMesh.count = bi;
-    const awnings = pick(faces, 0.12);
-    const awningMesh = new THREE.InstancedMesh(
-      keep(new THREE.BoxGeometry(cell * 0.9, 0.04, 1.0)),
-      keep(new THREE.MeshLambertMaterial({ color: 0xb4452f })),
-      Math.max(1, awnings.length),
-    );
-    awnings.forEach((f, i) => {
-      euler.set(0, Math.atan2(f.nx, f.nz), 0);
-      const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.35);
-      q4.setFromEuler(euler).multiply(tilt);
-      m4.compose(v3.set(f.x + f.nx * 0.5, wallHeight - 0.7, f.z + f.nz * 0.5), q4, s3.set(1, 1, 1));
-      awningMesh.setMatrixAt(i, m4);
-    });
-    awningMesh.count = awnings.length;
-    group.add(beamMesh, awningMesh);
+    const town = keep(buildDesertTown(map, cell, wallHeight));
+    group.add(town.group);
   }
 
   return {
@@ -563,4 +644,117 @@ export function buildDuelDecor(map: DuelMap, cell: number, wallHeight: number): 
       for (const o of owned) o.dispose();
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Geometries
+// ---------------------------------------------------------------------------
+
+/**
+ * Caisse unite (1 m) : un cube un peu en retrait et douze montants en relief
+ * sur les aretes. Les montants prennent le bois de la bande de bord de la
+ * texture (14 px a gauche), le fil dans leur longueur.
+ */
+function crateGeometry(): THREE.BufferGeometry {
+  const t = 0.075;
+  const e = 0.5 - t / 2;
+  const parts: THREE.BufferGeometry[] = [new THREE.BoxGeometry(0.94, 0.94, 0.94)];
+  const batten = (sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
+    const g = new THREE.BoxGeometry(sx, sy, sz);
+    const pos = g.getAttribute("position");
+    const uv = g.getAttribute("uv");
+    const long = sx >= sy && sx >= sz ? 0 : sy >= sz ? 1 : 2;
+    const size = [sx, sy, sz];
+    for (let i = 0; i < pos.count; i++) {
+      const c = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+      const s = c[long] / size[long];
+      const across = (c[(long + 1) % 3] + c[(long + 2) % 3]) / (t * 2);
+      uv.setXY(i, 0.012 + (across * 0.5 + 0.5) * 0.032, 0.5 + s * 0.98);
+    }
+    g.translate(x, y, z);
+    parts.push(g);
+  };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) batten(t, 1, t, sx * e, 0, sz * e);
+  for (const sy of [-1, 1]) {
+    for (const sz of [-1, 1]) batten(1 - 2 * t, t, t, 0, sy * e, sz * e);
+    for (const sx of [-1, 1]) batten(t, t, 1 - 2 * t, sx * e, sy * e, 0);
+  }
+  const merged = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/** Fut de 200 litres : profil tourne avec deux bourrelets de roulement et un couvercle en retrait. */
+function barrelGeometry(): THREE.BufferGeometry {
+  const pts = [
+    [0, 0],
+    [0.265, 0],
+    [0.285, 0.015],
+    [0.285, 0.17],
+    [0.298, 0.18],
+    [0.298, 0.2],
+    [0.285, 0.21],
+    [0.285, 0.44],
+    [0.298, 0.45],
+    [0.298, 0.47],
+    [0.285, 0.48],
+    [0.285, 0.7],
+    [0.298, 0.71],
+    [0.298, 0.73],
+    [0.285, 0.74],
+    [0.285, 0.865],
+    [0.27, 0.88],
+    [0.25, 0.88],
+    [0.25, 0.868],
+    [0, 0.868],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  return new THREE.LatheGeometry(pts, 18);
+}
+
+/** Palette 1,2 x 0,8 m : cinq planches sur trois longerons, 14 cm de haut. */
+function palletGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 5; k++) parts.push(new THREE.BoxGeometry(1.2, 0.025, 0.13).translate(0, 0.1275, -0.335 + k * 0.1675));
+  for (const z of [-0.34, 0, 0.34]) parts.push(new THREE.BoxGeometry(1.2, 0.09, 0.09).translate(0, 0.07, z));
+  for (const z of [-0.33, 0.33]) parts.push(new THREE.BoxGeometry(1.2, 0.025, 0.13).translate(0, 0.0125, z));
+  const merged = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/** Rocher : icosaedre subdivise, bossele par un tirage fixe. */
+function rockGeometry(rng: () => number): THREE.BufferGeometry {
+  const geo = new THREE.IcosahedronGeometry(0.42, 1);
+  const pos = geo.getAttribute("position");
+  // Meme bosse pour les sommets confondus : on tire par position arrondie.
+  const bumps = new Map<string, number>();
+  for (let i = 0; i < pos.count; i++) {
+    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
+    let k = bumps.get(key);
+    if (k === undefined) {
+      k = 0.78 + rng() * 0.4;
+      bumps.set(key, k);
+    }
+    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Disque flou (ombre de contact), en niveaux de gris pour un alphaMap. */
+function makeBlobTexture(): THREE.CanvasTexture {
+  const S = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+  const g = ctx.createRadialGradient(S / 2, S / 2, 2, S / 2, S / 2, S / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.55, "rgba(255,255,255,0.55)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(canvas);
 }

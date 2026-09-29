@@ -17,6 +17,7 @@ import {
   DUEL_HEAD_Y,
   DUEL_HEAD_RADIUS,
   DUEL_NET_HZ,
+  DUEL_LIGHTING,
   type DuelMapId,
   type DuelSide,
   type DuelTheme,
@@ -65,6 +66,7 @@ import {
   makeArenaCeilingTexture,
   makeIslandGroundTexture,
   makeBuildTexture,
+  makeDuelSkyTexture,
 } from "@/lib/duelTextures";
 import {
   createDuelAudio,
@@ -662,10 +664,14 @@ export default function DuelScene({
 
     // ------------------------------------------------------------- la scene
     const scene = new THREE.Scene();
-    // L'ile se joue en plein jour sous un ciel bleu ; les arenes restent sombres.
-    const skyColor = island ? 0x9fd4ff : 0x0d1014;
-    scene.background = new THREE.Color(skyColor);
-    scene.fog = new THREE.Fog(skyColor, (island ? 24 : 16) * DUEL_CELL, (island ? 64 : 30) * DUEL_CELL);
+    // Lumieres, fond et brouillard de chaque decor (DUEL_LIGHTING, duel.ts).
+    // Poussiere et l'ile se jouent dehors : ciel peint avec le soleil a sa
+    // place, brouillard de la couleur de l'horizon (le voile de poussiere).
+    // Les arenes couvertes restent sombres.
+    const lightPlan = DUEL_LIGHTING[theme];
+    const skyTex = lightPlan.openSky ? makeDuelSkyTexture(theme, lightPlan.keyDir) : null;
+    scene.background = skyTex ?? new THREE.Color(lightPlan.background);
+    scene.fog = new THREE.Fog(lightPlan.background, lightPlan.fogNear * DUEL_CELL, lightPlan.fogFar * DUEL_CELL);
 
     const BASE_FOV = 82;
     /** Visee sans lunette : un zoom leger, par le point rouge ou la hausse. */
@@ -690,23 +696,15 @@ export default function DuelScene({
     scene.add(camera);
 
     // Eclairage volontairement simple : l'arene doit rester LISIBLE, c'est
-    // un jeu de tir, pas un jeu d'ambiance.
-    // L'eclairage change avec le lieu : neon bleute dans l'Arene, jour filtre
-    // dans l'Entrepot, lampes chaudes au Gouffre, plein soleil sur Poussiere.
-    const LIGHTS: Record<DuelTheme, { sky: number; ground: number; power: number; key: number; fill: number }> = {
-      arene: { sky: 0xb6c9dd, ground: 0x2a3138, power: 2.7, key: 0xd6f0ff, fill: 0x8fb4d8 },
-      entrepot: { sky: 0xd8dcd6, ground: 0x32332e, power: 2.5, key: 0xfff3d6, fill: 0x9fb0bd },
-      gouffre: { sky: 0x8f8778, ground: 0x1a1714, power: 2.2, key: 0xffd9a0, fill: 0x6d7a88 },
-      poussiere: { sky: 0xffe6b8, ground: 0x6b5637, power: 2.8, key: 0xfff0c8, fill: 0xc9b089 },
-      ile: { sky: 0xe8f6ff, ground: 0x4a6a3a, power: 2.6, key: 0xfff4dc, fill: 0xb8d4ea },
-    };
-    const lightPlan = LIGHTS[theme];
-    scene.add(new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.power));
-    const key = new THREE.DirectionalLight(lightPlan.key, 0.9);
-    key.position.set(12, 24, 8);
+    // un jeu de tir, pas un jeu d'ambiance. Mais contraste : une lumiere
+    // principale chaude (soleil, lampes) contre un ciel froid, qui eclaire
+    // seul les faces a l'ombre.
+    scene.add(new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.ambient));
+    const key = new THREE.DirectionalLight(lightPlan.key, lightPlan.keyPower);
+    key.position.set(lightPlan.keyDir[0], lightPlan.keyDir[1], lightPlan.keyDir[2]).multiplyScalar(30);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(lightPlan.fill, 0.5);
-    fill.position.set(-14, 18, -10);
+    const fill = new THREE.DirectionalLight(lightPlan.fill, lightPlan.fillPower);
+    fill.position.set(lightPlan.fillDir[0], lightPlan.fillDir[1], lightPlan.fillDir[2]).multiplyScalar(30);
     scene.add(fill);
     // Lueur du tir : UNE lumiere partagee (4 lumieres dans la scene en tout),
     // presente des le depart et pilotee par son intensite. L'ajouter ou la
@@ -725,9 +723,11 @@ export default function DuelScene({
     const vmCamera = new THREE.PerspectiveCamera(BASE_FOV, camera.aspect, 0.01, 10);
     // Memes lumieres que le decor, tournees a chaque image dans le repere de
     // la vue : l'arme reste eclairee par le « soleil » de la carte.
-    const vmHemi = new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.power);
-    const vmKey = new THREE.DirectionalLight(lightPlan.key, 0.9);
-    const vmFill = new THREE.DirectionalLight(lightPlan.fill, 0.5);
+    // Soleil un peu adouci sur l'arme : elle reste eclairee meme quand le
+    // joueur se tient a l'ombre d'un mur.
+    const vmHemi = new THREE.HemisphereLight(lightPlan.sky, lightPlan.ground, lightPlan.ambient);
+    const vmKey = new THREE.DirectionalLight(lightPlan.key, lightPlan.keyPower * 0.7);
+    const vmFill = new THREE.DirectionalLight(lightPlan.fill, lightPlan.fillPower);
     // L'eclair eclaire aussi le canon et la main qui le tient.
     const vmFlashLight = new THREE.PointLight(0xffb45a, 0, 1.6, 1);
     vmScene.add(vmHemi, vmKey, vmFill, vmFlashLight);
@@ -760,11 +760,12 @@ export default function DuelScene({
 
     // La Zone se joue a ciel ouvert : un plafond sur un terrain de 31x31
     // enfermerait la partie et masquerait les trajectoires de sniper.
+    // Poussiere aussi, sous le ciel du desert.
     const ceilingGeo = new THREE.PlaneGeometry(worldW, worldH);
     const ceilingTex = makeArenaCeilingTexture(mapW, mapH, theme);
     const ceilingMat = new THREE.MeshLambertMaterial({ map: ceilingTex });
     let ceiling: THREE.Mesh | null = null;
-    if (!useZone) {
+    if (!useZone && !lightPlan.openSky) {
       ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
       ceiling.rotation.x = Math.PI / 2;
       ceiling.position.set(worldW / 2, DUEL_WALL_HEIGHT, worldH / 2);
@@ -844,7 +845,8 @@ export default function DuelScene({
       width: mapW,
       height: mapH,
       wallHeight: DUEL_WALL_HEIGHT,
-      ceiling: !useZone,
+      // Pas de plafond sous un ciel ouvert : la grenade passe par-dessus les murs.
+      ceiling: !useZone && !lightPlan.openSky,
       solid: (cx, cz) => solidGrid[cz * mapW + cx] === 1,
     };
     /** Qui a lance : le joueur, un bot, ou l'adversaire en ligne (on ne fait que la montrer). */
@@ -5186,6 +5188,7 @@ export default function DuelScene({
       ceilingGeo.dispose();
       ceilingMat.dispose();
       ceilingTex.dispose();
+      skyTex?.dispose();
       decor?.dispose();
       if (sea) {
         sea.geometry.dispose();

@@ -715,7 +715,7 @@ function paintRock(ctx: Ctx, w: number, h: number, height: Float32Array, seed: n
     // Teinte : brun chaud ou gris froid selon les zones.
     const cool = (tint[p] - 0.5) * 0.25;
     let r = dark[0] + (light[0] - dark[0]) * k;
-    let g = dark[1] + (light[1] - dark[1]) * k;
+    const g = dark[1] + (light[1] - dark[1]) * k;
     let b = dark[2] + (light[2] - dark[2]) * k;
     r *= 1 - cool;
     b *= 1 + cool;
@@ -1775,7 +1775,9 @@ function paintSky(theme: DuelTheme, sun: readonly [number, number, number]): THR
   const horizon: RGB = desert ? [217, 210, 192] : [159, 212, 255];
   const mid: RGB = desert ? [138, 178, 224] : [110, 172, 238];
   const zenith: RGB = desert ? [58, 112, 186] : [48, 116, 206];
-  const below: RGB = desert ? [196, 182, 156] : [120, 170, 205];
+  // Sous l'horizon : la couleur du brouillard, sans couture avec la mer vue
+  // du parachute au-dela de la distance d'affichage.
+  const below: RGB = desert ? [210, 202, 184] : [159, 212, 255];
   const sl = Math.hypot(sun[0], sun[1], sun[2]) || 1;
   const sx = sun[0] / sl;
   const sy = sun[1] / sl;

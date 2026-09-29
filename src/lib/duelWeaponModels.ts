@@ -727,17 +727,21 @@ export function finishGeometry(src: THREE.BufferGeometry, wear: number): THREE.B
   const g = src.index ? src.toNonIndexed() : src;
   if (g !== src) src.dispose();
   if (!g.attributes.normal) g.computeVertexNormals();
-  const pos = g.attributes.position;
-  const nor = g.attributes.normal;
-  const uv = new Float32Array(pos.count * 2);
-  const col = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const nx = Math.abs(nor.getX(i));
-    const ny = Math.abs(nor.getY(i));
-    const nz = Math.abs(nor.getZ(i));
+  const count = g.attributes.position.count;
+  // Lecture directe des tableaux : cette boucle passe sur chaque sommet de
+  // chaque piece, c'est elle qui coutait le plus a la construction.
+  const P = (g.attributes.position as THREE.BufferAttribute).array;
+  const N = (g.attributes.normal as THREE.BufferAttribute).array;
+  const uv = new Float32Array(count * 2);
+  const col = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const x = P[i3];
+    const y = P[i3 + 1];
+    const z = P[i3 + 2];
+    const nx = Math.abs(N[i3]);
+    const ny = Math.abs(N[i3 + 1]);
+    const nz = Math.abs(N[i3 + 2]);
     let u: number;
     let v: number;
     if (nx >= ny && nx >= nz) {

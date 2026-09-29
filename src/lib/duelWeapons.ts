@@ -2,15 +2,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WeaponFoley } from "./duelAudio";
 import type { CasingKind } from "./duelEffects";
-import { CAMOS, type CamoId } from "./duelProfile";
-import {
-  makeCamoTexture,
-  makeGloveTexture,
-  makeGunMetalTexture,
-  makeGunWoodTexture,
-  makePolymerTexture,
-  makeScopeLensTexture,
-} from "./duelTextures";
+import type { CamoId } from "./duelProfile";
+import { makeGloveTexture } from "./duelTextures";
 import { ensureVertexColors, prepareMerge, type Disposer } from "./duelWeaponModels";
 import { buildGunRig, hasGunModel, type GunRig } from "./duelWeaponModelsArsenal";
 
@@ -688,8 +681,10 @@ const DIP_DOWN = new THREE.Vector3(-0.04, -0.34, 0.12);
  * comprendre ce qui se passe (la culasse recule, la pompe fait son
  * aller-retour, le chargeur tombe au rechargement).
  *
- * Tout est dessine ici en boites et cylindres, avec quatre textures peintes
- * au canvas : aucun fichier de modele, aucune image.
+ * Les armes sont dessinees en code, comme sur une planche d'armurier :
+ * profils extrudes et biseautes, pieces tournees, mains gantees (voir
+ * duelWeaponModels et duelWeaponModelsArsenal). Les textures d'usure sont
+ * peintes au canvas : aucun fichier de modele, aucune image.
  */
 /** Habillage d'une arme : camouflage, et couleurs de la tenue sur les mains. */
 export interface WeaponLook {
@@ -709,55 +704,22 @@ export interface WeaponLook {
 const AIM_SIGHT_Y = 0.12 / 0.66;
 
 /**
- * Les anciens modeles, en boites et cylindres : il n'en reste que les poings
- * (la scene les remplace par les couteaux, voir duelKnives) et les armes qui
- * n'ont pas encore leur modele realiste dans duelWeaponModelsArsenal.
+ * L'ancien modele des poings, en boites et cylindres : toutes les armes a feu
+ * ont maintenant leur modele dessine (duelWeaponModelsArsenal), et la scene
+ * tient un couteau a la place des poings (voir duelKnives). On le garde tel
+ * quel pour qui construirait encore l'arme « poings ».
  */
-function buildLegacyRig(id: WeaponId, body: THREE.Group, look: WeaponLook, keep: Disposer): GunRig {
-  const metalTex = keep(makeGunMetalTexture());
-  metalTex.repeat.set(2, 2);
-  const polymerTex = keep(makePolymerTexture());
-  polymerTex.repeat.set(2, 2);
-  const woodTex = keep(makeGunWoodTexture());
+function buildFistsRig(body: THREE.Group, look: WeaponLook, keep: Disposer): GunRig {
   const gloveTex = keep(makeGloveTexture());
-
-  const steel = keep(new THREE.MeshLambertMaterial({ map: metalTex, color: 0x8b939d }));
-  const metal = keep(new THREE.MeshLambertMaterial({ map: metalTex, color: 0x555c65 }));
-  const dark = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x2a2e33 }));
-  const polymer = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x3b4046 }));
-  const wood = keep(new THREE.MeshLambertMaterial({ map: woodTex }));
   const glove = keep(new THREE.MeshLambertMaterial({ map: gloveTex, color: 0x5b636c }));
   const gloveDark = keep(new THREE.MeshLambertMaterial({ map: gloveTex, color: 0x30363c }));
   const sleeve = keep(new THREE.MeshLambertMaterial({ map: gloveTex, color: 0x3a4038 }));
-  const sable = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x9c8155 }));
-  const olive = keep(new THREE.MeshLambertMaterial({ map: polymerTex, color: 0x5d6349 }));
-  const brass = keep(new THREE.MeshLambertMaterial({ color: 0xb08d3a }));
-  const shellRed = keep(new THREE.MeshLambertMaterial({ color: 0xa3261c }));
-  const accent = keep(new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
-  const white = keep(new THREE.MeshBasicMaterial({ color: 0xe8f0f5 }));
 
-  // --- Tenue et camouflage ---
+  // --- Tenue ---
   if (look.sleeve !== undefined) sleeve.color.setHex(look.sleeve);
   if (look.glove !== undefined) {
     glove.color.setHex(look.glove);
     gloveDark.color.copy(glove.color).multiplyScalar(0.55);
-  }
-  const camo = CAMOS[look.camo ?? "standard"];
-  if (camo.colors.length > 0) {
-    // Le motif recouvre toute la garniture (polymere, bois, crosses) ; le
-    // metal reste du metal, sauf pour l'or.
-    const camoTex = keep(makeCamoTexture(camo.colors));
-    camoTex.repeat.set(2, 2);
-    for (const m of [polymer, sable, olive, wood]) {
-      m.map = camoTex;
-      m.color.setHex(0xffffff);
-    }
-    dark.map = camoTex;
-    dark.color.setHex(0x8a8a8a);
-  }
-  if (camo.goldMetal) {
-    steel.color.setHex(0xffd36b);
-    metal.color.setHex(0xd9ab3c);
   }
 
   function box(w: number, h: number, d: number, mat: THREE.Material) {
@@ -769,26 +731,15 @@ function buildLegacyRig(id: WeaponId, body: THREE.Group, look: WeaponLook, keep:
     m.rotation.x = Math.PI / 2;
     return m;
   }
-  function ring(r: number, thick: number, mat: THREE.Material) {
-    const m = new THREE.Mesh(keep(new THREE.TorusGeometry(r, thick, 6, 14)), mat);
-    return m;
-  }
   function put(parent: THREE.Object3D, mesh: THREE.Object3D, x: number, y: number, z: number) {
     mesh.position.set(x, y, z);
     parent.add(mesh);
     return mesh;
   }
-  /** Raccourci : une piece posee directement sur l'arme. */
-  function add(mesh: THREE.Object3D, x: number, y: number, z: number) {
-    return put(body, mesh, x, y, z);
-  }
 
   /**
-   * Une main gantee, doigts replies autour de ce qu'elle tient, avec le
-   * poignet et la manche qui repartent vers l'epaule. L'origine est le centre
-   * de la prise ; les doigts s'enroulent autour de l'axe Y (une poignee
-   * verticale). Pour un garde-main horizontal, on tourne la main d'un quart
-   * de tour autour de X.
+   * Une main gantee, doigts replies, avec le poignet et la manche qui
+   * repartent vers l'epaule. L'origine est le centre de la prise.
    */
   function buildHand(): THREE.Group {
     const h = new THREE.Group();
@@ -807,8 +758,7 @@ function buildLegacyRig(id: WeaponId, body: THREE.Group, look: WeaponLook, keep:
     thumb.rotation.set(-0.3, 0, 0.45);
     const wrist = put(h, tube(0.046, 0.08, gloveDark, 8), 0.02, -0.02, 0.1);
     wrist.rotation.x = Math.PI / 2 + 0.2;
-    // Manche : courte et sombre. Un avant-bras long occupait la moitie de
-    // l'ecran en visee — on n'en garde que le depart, comme dans un vrai FPS.
+    // Manche : courte et sombre, on n'en garde que le depart.
     const cuff = put(h, tube(0.056, 0.04, gloveDark, 8), 0.024, -0.04, 0.145);
     cuff.rotation.x = Math.PI / 2 + 0.25;
     const arm = put(h, tube(0.05, 0.18, sleeve, 8, 0.058), 0.03, -0.075, 0.24);
@@ -816,587 +766,31 @@ function buildLegacyRig(id: WeaponId, body: THREE.Group, look: WeaponLook, keep:
     return h;
   }
 
-  /** Longueur du canon : elle fixe ou se place l'eclair de bouche. */
-  let muzzleZ = -0.6;
-  /** Hauteur de la ligne de mire : en visee, on l'amene au centre de l'ecran. */
-  let sightY = 0.07;
-  /** Rechargement : chargeur, cartouches une a une, barillet, bascule, projectile. */
-  let reloadStyle: ReloadStyle = "chargeur";
-
-  // Pieces mobiles, remplies par chaque arme.
-  let slide: THREE.Object3D | null = null;
-  let pump: THREE.Object3D | null = null;
-  let bolt: THREE.Object3D | null = null;
-  let mag: THREE.Object3D | null = null;
-  /** Barillet du revolver : il tourne d'un sixieme de tour a chaque coup. */
-  let drum: THREE.Object3D | null = null;
-  /** Canons du fusil double : ils basculent autour de la charniere. */
-  let barrels: THREE.Object3D | null = null;
-  /** Hauteur du canon, la ou part l'eclair de bouche. */
-  let muzzleY = 0.014;
   const rightHand = buildHand();
   const leftHand = buildHand();
-
-  // Fenetre d'ejection : chaque arme la place (et la rattache a sa culasse
-  // quand celle-ci bouge), la scene y fait naitre les douilles.
-  const ejectAt = new THREE.Vector3(0.045, 0.02, 0);
-  let ejectParent: THREE.Object3D = body;
-  let casing: CasingKind = "laiton";
-  /**
-   * Rechargement au coup par coup : ou la main gauche apporte les munitions,
-   * dans le repere de son parent (la pompe, les canons ou l'arme).
-   */
-  const dipPort = new THREE.Vector3();
-  /** Ce que la main gauche tient en revenant : cartouche, chargeur rapide. */
-  let carry: THREE.Object3D | null = null;
-  /** La culasse se manoeuvre a la main gauche en fin de rechargement. */
-  let rackHand = false;
-
-  /** Pontet et queue de detente, communs a toutes les armes. */
-  function triggerGuard(y: number, z: number) {
-    add(box(0.052, 0.014, 0.085, dark), 0, y - 0.05, z);
-    add(box(0.05, 0.05, 0.014, dark), 0, y - 0.028, z - 0.04);
-    add(box(0.014, 0.042, 0.016, metal), 0, y - 0.022, z + 0.012);
-  }
-  /** Crosse pistolet : le bloc que la main droite empoigne. */
-  function pistolGrip(x: number, y: number, z: number, tilt: number, mat: THREE.Material, w = 0.07, h = 0.2) {
-    const g = add(box(w, h, 0.095, mat), x, y, z);
-    g.rotation.x = tilt;
-    return g;
-  }
-
-  switch (id) {
-    case "poings": {
-      // Deux poings en garde, le droit devant : c'est lui qui frappe.
-      put(body, rightHand, 0.02, -0.06, -0.08).rotation.set(0.35, -0.25, -0.2);
-      put(body, leftHand, -0.34, -0.1, 0.02).rotation.set(0.45, 0.35, 0.25);
-      muzzleZ = -0.2;
-      sightY = 0.05;
-      break;
-    }
-
-    case "pistolet": {
-      // --- Culasse mobile ---
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.072, 0.075, 0.3, steel), 0, 0.028, -0.05);
-      for (let i = 0; i < 5; i++) put(slide, box(0.076, 0.05, 0.008, metal), 0, 0.028, 0.05 + i * 0.016);
-      put(slide, box(0.03, 0.038, 0.085, dark), 0.038, 0.035, -0.02); // fenetre d'ejection
-      // La douille sort de la fenetre, qui recule avec la culasse.
-      ejectParent = slide;
-      ejectAt.set(0.05, 0.04, -0.02);
-      rackHand = true;
-      put(slide, box(0.014, 0.024, 0.014, dark), 0, 0.075, -0.185); // guidon
-      put(slide, box(0.006, 0.008, 0.006, white), 0, 0.082, -0.19);
-      for (const sx of [-0.024, 0.024]) {
-        put(slide, box(0.014, 0.022, 0.018, dark), sx, 0.073, 0.075);
-        put(slide, box(0.005, 0.007, 0.005, white), sx, 0.079, 0.066);
-      }
-      put(slide, tube(0.015, 0.06, dark), 0, 0.028, -0.2);
-      // --- Carcasse ---
-      add(box(0.066, 0.055, 0.26, polymer), 0, -0.03, -0.02);
-      add(box(0.05, 0.03, 0.09, dark), 0, -0.05, -0.16); // rail sous le canon
-      triggerGuard(-0.03, 0.005);
-      pistolGrip(0, -0.145, 0.055, -0.16, polymer);
-      // --- Chargeur (tombe au rechargement) ---
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      const pmag = put(mag, box(0.052, 0.2, 0.08, metal), 0, -0.15, 0.055);
-      pmag.rotation.x = -0.16;
-      const pbase = put(mag, box(0.066, 0.02, 0.095, dark), 0, -0.248, 0.07);
-      pbase.rotation.x = -0.16;
-      muzzleZ = -0.24;
-      muzzleY = 0.028;
-      sightY = 0.075;
-      // Deux mains : la gauche vient soutenir la droite, comme au stand.
-      put(body, rightHand, 0.01, -0.15, 0.06).rotation.set(-0.16, 0, 0);
-      put(body, leftHand, -0.062, -0.185, 0.02).rotation.set(-0.16, 0.6, 0.4);
-      break;
-    }
-
-    case "mitraillette": {
-      add(box(0.082, 0.1, 0.36, polymer), 0, 0, 0);
-      add(box(0.036, 0.018, 0.3, dark), 0, 0.058, -0.02); // rail
-      for (let i = 0; i < 7; i++) add(box(0.04, 0.026, 0.012, metal), 0, 0.06, -0.14 + i * 0.045);
-      // Poignee d'armement, qui recule avec la culasse.
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.022, 0.022, 0.06, steel), -0.052, 0.035, 0.05);
-      put(slide, box(0.05, 0.03, 0.02, metal), -0.03, 0.035, 0.07);
-      // Garde-main ajoure.
-      add(box(0.08, 0.078, 0.2, metal), 0, -0.018, -0.25);
-      for (let i = 0; i < 3; i++) {
-        add(box(0.086, 0.02, 0.05, dark), 0, 0.005, -0.31 + i * 0.06);
-      }
-      add(tube(0.016, 0.26, steel), 0, 0.012, -0.3);
-      add(tube(0.023, 0.06, metal, 10), 0, 0.012, -0.45);
-      put(body, ring(0.028, 0.006, dark), 0, 0.055, -0.36); // guidon annulaire
-      put(body, ring(0.022, 0.006, dark), 0, 0.06, 0.13); // dioptre arriere
-      // Chargeur droit et long, legerement incline.
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      const smag = put(mag, box(0.058, 0.3, 0.078, metal), 0, -0.2, -0.05);
-      smag.rotation.x = 0.2;
-      for (let i = 0; i < 4; i++) {
-        const rib = put(mag, box(0.062, 0.012, 0.082, dark), 0, -0.1 - i * 0.06, -0.038 - i * 0.012);
-        rib.rotation.x = 0.2;
-      }
-      pistolGrip(0, -0.15, 0.09, -0.2, polymer, 0.068, 0.185);
-      triggerGuard(-0.04, 0.05);
-      // Crosse telescopique.
-      for (const sx of [-0.032, 0.032]) add(tube(0.011, 0.22, metal), sx, 0.005, 0.25);
-      add(box(0.09, 0.115, 0.03, polymer), 0, -0.005, 0.36);
-      muzzleZ = -0.47;
-      sightY = 0.06;
-      ejectAt.set(0.048, 0.02, -0.02);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.15, 0.1).rotation.set(-0.2, 0, 0);
-      put(body, leftHand, -0.01, -0.075, -0.25).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
-      break;
-    }
-
-    case "fusil": {
-      add(box(0.088, 0.105, 0.42, metal), 0, 0, -0.02);
-      add(box(0.038, 0.018, 0.44, dark), 0, 0.062, -0.04);
-      for (let i = 0; i < 9; i++) add(box(0.042, 0.026, 0.012, dark), 0, 0.064, -0.22 + i * 0.045);
-      // Viseur point rouge : c'est lui qu'on amene au centre en visee. Son
-      // embase reste basse, sinon elle bouchait le bas de l'anneau et on ne
-      // voyait plus rien a travers.
-      add(box(0.05, 0.024, 0.075, dark), 0, 0.078, 0.06);
-      put(body, ring(0.032, 0.006, dark), 0, 0.128, 0.03);
-      put(body, ring(0.032, 0.006, dark), 0, 0.128, 0.09);
-      const dot = add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.009, 6, 5)), accent), 0, 0.128, 0.055);
-      dot.name = "dot";
-      // Garde-main ajoure et bloc de gaz.
-      add(box(0.076, 0.082, 0.26, sable), 0, -0.012, -0.32);
-      for (let i = 0; i < 4; i++) add(box(0.082, 0.018, 0.045, dark), 0, -0.012, -0.42 + i * 0.058);
-      add(box(0.032, 0.032, 0.05, metal), 0, 0.05, -0.43);
-      add(tube(0.015, 0.22, steel), 0, 0.012, -0.5);
-      const brake = add(tube(0.026, 0.08, metal, 10), 0, 0.012, -0.62);
-      brake.name = "brake";
-      for (let i = 0; i < 3; i++) add(box(0.056, 0.012, 0.012, dark), 0, 0.012, -0.6 + i * 0.022);
-      // Chargeur courbe : deux troncons legerement inclines.
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      const m1 = put(mag, box(0.056, 0.18, 0.078, sable), 0, -0.13, -0.02);
-      m1.rotation.x = 0.12;
-      const m2 = put(mag, box(0.052, 0.14, 0.072, sable), 0, -0.27, -0.055);
-      m2.rotation.x = 0.4;
-      pistolGrip(0, -0.16, 0.12, -0.22, sable, 0.072, 0.2);
-      triggerGuard(-0.05, 0.08);
-      // Poignee d'armement laterale, solidaire de la culasse.
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.06, 0.022, 0.024, metal), -0.02, 0.056, 0.185);
-      // Crosse reglable avec appui-joue.
-      add(tube(0.028, 0.24, metal), 0, -0.01, 0.28);
-      // Crosse ajouree : deux montants et un appui-joue, pas un pave.
-      add(box(0.056, 0.036, 0.16, sable), 0, 0.048, 0.34);
-      add(box(0.056, 0.036, 0.16, sable), 0, -0.078, 0.34);
-      add(box(0.02, 0.09, 0.03, sable), 0, -0.015, 0.29);
-      add(box(0.062, 0.145, 0.032, dark), 0, -0.015, 0.425);
-      muzzleZ = -0.67;
-      sightY = 0.128;
-      ejectAt.set(0.05, 0.02, 0.02);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.16, 0.13).rotation.set(-0.22, 0, 0);
-      put(body, leftHand, -0.012, -0.075, -0.33).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
-      break;
-    }
-
-    case "pompe": {
-      add(box(0.1, 0.12, 0.26, metal), 0, 0, 0.03);
-      add(box(0.104, 0.03, 0.26, steel), 0, 0.05, 0.03); // nervure superieure
-      add(box(0.034, 0.045, 0.1, dark), 0.052, 0.01, 0.02); // fenetre d'ejection
-      add(tube(0.032, 0.52, metal, 10), 0, 0.04, -0.42);
-      add(tube(0.024, 0.44, steel), 0, -0.018, -0.38); // tube magasin
-      // La pompe : elle coulisse apres chaque coup, la main gauche dessus.
-      pump = new THREE.Group();
-      add(pump as THREE.Group, 0, -0.015, -0.3);
-      put(pump, box(0.082, 0.088, 0.17, wood), 0, 0, 0);
-      for (let i = 0; i < 5; i++) put(pump, box(0.086, 0.012, 0.014, dark), 0, 0.01 - i * 0.022, 0);
-      // Crosse en noyer, avec cartouches de rechange sur le cote.
-      const stock = add(box(0.085, 0.115, 0.28, wood), 0, -0.07, 0.3);
-      stock.rotation.x = 0.12;
-      add(box(0.072, 0.105, 0.13, wood), 0, -0.06, 0.16);
-      add(box(0.095, 0.13, 0.035, dark), 0, -0.095, 0.44);
-      for (let i = 0; i < 4; i++) {
-        const shell = add(tube(0.016, 0.055, i % 2 === 0 ? brass : accent), 0.056, -0.03 - i * 0.008, 0.24 + i * 0.05);
-        shell.rotation.x = Math.PI / 2 + 0.1;
-      }
-      triggerGuard(-0.03, 0.12);
-      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.012, 6, 5)), brass), 0, 0.078, -0.66); // guidon bille
-      muzzleZ = -0.74;
-      sightY = 0.078;
-      reloadStyle = "cartouches";
-      casing = "coque";
-      ejectAt.set(0.058, 0.01, 0.02);
-      // Les cartouches entrent par la trappe sous la carcasse ; la main est
-      // fille de la pompe, d'ou le decalage.
-      dipPort.set(0, -0.1, 0.02).sub(pump.position);
-      carry = put(leftHand, tube(0.016, 0.06, shellRed), 0, -0.012, -0.035);
-      put(body, rightHand, 0.01, -0.125, 0.16).rotation.set(-0.12, 0, 0);
-      // La main gauche est fille de la pompe : elle coulisse avec elle.
-      put(pump, leftHand, -0.012, -0.055, 0.01).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
-      break;
-    }
-
-    case "revolver": {
-      add(box(0.062, 0.075, 0.15, steel), 0, 0.02, 0);
-      add(tube(0.022, 0.27, steel, 10), 0, 0.034, -0.2);
-      add(box(0.02, 0.022, 0.27, metal), 0, 0.064, -0.2); // nervure du canon
-      add(box(0.012, 0.028, 0.014, dark), 0, 0.085, -0.32); // guidon
-      add(box(0.006, 0.008, 0.006, white), 0, 0.094, -0.325);
-      add(box(0.032, 0.014, 0.02, dark), 0, 0.068, 0.06); // cran de mire
-      add(tube(0.012, 0.2, metal), 0, 0.002, -0.18); // tige d'ejecteur
-      drum = new THREE.Group();
-      add(drum as THREE.Group, 0, 0.022, -0.02);
-      put(drum, tube(0.05, 0.1, metal, 6), 0, 0, 0);
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-        put(drum, box(0.014, 0.014, 0.102, dark), Math.cos(a) * 0.046, Math.sin(a) * 0.046, 0);
-      }
-      const hammer = add(box(0.016, 0.042, 0.03, dark), 0, 0.066, 0.078);
-      hammer.rotation.x = -0.45;
-      triggerGuard(-0.005, 0.02);
-      pistolGrip(0, -0.115, 0.09, -0.38, wood, 0.058, 0.17);
-      muzzleZ = -0.35;
-      muzzleY = 0.034;
-      sightY = 0.09;
-      // Le barillet bascule a gauche, les douilles tombent, un chargeur rapide
-      // remet les six balles d'un coup.
-      reloadStyle = "barillet";
-      ejectParent = drum;
-      ejectAt.set(0, 0, 0.055);
-      dipPort.set(-0.075, -0.01, 0.075);
-      carry = put(leftHand, tube(0.042, 0.035, brass, 6), 0, -0.012, -0.04);
-      put(body, rightHand, 0.01, -0.125, 0.1).rotation.set(-0.38, 0, 0);
-      put(body, leftHand, -0.062, -0.155, 0.06).rotation.set(-0.32, 0.6, 0.4);
-      break;
-    }
-
-    case "pm": {
-      add(box(0.078, 0.1, 0.26, metal), 0, 0, -0.02);
-      add(box(0.07, 0.03, 0.2, dark), 0, 0.062, -0.02);
-      add(tube(0.015, 0.1, steel), 0, 0.01, -0.2);
-      add(tube(0.022, 0.04, dark, 8), 0, 0.01, -0.255);
-      put(body, ring(0.02, 0.005, dark), 0, 0.09, -0.12);
-      add(box(0.03, 0.02, 0.02, dark), 0, 0.086, 0.08);
-      // Levier d'armement sur le dessus : il claque en arriere a chaque coup.
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.024, 0.022, 0.04, steel), 0, 0.087, 0.02);
-      pistolGrip(0, -0.12, 0.03, -0.08, polymer, 0.066, 0.17);
-      // Chargeur dans la poignee, qui depasse longuement dessous.
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, box(0.05, 0.3, 0.06, steel), 0, -0.2, 0.036).rotation.x = -0.08;
-      put(mag, box(0.058, 0.022, 0.07, dark), 0, -0.352, 0.048).rotation.x = -0.08;
-      triggerGuard(-0.04, -0.04);
-      // Crosse en fil d'acier, repliee le long du boitier.
-      for (const sx of [-0.046, 0.046]) add(tube(0.007, 0.26, steel), sx, 0.01, 0.1);
-      add(box(0.1, 0.012, 0.02, steel), 0, 0.01, 0.23);
-      muzzleZ = -0.29;
-      muzzleY = 0.01;
-      sightY = 0.095;
-      ejectAt.set(0.045, 0.03, -0.02);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.12, 0.035).rotation.set(-0.08, 0, 0);
-      put(body, leftHand, -0.012, -0.07, -0.13).rotation.set(Math.PI / 2 - 0.15, 0.2, 0.25);
-      break;
-    }
-
-    case "mitrailleuse": {
-      add(box(0.11, 0.13, 0.48, metal), 0, 0, 0);
-      add(box(0.115, 0.03, 0.3, steel), 0, 0.078, 0.02); // couvercle d'alimentation
-      add(tube(0.03, 0.62, metal, 10), 0, 0.02, -0.52);
-      // Ailettes de refroidissement autour du canon.
-      for (let i = 0; i < 5; i++) add(tube(0.038, 0.02, dark, 10), 0, 0.02, -0.34 - i * 0.06);
-      add(tube(0.035, 0.08, dark, 10), 0, 0.02, -0.86);
-      // Poignee de transport.
-      add(box(0.02, 0.07, 0.02, dark), 0, 0.12, -0.24);
-      add(box(0.02, 0.07, 0.02, dark), 0, 0.12, -0.08);
-      add(box(0.024, 0.02, 0.2, polymer), 0, 0.158, -0.16);
-      add(box(0.014, 0.05, 0.016, dark), 0, 0.075, -0.8); // guidon
-      add(box(0.036, 0.03, 0.02, dark), 0, 0.105, 0.15); // hausse
-      add(box(0.092, 0.075, 0.24, polymer), 0, -0.04, -0.3);
-      for (const sx of [-0.032, 0.032]) {
-        const leg = add(tube(0.01, 0.3, dark), sx, -0.055, -0.62);
-        leg.rotation.x = Math.PI / 2 + 0.12;
-      }
-      // Boite a munitions a gauche, et la bande de cartouches qui entre.
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, box(0.13, 0.17, 0.15, olive), -0.03, -0.15, 0.02);
-      for (let i = 0; i < 6; i++) put(mag, box(0.012, 0.012, 0.05, brass), -0.1 + i * 0.013, -0.045, 0.02);
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.05, 0.022, 0.026, steel), 0.07, 0.02, -0.05);
-      pistolGrip(0, -0.17, 0.17, -0.22, polymer, 0.074, 0.2);
-      triggerGuard(-0.065, 0.12);
-      add(box(0.08, 0.14, 0.28, polymer), 0, -0.03, 0.4);
-      add(box(0.086, 0.15, 0.03, dark), 0, -0.03, 0.555);
-      muzzleZ = -0.92;
-      muzzleY = 0.02;
-      sightY = 0.105;
-      reloadStyle = "chargeur";
-      casing = "long";
-      ejectAt.set(0.062, -0.01, -0.02);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
-      put(body, leftHand, -0.012, -0.1, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.25, 0.3);
-      break;
-    }
-
-    case "carabine": {
-      add(box(0.08, 0.1, 0.4, metal), 0, 0, 0);
-      add(tube(0.018, 0.5, steel, 10), 0, 0.012, -0.44);
-      add(tube(0.028, 0.06, dark, 10), 0, 0.012, -0.72);
-      // Lunette compacte, grossissement x2.
-      add(tube(0.034, 0.22, dark, 12), 0, 0.12, -0.02);
-      add(tube(0.043, 0.05, dark, 12), 0, 0.12, -0.14);
-      for (const z of [-0.07, 0.04]) add(box(0.026, 0.05, 0.026, metal), 0, 0.075, z);
-      const smallLens = keep(new THREE.MeshBasicMaterial({ map: keep(makeScopeLensTexture()) }));
-      add(new THREE.Mesh(keep(new THREE.CircleGeometry(0.032, 14)), smallLens), 0, 0.12, 0.092);
-      // Bois pour le garde-main et la crosse : c'est une arme de chasseur.
-      add(box(0.074, 0.08, 0.3, wood), 0, -0.015, -0.3);
-      const dstock = add(box(0.07, 0.13, 0.32, wood), 0, -0.05, 0.36);
-      dstock.rotation.x = 0.1;
-      add(box(0.074, 0.14, 0.03, dark), 0, -0.07, 0.52);
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.05, 0.02, 0.022, steel), 0.05, 0.03, 0.08);
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, box(0.05, 0.14, 0.09, metal), 0, -0.11, -0.04);
-      pistolGrip(0, -0.15, 0.15, -0.3, wood, 0.068, 0.18);
-      triggerGuard(-0.05, 0.1);
-      muzzleZ = -0.76;
-      muzzleY = 0.012;
-      sightY = 0.12;
-      casing = "long";
-      ejectAt.set(0.046, 0.02, 0.04);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.15, 0.16).rotation.set(-0.3, 0, 0);
-      put(body, leftHand, -0.012, -0.07, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
-      break;
-    }
-
-    case "sniper": {
-      add(box(0.085, 0.11, 0.42, dark), 0, 0, 0.02);
-      add(tube(0.026, 0.62, metal, 10), 0, 0.012, -0.5);
-      for (let i = 0; i < 4; i++) {
-        const flute = add(box(0.01, 0.01, 0.4, steel), Math.cos((i / 4) * Math.PI * 2) * 0.024, 0.012 + Math.sin((i / 4) * Math.PI * 2) * 0.024, -0.46);
-        flute.name = "flute";
-      }
-      add(tube(0.036, 0.09, steel, 10), 0, 0.012, -0.86);
-      for (let i = 0; i < 3; i++) add(box(0.078, 0.012, 0.014, dark), 0, 0.012, -0.84 + i * 0.024);
-      // Lunette : corps, cloche avant, bagues, et le verre avec son reticule.
-      add(tube(0.042, 0.34, dark, 12), 0, 0.14, -0.08);
-      add(tube(0.052, 0.08, dark, 12), 0, 0.14, -0.26);
-      add(tube(0.046, 0.06, dark, 12), 0, 0.14, 0.07);
-      for (const z of [-0.02, 0.06]) {
-        const r = put(body, ring(0.05, 0.012, metal), 0, 0.14, z);
-        r.rotation.y = Math.PI / 2;
-        r.rotation.x = Math.PI / 2;
-      }
-      add(box(0.03, 0.06, 0.03, metal), 0, 0.1, -0.02);
-      add(box(0.03, 0.06, 0.03, metal), 0, 0.1, 0.06);
-      add(tube(0.022, 0.05, metal), 0.045, 0.16, -0.08).rotation.z = Math.PI / 2; // tourelle
-      const lensMat = keep(new THREE.MeshBasicMaterial({ map: keep(makeScopeLensTexture()) }));
-      const lens = add(new THREE.Mesh(keep(new THREE.CircleGeometry(0.042, 16)), lensMat), 0, 0.14, 0.1);
-      lens.name = "lens";
-      const front = add(new THREE.Mesh(keep(new THREE.CircleGeometry(0.048, 16)), lensMat), 0, 0.14, -0.3);
-      front.rotation.y = Math.PI;
-      // Levier de culasse : il se releve et recule apres chaque tir.
-      bolt = new THREE.Group();
-      add(bolt as THREE.Group, 0.042, 0.02, 0.14);
-      const lever = put(bolt, box(0.02, 0.02, 0.1, steel), 0.03, 0, 0.02);
-      lever.rotation.y = -0.35;
-      put(bolt, new THREE.Mesh(keep(new THREE.SphereGeometry(0.024, 8, 6)), steel), 0.062, 0, 0.06);
-      // Crosse a trou de pouce, appui-joue reglable.
-      // Crosse a trou de pouce : deux branches et un appui-joue.
-      add(box(0.075, 0.05, 0.36, olive), 0, 0.02, 0.32);
-      add(box(0.075, 0.055, 0.3, olive), 0, -0.115, 0.34);
-      add(box(0.07, 0.11, 0.05, olive), 0, -0.05, 0.47);
-      add(box(0.062, 0.05, 0.2, dark), 0, 0.055, 0.3);
-      add(box(0.085, 0.17, 0.035, dark), 0, -0.05, 0.5);
-      add(box(0.05, 0.06, 0.1, olive), 0, -0.135, 0.2);
-      pistolGrip(0, -0.17, 0.17, -0.22, olive, 0.074, 0.21);
-      triggerGuard(-0.06, 0.13);
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, box(0.052, 0.14, 0.11, metal), 0, -0.12, -0.05);
-      // Bipied replie sous le canon.
-      for (const sx of [-0.028, 0.028]) {
-        const leg = add(tube(0.009, 0.22, dark), sx, -0.035, -0.5);
-        leg.rotation.x = Math.PI / 2 + 0.25;
-      }
-      muzzleZ = -0.92;
-      sightY = 0.14;
-      casing = "long";
-      ejectAt.set(0.048, 0.025, 0.08);
-      put(body, rightHand, 0.01, -0.17, 0.18).rotation.set(-0.22, 0, 0);
-      put(body, leftHand, -0.012, -0.07, -0.26).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
-      break;
-    }
-
-    case "rafale": {
-      // Boitier carene et compact, viseur holographique : un fusil moderne.
-      add(box(0.09, 0.115, 0.44, polymer), 0, 0, 0.02);
-      add(box(0.094, 0.028, 0.42, dark), 0, 0.068, 0);
-      add(box(0.05, 0.024, 0.1, dark), 0, 0.082, 0.04); // embase du viseur
-      put(body, ring(0.028, 0.006, dark), 0, 0.132, 0.04);
-      add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.008, 6, 5)), accent), 0, 0.132, 0.06).name = "dot";
-      add(box(0.08, 0.085, 0.16, dark), 0, -0.01, -0.28);
-      for (let i = 0; i < 3; i++) add(box(0.086, 0.014, 0.03, metal), 0, -0.01, -0.33 + i * 0.05);
-      add(tube(0.017, 0.2, steel), 0, 0.012, -0.36);
-      add(tube(0.026, 0.07, dark, 10), 0, 0.012, -0.48);
-      slide = new THREE.Group();
-      add(slide as THREE.Group, 0, 0, 0);
-      put(slide, box(0.05, 0.02, 0.022, steel), -0.05, 0.03, -0.1);
-      // Chargeur derriere la poignee (bullpup).
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, box(0.056, 0.19, 0.075, metal), 0, -0.13, 0.15).rotation.x = 0.1;
-      pistolGrip(0, -0.15, -0.02, -0.2, polymer, 0.07, 0.19);
-      triggerGuard(-0.05, -0.06);
-      add(box(0.092, 0.14, 0.04, dark), 0, -0.02, 0.26);
-      muzzleZ = -0.52;
-      muzzleY = 0.012;
-      sightY = 0.132;
-      // Bullpup : la fenetre d'ejection est derriere la poignee.
-      ejectAt.set(0.05, 0.02, 0.12);
-      rackHand = true;
-      put(body, rightHand, 0.01, -0.15, -0.01).rotation.set(-0.2, 0, 0);
-      put(body, leftHand, -0.012, -0.075, -0.29).rotation.set(Math.PI / 2 - 0.1, 0.22, 0.28);
-      break;
-    }
-
-    case "double": {
-      // Deux canons cote a cote, bois vernis, deux chiens : l'arme de ferme.
-      add(box(0.1, 0.1, 0.2, metal), 0, 0, 0.05);
-      // Canons, bande et devant forment un bloc qui bascule autour de la
-      // charniere, a l'avant de la bascule : c'est ainsi qu'on le recharge.
-      const hy = -0.03;
-      const hz = -0.05;
-      const bar = new THREE.Group();
-      barrels = bar;
-      add(bar, 0, hy, hz);
-      for (const sx of [-0.024, 0.024]) put(bar, tube(0.024, 0.62, steel, 10), sx, 0.035 - hy, -0.37 - hz);
-      put(bar, box(0.02, 0.012, 0.6, metal), 0, 0.064 - hy, -0.36 - hz); // bande de visee
-      put(bar, new THREE.Mesh(keep(new THREE.SphereGeometry(0.012, 6, 5)), brass), 0, 0.075 - hy, -0.66 - hz);
-      put(bar, box(0.09, 0.07, 0.3, wood), 0, -0.012 - hy, -0.25 - hz); // devant
-      // Les douilles sautent de la culasse ouverte, au-dessus de la charniere.
-      ejectParent = bar;
-      ejectAt.set(0, 0.035 - hy, -0.03 - hz);
-      dipPort.set(0, 0.075 - hy, 0.02 - hz);
-      add(box(0.066, 0.09, 0.14, wood), 0, -0.04, 0.17); // poignee anglaise
-      const dstock = add(box(0.08, 0.12, 0.34, wood), 0, -0.075, 0.34);
-      dstock.rotation.x = 0.14;
-      add(box(0.09, 0.14, 0.03, dark), 0, -0.1, 0.5);
-      for (const sx of [-0.028, 0.028]) {
-        const hammer = add(box(0.014, 0.04, 0.026, dark), sx, 0.06, 0.13);
-        hammer.rotation.x = -0.4;
-      }
-      triggerGuard(-0.03, 0.12);
-      muzzleZ = -0.69;
-      muzzleY = 0.035;
-      sightY = 0.075;
-      reloadStyle = "bascule";
-      casing = "coque";
-      carry = put(leftHand, tube(0.016, 0.06, shellRed), 0, -0.012, -0.035);
-      put(body, rightHand, 0.01, -0.12, 0.17).rotation.set(-0.14, 0, 0);
-      // La main gauche tient le devant : elle suit les canons quand ils basculent.
-      put(bar, leftHand, -0.012, -0.075 - hy, -0.25 - hz).rotation.set(Math.PI / 2 - 0.12, 0.2, 0.2);
-      break;
-    }
-
-    case "arbalete": {
-      // Fut en bois, arc en travers, corde tendue et carreau pose dessus.
-      add(box(0.07, 0.08, 0.62, wood), 0, 0, -0.1);
-      add(box(0.03, 0.02, 0.5, metal), 0, 0.05, -0.15); // rail du carreau
-      add(box(0.09, 0.05, 0.06, metal), 0, 0.02, -0.4); // etrier de l'arc
-      // Les branches reculent vers le tireur : la corde est armee.
-      add(box(0.34, 0.03, 0.045, dark), -0.17, 0.03, -0.4).rotation.y = 0.35;
-      add(box(0.34, 0.03, 0.045, dark), 0.17, 0.03, -0.4).rotation.y = -0.35;
-      const cord = keep(new THREE.MeshLambertMaterial({ color: 0xd9d2c0 }));
-      add(box(0.46, 0.006, 0.006, cord), 0.165, 0.04, -0.18).rotation.y = 0.773;
-      add(box(0.46, 0.006, 0.006, cord), -0.165, 0.04, -0.18).rotation.y = -0.773;
-      // Le carreau : il part au tir et un neuf revient au rechargement.
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, tube(0.008, 0.42, steel), 0, 0.072, -0.22);
-      put(mag, box(0.02, 0.02, 0.05, metal), 0, 0.072, -0.45);
-      put(mag, box(0.002, 0.03, 0.06, accent), 0, 0.09, -0.02);
-      put(mag, box(0.03, 0.002, 0.06, accent), 0, 0.072, -0.02);
-      // Petit viseur et crosse.
-      add(box(0.02, 0.04, 0.02, dark), 0, 0.08, 0.08);
-      put(body, ring(0.022, 0.005, dark), 0, 0.11, 0.08);
-      const cstock = add(box(0.07, 0.13, 0.26, wood), 0, -0.06, 0.33);
-      cstock.rotation.x = 0.12;
-      add(box(0.074, 0.14, 0.03, dark), 0, -0.08, 0.47);
-      pistolGrip(0, -0.13, 0.13, -0.25, wood, 0.064, 0.17);
-      triggerGuard(-0.04, 0.1);
-      muzzleZ = -0.45;
-      muzzleY = 0.07;
-      sightY = 0.11;
-      // Un carreau neuf, pose a la main sur le rail.
-      reloadStyle = "projectile";
-      dipPort.set(-0.02, -0.03, 0.02);
-      put(body, rightHand, 0.01, -0.13, 0.13).rotation.set(-0.25, 0, 0);
-      put(body, leftHand, -0.012, -0.065, -0.3).rotation.set(Math.PI / 2 - 0.1, 0.2, 0.25);
-      break;
-    }
-
-    case "roquettes": {
-      // Un tube sur l'epaule, deux poignees, la roquette depasse devant.
-      // Le tube est avance : son culot pres de l'oeil bouchait le coin de l'ecran.
-      add(tube(0.075, 0.95, olive, 14), 0, 0.02, -0.3);
-      add(tube(0.085, 0.08, dark, 14), 0, 0.02, -0.76);
-      add(tube(0.088, 0.08, dark, 14, 0.072), 0, 0.02, 0.18);
-      for (const z of [-0.5, -0.1]) add(tube(0.08, 0.03, dark, 14), 0, 0.02, z);
-      add(box(0.04, 0.07, 0.09, dark), -0.1, 0.07, -0.22); // viseur lateral
-      add(box(0.012, 0.012, 0.012, accent), -0.1, 0.11, -0.22);
-      add(box(0.05, 0.15, 0.05, dark), 0, -0.12, -0.26); // poignee avant
-      pistolGrip(0, -0.14, 0.03, -0.15, dark, 0.07, 0.18);
-      triggerGuard(-0.07, -0.01);
-      mag = new THREE.Group();
-      add(mag as THREE.Group, 0, 0, 0);
-      put(mag, tube(0.052, 0.14, sable, 12), 0, 0.02, -0.82);
-      const tip = put(mag, new THREE.Mesh(keep(new THREE.ConeGeometry(0.055, 0.17, 12)), olive), 0, 0.02, -0.97);
-      tip.rotation.x = -Math.PI / 2;
-      muzzleZ = -0.82;
-      muzzleY = 0.02;
-      sightY = 0.11;
-      // Une roquette neuve, enfoncee par l'avant du tube.
-      reloadStyle = "projectile";
-      dipPort.set(-0.05, -0.07, 0.05);
-      put(body, rightHand, 0.01, -0.14, 0.03).rotation.set(-0.15, 0, 0);
-      put(body, leftHand, 0, -0.12, -0.26).rotation.set(-0.1, 0, 0);
-      break;
-    }
-  }
+  // Deux poings en garde, le droit devant : c'est lui qui frappe.
+  put(body, rightHand, 0.02, -0.06, -0.08).rotation.set(0.35, -0.25, -0.2);
+  put(body, leftHand, -0.34, -0.1, 0.02).rotation.set(0.45, 0.35, 0.25);
 
   return {
     rightHand,
     leftHand,
-    slide,
-    pump,
-    bolt,
-    mag,
-    drum,
-    barrels,
-    muzzleZ,
-    muzzleY,
-    sightY,
-    reloadStyle,
-    casing,
-    ejectParent,
-    ejectAt,
-    dipPort,
-    carry,
-    rackHand,
+    slide: null,
+    pump: null,
+    bolt: null,
+    mag: null,
+    drum: null,
+    barrels: null,
+    muzzleZ: -0.2,
+    muzzleY: 0.014,
+    sightY: 0.05,
+    reloadStyle: "chargeur",
+    casing: "laiton",
+    ejectParent: body,
+    ejectAt: new THREE.Vector3(0.045, 0.02, 0),
+    dipPort: new THREE.Vector3(),
+    carry: null,
+    rackHand: false,
     magGrip: new THREE.Vector3(-0.045, -0.02, 0.02),
     grabRot: new THREE.Vector3(-0.15, 0.9, 0.25),
     handleRot: (side: number) => new THREE.Vector3(-0.15, -side * 0.9, -side * 0.25),
@@ -1420,7 +814,7 @@ export function buildWeaponModel(id: WeaponId, look: WeaponLook = {}): WeaponMod
   // Fenetre d'ejection : chaque arme la place (et la rattache a sa culasse
   // quand celle-ci bouge), la scene y fait naitre les douilles.
   const ejectPort = new THREE.Object3D();
-  const rig = hasGunModel(id) ? buildGunRig(id, body, look, keep) : buildLegacyRig(id, body, look, keep);
+  const rig = hasGunModel(id) ? buildGunRig(id, body, look, keep) : buildFistsRig(body, look, keep);
   const { rightHand, leftHand, slide, pump, bolt, mag, drum, barrels, muzzleZ, muzzleY, reloadStyle } = rig;
   const { casing, ejectParent, dipPort, carry, rackHand } = rig;
   /** Hauteur de la ligne de mire : en visee, on l'amene au centre de l'ecran. */
