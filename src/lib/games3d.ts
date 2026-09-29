@@ -85,6 +85,25 @@ export const GAMES_3D: Game3D[] = [
     featured: true,
   },
   {
+    // Jeu externe (d'apres Claude of Duty, licence MIT) : construit a part dans
+    // jeux-externes/front-urbain et affiche en iframe par FrontUrbainGame.
+    slug: "front-urbain",
+    title: "Front Urbain",
+    description:
+      "Tir tactique à la première personne dans une rue de marché. Six soldats ennemis patrouillent, se mettent à couvert et te prennent à revers : avance de mur en mur, glisse, penche-toi aux angles et recharge au bon moment. Les balles traversent le bois et la tôle, pas le béton. Un jeu très détaillé, plus à l'aise sur un ordinateur récent.",
+    emoji: "🪖",
+    gradient: "from-orange-800 to-stone-950",
+    genre: "Tir tactique",
+    players: "Solo",
+    duration: "5 à 15 min",
+    highlights: [
+      "Ennemis qui se couvrent et contournent",
+      "Glissade, escalade, se pencher",
+      "Trois armes réalistes",
+      "Qualité graphique réglable",
+    ],
+  },
+  {
     slug: "manoir-maudit",
     title: "Le Manoir Maudit",
     description:

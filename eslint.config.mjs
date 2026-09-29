@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Jeux externes (Front Urbain) : sources Vite a part et version construite,
+    // hors du perimetre du lint du site.
+    "jeux-externes/**",
+    "public/jeux/**",
   ]),
 ]);
 

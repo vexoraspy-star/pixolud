@@ -1,0 +1,19 @@
+{
+  "name": "front-urbain",
+  "version": "1.0.0",
+  "description": "Front Urbain : jeu de tir tactique de Pixolud, d'apres Claude of Duty (licence MIT).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
+  },
+  "private": true
+}

@@ -69,6 +69,13 @@ peuvent pas créer de jeux 3D. Le catalogue est la constante `GAMES_3D` de `src/
 `src/app/mode-3d/[slug]/page.tsx` distribue vers un composant dédié. Ne pas recâbler ces jeux dans
 `CATEGORIES`/`GAME_TYPES`.
 
+**Exception : Front Urbain** (`front-urbain`) est une copie adaptée du projet libre Claude of Duty
+(licence MIT, à garder avec le jeu), voulue par le propriétaire. Ses sources Vite sont dans
+`jeux-externes/front-urbain/` (voir son README pour reconstruire) et la version construite dans
+`public/jeux/front-urbain/`, affichée en iframe par `FrontUrbainGame`. Il garde son propre moteur
+(PBR, ombres, `requestAnimationFrame`) : les conventions ci-dessous ne s'y appliquent pas, et le lint
+du site l'ignore.
+
 Conventions Three.js à respecter — chacune vient d'une régression réelle :
 
 - **Boucle de rendu : `setInterval(tick, 16)`, pas `requestAnimationFrame`.** Cadence fixe, et le
