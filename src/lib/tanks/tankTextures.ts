@@ -1,6 +1,16 @@
 import * as THREE from "three";
 import { MAP_HALF, WORLD_HALF, WATER_LEVEL, fbm, groundHeight, type TankMap } from "./tankTerrain";
-import type { TankLook } from "./tankDefs";
+import type { CamoStyle } from "./tankDefs";
+
+/** Peinture d'un char : style et couleurs (celles d'origine ou un camouflage du garage). */
+export interface CamoPaint {
+  style: CamoStyle;
+  color: number;
+  camo: number;
+  camo2?: number;
+  /** Caisse rivetee : des rangees de rivets le long des plaques. */
+  rivets?: boolean;
+}
 
 // Textures de « Tonnerre d'Acier », toutes dessinees au canvas : aucun
 // fichier image. Le sol est peint une fois a partir de la carte (herbe,
@@ -61,17 +71,53 @@ function noiseField(n: number, scale: number, seed: number, octaves = 4): (u: nu
  * Le sol vu de loin : une image de tout le terrain dessine (920 m). Herbe
  * plus ou moins seche, roche dans les pentes, champs, routes de terre,
  * paves du village, vase autour du lac, montagnes en bordure.
+ *
+ * Quatre millions de pixels : on les peint par tranches de lignes en rendant
+ * la main au navigateur entre deux tranches, pour que la page ne se fige
+ * jamais (l'ecran de chargement reste vivant). `ready` se resout quand
+ * l'image est complete.
  */
-export function makeTerrainTexture(map: TankMap, size = 2048): THREE.CanvasTexture {
+export function paintTerrainTexture(map: TankMap, size = 2048): { texture: THREE.CanvasTexture; ready: Promise<void> } {
   const { canvas, ctx } = canvas2d(size, size);
-  const img = ctx.createImageData(size, size);
-  const d = img.data;
-  const rnd = seeded(map.seed + 11);
-  const dry = noiseField(256, 9, map.seed + 101);
-  const patch = noiseField(256, 26, map.seed + 102, 3);
+  const texture = finish(canvas);
+  texture.anisotropy = 8;
+  const ready = new Promise<void>((resolve) => {
+    const img = ctx.createImageData(size, size);
+    const rnd = seeded(map.seed + 11);
+    const dry = noiseField(256, 9, map.seed + 101);
+    const patch = noiseField(256, 26, map.seed + 102, 3);
+    let y = 0;
+    const slice = () => {
+      const end = Math.min(size, y + 40);
+      paintRows(map, img.data, size, y, end, rnd, dry, patch);
+      y = end;
+      if (y < size) {
+        setTimeout(slice, 0);
+        return;
+      }
+      ctx.putImageData(img, 0, 0);
+      paintOverlays(map, ctx, size, rnd);
+      texture.needsUpdate = true;
+      resolve();
+    };
+    slice();
+  });
+  return { texture, ready };
+}
+
+function paintRows(
+  map: TankMap,
+  d: Uint8ClampedArray,
+  size: number,
+  y0: number,
+  y1: number,
+  rnd: () => number,
+  dry: (u: number, v: number) => number,
+  patch: (u: number, v: number) => number,
+) {
   const span = WORLD_HALF * 2;
   const px = span / size;
-  for (let y = 0; y < size; y++) {
+  for (let y = y0; y < y1; y++) {
     const z = -WORLD_HALF + (y + 0.5) * px;
     const v = y / size;
     for (let x = 0; x < size; x++) {
@@ -122,8 +168,11 @@ export function makeTerrainTexture(map: TankMap, size = 2048): THREE.CanvasTextu
       d[i + 3] = 255;
     }
   }
-  ctx.putImageData(img, 0, 0);
+}
 
+/** Par-dessus l'herbe : champs, village, routes, bases, grain fin. */
+function paintOverlays(map: TankMap, ctx: CanvasRenderingContext2D, size: number, rnd: () => number) {
+  const span = WORLD_HALF * 2;
   const toPx = (w: number) => ((w + WORLD_HALF) / span) * size;
   const scale = size / span;
 
@@ -200,10 +249,6 @@ export function makeTerrainTexture(map: TankMap, size = 2048): THREE.CanvasTextu
     ctx.fillStyle = dark ? "rgba(40,48,24,0.16)" : "rgba(220,214,170,0.12)";
     ctx.fillRect(x, y, 1 + rnd() * 2, 1 + rnd() * 2);
   }
-
-  const tex = finish(canvas);
-  tex.anisotropy = 8;
-  return tex;
 }
 
 /**
@@ -252,22 +297,48 @@ export function makeGroundDetailTexture(): THREE.CanvasTexture {
 // ----------------------------------------------------------------- chars
 
 /** Camouflage peint et use d'un char (repete sur la caisse et la tourelle). */
-export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTexture {
+export function makeCamoTexture(look: CamoPaint, seed: number): THREE.CanvasTexture {
   const S = 256;
   const { canvas, ctx } = canvas2d(S, S);
   const rnd = seeded(seed);
   const base = new THREE.Color(look.color);
   const camo = new THREE.Color(look.camo);
+  const camo2 = new THREE.Color(look.camo2 ?? look.camo);
   const css = (c: THREE.Color, a = 1) => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
   ctx.fillStyle = css(base);
   ctx.fillRect(0, 0, S, S);
-  if (look.camoStyle === "taches") {
-    // Taches aux bords irreguliers : des grappes de disques.
-    for (let k = 0; k < 9; k++) {
+  if (look.style === "numerique") {
+    // Camouflage numerique : des pixels de 8 px, groupes en grappes par un
+    // bruit a deux echelles, avec des bords en escalier (sous-pixels de 4 px).
+    const cell = 4;
+    const n = S / cell;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        // On lit le bruit par blocs de 2x2 sous-pixels, avec un peu de hasard : les marches.
+        const bx = Math.floor(x / 2) + (rnd() < 0.18 ? (rnd() < 0.5 ? -1 : 1) : 0);
+        const by = Math.floor(y / 2) + (rnd() < 0.18 ? (rnd() < 0.5 ? -1 : 1) : 0);
+        const a = fbm(bx / 7, by / 7, seed + 3, 3);
+        const b = fbm(bx / 4 + 40, by / 4 + 17, seed + 9, 3);
+        let c: THREE.Color | null = null;
+        if (a > 0.57) c = camo;
+        else if (b > 0.6) c = camo2;
+        else if (a < 0.36 && b < 0.42) c = camo2;
+        if (c) {
+          ctx.fillStyle = css(c);
+          ctx.fillRect(x * cell, y * cell, cell, cell);
+        }
+      }
+    }
+  } else if (look.style === "taches") {
+    // Taches aux bords irreguliers : des grappes de disques. Avec une troisieme
+    // teinte, des taches plus petites et plus sombres par-dessus (trois tons).
+    const three = look.camo2 !== undefined && look.camo2 !== look.camo;
+    for (let k = 0; k < (three ? 14 : 9); k++) {
       const cx = rnd() * S;
       const cy = rnd() * S;
-      const r = 18 + rnd() * 26;
-      ctx.fillStyle = css(camo);
+      const second = three && k >= 9;
+      const r = (second ? 10 : 18) + rnd() * (second ? 16 : 26);
+      ctx.fillStyle = css(second ? camo2 : camo);
       for (let i = 0; i < 14; i++) {
         const a = rnd() * Math.PI * 2;
         const dist = rnd() * r;
@@ -284,8 +355,8 @@ export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTextu
         }
       }
     }
-  } else if (look.camoStyle === "bandes") {
-    // Bandes ondulees en diagonale.
+  } else if (look.style === "bandes") {
+    // Bandes ondulees en diagonale, et une deuxieme teinte plus fine.
     ctx.fillStyle = css(camo);
     for (let k = -2; k < 6; k++) {
       ctx.beginPath();
@@ -296,6 +367,18 @@ export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTextu
       ctx.closePath();
       ctx.fill();
     }
+    if (look.camo2 !== undefined && look.camo2 !== look.camo) {
+      ctx.fillStyle = css(camo2);
+      for (let k = -2; k < 6; k++) {
+        ctx.beginPath();
+        const y0 = k * 60 + 38 + rnd() * 10;
+        ctx.moveTo(0, y0);
+        for (let x = 0; x <= S; x += 16) ctx.lineTo(x, y0 + x * 0.5 + Math.sin(x * 0.07 + k) * 6);
+        for (let x = S; x >= 0; x -= 16) ctx.lineTo(x, y0 + 9 + x * 0.5 + Math.sin(x * 0.05 + k * 3) * 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
   }
   // Usure : taches de boue, poussiere, eclats de peinture.
   for (let k = 0; k < 1400; k++) {
@@ -305,11 +388,13 @@ export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTextu
     ctx.fillStyle = t < 0.5 ? "rgba(40,34,26,0.10)" : t < 0.85 ? "rgba(170,150,110,0.10)" : "rgba(210,200,180,0.18)";
     ctx.fillRect(x, y, 1 + rnd() * 3, 1 + rnd() * 3);
   }
-  // Lignes de soudure et rivets : on sent les plaques d'acier.
+  // Lignes de soudure et rivets : on sent les plaques d'acier. Les memes
+  // positions que la carte de relief (makeReliefTexture) : la peinture et le
+  // relief tombent au meme endroit.
+  const seams = seamPositions(seed, S);
   ctx.strokeStyle = "rgba(20,20,16,0.25)";
   ctx.lineWidth = 1;
-  for (let k = 0; k < 3; k++) {
-    const p = (k + 1) * (S / 4) + (rnd() - 0.5) * 12;
+  for (const p of seams) {
     ctx.beginPath();
     ctx.moveTo(p, 0);
     ctx.lineTo(p, S);
@@ -320,10 +405,22 @@ export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTextu
     ctx.stroke();
   }
   ctx.fillStyle = "rgba(18,18,14,0.35)";
-  for (let k = 0; k < 60; k++) {
-    ctx.beginPath();
-    ctx.arc(rnd() * S, rnd() * S, 1.1, 0, Math.PI * 2);
-    ctx.fill();
+  if (look.rivets) {
+    // Caisse rivetee : des rangees regulieres le long des plaques.
+    for (const p of seams) {
+      for (let s = 4; s < S; s += 11) {
+        ctx.beginPath();
+        ctx.arc(p + 4, s, 1.6, 0, Math.PI * 2);
+        ctx.arc(s, p + 4, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else {
+    for (let k = 0; k < 60; k++) {
+      ctx.beginPath();
+      ctx.arc(rnd() * S, rnd() * S, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   // Coulures de rouille sous les rivets.
   for (let k = 0; k < 18; k++) {
@@ -338,27 +435,151 @@ export function makeCamoTexture(look: TankLook, seed: number): THREE.CanvasTextu
   return finish(canvas, true);
 }
 
+/** Position des joints de plaques sur une texture de char (partagee peinture / relief). */
+function seamPositions(seed: number, S: number): number[] {
+  const rnd = seeded(seed * 7 + 77);
+  return [0, 1, 2].map((k) => (k + 1) * (S / 4) + (rnd() - 0.5) * 12);
+}
+
+/**
+ * Relief de l'acier (carte de bosses, en gris) : grain de fonte, joints de
+ * plaques en creux bordes d'un cordon de soudure, rivets, coups et eraflures.
+ * Meme repetition que le camouflage, pour que les joints tombent au meme endroit.
+ */
+export function makeReliefTexture(seed: number, rivets: boolean): THREE.CanvasTexture {
+  const S = 256;
+  const { canvas, ctx } = canvas2d(S, S);
+  const rnd = seeded(seed + 501);
+  const grain = noiseField(64, 12, seed + 502, 3);
+  const img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const v = 128 + (grain(x / S, y / S) - 0.5) * 34 + (rnd() - 0.5) * 10;
+      const i = (y * S + x) * 4;
+      img.data[i] = v;
+      img.data[i + 1] = v;
+      img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Joints : un creux, et le cordon de soudure en relief a cote.
+  for (const p of seamPositions(seed, S)) {
+    ctx.fillStyle = "rgb(70,70,70)";
+    ctx.fillRect(p - 1, 0, 2, S);
+    ctx.fillRect(0, p - 1, S, 2);
+    ctx.fillStyle = "rgb(190,190,190)";
+    ctx.fillRect(p + 1, 0, 2, S);
+    ctx.fillRect(0, p + 1, S, 2);
+    if (rivets) {
+      for (let s = 4; s < S; s += 11) {
+        for (const [x, y] of [
+          [p + 4, s],
+          [s, p + 4],
+        ]) {
+          const g = ctx.createRadialGradient(x, y, 0, x, y, 3);
+          g.addColorStop(0, "rgb(235,235,235)");
+          g.addColorStop(0.6, "rgb(180,180,180)");
+          g.addColorStop(1, "rgba(128,128,128,0)");
+          ctx.fillStyle = g;
+          ctx.fillRect(x - 3, y - 3, 6, 6);
+        }
+      }
+    }
+  }
+  // Coups d'obus et eraflures : de petits creux ronds et des traits.
+  for (let k = 0; k < 14; k++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 2 + rnd() * 4;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "rgb(60,60,60)");
+    g.addColorStop(0.7, "rgb(110,110,110)");
+    g.addColorStop(1, "rgba(128,128,128,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(90,90,90,0.8)";
+  ctx.lineWidth = 1;
+  for (let k = 0; k < 24; k++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const a = rnd() * Math.PI;
+    const l = 6 + rnd() * 18;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    ctx.stroke();
+  }
+  return finish(canvas, true, false);
+}
+
+/**
+ * Numero tactique peint au pochoir sur les flancs de tourelle (fond
+ * transparent), un peu use.
+ */
+export function makeNumberTexture(text: string, color: string, seed: number): THREE.CanvasTexture {
+  const W = 128;
+  const H = 64;
+  const { canvas, ctx } = canvas2d(W, H);
+  const rnd = seeded(seed);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = color;
+  ctx.font = "bold 46px 'Arial Black', Impact, Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, W / 2, H / 2 + 2);
+  // Ponts du pochoir et peinture ecaillee : on efface par endroits.
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillRect(0, H / 2 - 1, W, 2);
+  for (let k = 0; k < 60; k++) {
+    ctx.beginPath();
+    ctx.arc(rnd() * W, rnd() * H, 0.6 + rnd() * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+  return finish(canvas, false);
+}
+
 /** Maillons de chenille : patins d'acier et crampons, a faire defiler. */
 export function makeTrackTexture(): THREE.CanvasTexture {
-  const W = 64;
-  const H = 32;
+  // Un patin par carreau : largeur de la chenille en u, un maillon en v.
+  const W = 128;
+  const H = 64;
   const { canvas, ctx } = canvas2d(W, H);
-  ctx.fillStyle = "#3b3834";
+  const rnd = seeded(41);
+  ctx.fillStyle = "#1f1d1a";
   ctx.fillRect(0, 0, W, H);
-  // Un patin par texture : la bande sombre est l'articulation.
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#5a554d");
-  g.addColorStop(0.5, "#6b655b");
-  g.addColorStop(1, "#4a463f");
+  // Le patin : acier bombe, plus clair au centre.
+  const g = ctx.createLinearGradient(0, 4, 0, H - 12);
+  g.addColorStop(0, "#4a463f");
+  g.addColorStop(0.45, "#6d675c");
+  g.addColorStop(1, "#3c3833");
   ctx.fillStyle = g;
-  ctx.fillRect(2, 3, W - 4, H - 9);
-  ctx.fillStyle = "#26231f";
-  ctx.fillRect(0, H - 6, W, 6);
-  // Crampon central et guides.
-  ctx.fillStyle = "#7a746a";
-  ctx.fillRect(W / 2 - 5, 5, 10, H - 13);
-  ctx.fillStyle = "rgba(160,150,130,0.35)";
-  ctx.fillRect(4, 4, W - 8, 2);
+  ctx.fillRect(3, 4, W - 6, H - 16);
+  // Crampons : deux barres en relief en travers du patin.
+  for (const y of [12, 30]) {
+    ctx.fillStyle = "#2b2824";
+    ctx.fillRect(6, y + 5, W - 12, 3);
+    ctx.fillStyle = "#86806f";
+    ctx.fillRect(6, y, W - 12, 5);
+    ctx.fillStyle = "rgba(210,200,175,0.35)";
+    ctx.fillRect(6, y, W - 12, 1);
+  }
+  // Guides centraux et axe d'articulation.
+  ctx.fillStyle = "#57524a";
+  ctx.fillRect(W / 2 - 7, 6, 14, H - 20);
+  ctx.fillStyle = "#2a2723";
+  ctx.fillRect(0, H - 12, W, 8);
+  ctx.fillStyle = "#77716a";
+  for (const x of [8, W - 16]) ctx.fillRect(x, H - 11, 8, 6);
+  // Terre coincee dans les patins et acier poli par le frottement.
+  for (let k = 0; k < 220; k++) {
+    ctx.fillStyle = rnd() < 0.7 ? "rgba(92,74,48,0.35)" : "rgba(200,192,170,0.25)";
+    ctx.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 3, 1 + rnd() * 2);
+  }
   const t = finish(canvas, true);
   return t;
 }

@@ -11,7 +11,9 @@ import {
 import {
   SHELL_GRAVITY,
   dispersionOffset,
+  effectiveArmor,
   launchAngle,
+  penetrationChance,
   resolveHit,
   segmentObb,
   zoneThickness,
@@ -95,6 +97,15 @@ export interface Brain {
   reverseUntil: number;
   reverseSteer: number;
   lastTargetAt: number;
+  /** Chance estimee de percer la cible avec l'obus en place (0 a 1). */
+  pen: number;
+  /** Cote vers lequel il presente sa caisse en biais (-1 ou 1). */
+  angleSide: number;
+  /** Recule a couvert pendant le rechargement jusqu'a cet instant. */
+  retreatUntil: number;
+  /** Contourne la cible (tir impossible de face) jusqu'a cet instant. */
+  flankUntil: number;
+  flankDir: number;
 }
 
 export interface SimTank {
@@ -240,7 +251,8 @@ export function createBattle(
   map: TankMap,
   playerDef: TankDef,
   difficulty: Difficulty,
-  makeModel: (def: TankDef) => TankModel,
+  /** Construit le modele d'un char (le joueur peut avoir son camouflage). */
+  makeModel: (def: TankDef, isPlayer: boolean) => TankModel,
   events: BattleEvents,
 ): Battle {
   let seed = (map.seed * 7919) >>> 0;
@@ -271,7 +283,7 @@ export function createBattle(
       const def = teamDefs[team][k];
       const s = spawns[k];
       const isPlayer = team === 0 && k === 0;
-      const model = makeModel(def);
+      const model = makeModel(def, isPlayer);
       const ammoLeft = { perforant: def.ammo.perforant.count, sousCalibre: def.ammo.sousCalibre.count, explosif: def.ammo.explosif.count };
       const lane = Math.floor(rnd() * map.lanes.length);
       const brain: Brain | null = isPlayer
@@ -296,6 +308,11 @@ export function createBattle(
             reverseUntil: 0,
             reverseSteer: 0,
             lastTargetAt: 0,
+            pen: 1,
+            angleSide: rnd() < 0.5 ? -1 : 1,
+            retreatUntil: 0,
+            flankUntil: 0,
+            flankDir: rnd() < 0.5 ? -1 : 1,
           };
       tanks.push({
         id: tanks.length,
@@ -455,6 +472,75 @@ export function createBattle(
     collide(t);
   }
 
+  // --- Collisions : chaque char est un rectangle oriente (sa vraie forme vue du dessus) ---
+  const rectA = { x: 0, z: 0, fx: 0, fz: 1, hl: 1, hw: 1 };
+  const rectB = { x: 0, z: 0, fx: 0, fz: 1, hl: 1, hw: 1 };
+  const sep = { nx: 0, nz: 0, depth: 0 };
+  type Rect = typeof rectA;
+
+  function tankRect(t: SimTank, out: Rect): Rect {
+    out.x = t.x;
+    out.z = t.z;
+    out.fx = Math.sin(t.yaw);
+    out.fz = Math.cos(t.yaw);
+    out.hl = t.def.look.length * 0.48;
+    out.hw = t.def.look.width * 0.48;
+    return out;
+  }
+
+  /**
+   * Axes separateurs de deux rectangles orientes (plan x-z). Si ils se
+   * chevauchent, `sep` recoit la direction la moins enfoncee (de a vers b) et
+   * la profondeur.
+   */
+  function rectOverlap(a: Rect, b: Rect): boolean {
+    sep.depth = Infinity;
+    if (!sepAxis(a, b, a.fx, a.fz) || !sepAxis(a, b, a.fz, -a.fx) || !sepAxis(a, b, b.fx, b.fz) || !sepAxis(a, b, b.fz, -b.fx)) {
+      return false;
+    }
+    return true;
+  }
+
+  /** Un axe du test : faux s'il separe les deux rectangles, sinon garde le moins enfonce. */
+  function sepAxis(a: Rect, b: Rect, nx: number, nz: number): boolean {
+    const ra = a.hl * Math.abs(a.fx * nx + a.fz * nz) + a.hw * Math.abs(a.fz * nx - a.fx * nz);
+    const rb = b.hl * Math.abs(b.fx * nx + b.fz * nz) + b.hw * Math.abs(b.fz * nx - b.fx * nz);
+    const dist = (b.x - a.x) * nx + (b.z - a.z) * nz;
+    const overlap = ra + rb - Math.abs(dist);
+    if (overlap <= 0) return false;
+    if (overlap < sep.depth) {
+      sep.depth = overlap;
+      const s = dist < 0 ? -1 : 1;
+      sep.nx = nx * s;
+      sep.nz = nz * s;
+    }
+    return true;
+  }
+
+  /** Un disque (rocher, tronc) contre le rectangle du char : on repousse le char. */
+  function pushFromDisc(t: SimTank, cx: number, cz: number, radius: number): boolean {
+    const fx = Math.sin(t.yaw);
+    const fz = Math.cos(t.yaw);
+    const dx = cx - t.x;
+    const dz = cz - t.z;
+    // Le centre du disque dans le repere du char, puis le point du char le plus proche.
+    const along = THREE.MathUtils.clamp(dx * fx + dz * fz, -t.def.look.length * 0.48, t.def.look.length * 0.48);
+    const side = THREE.MathUtils.clamp(dx * fz - dz * fx, -t.def.look.width * 0.48, t.def.look.width * 0.48);
+    const px = t.x + fx * along + fz * side;
+    const pz = t.z + fz * along - fx * side;
+    const ox = px - cx;
+    const oz = pz - cz;
+    const d = Math.hypot(ox, oz);
+    if (d >= radius) return false;
+    // Centre du disque dans le char : on sort par le plus court chemin vers le centre du char.
+    const nx = d > 1e-4 ? ox / d : t.x - cx;
+    const nz = d > 1e-4 ? oz / d : t.z - cz;
+    const nl = Math.hypot(nx, nz) || 1;
+    t.x += (nx / nl) * (radius - d);
+    t.z += (nz / nl) * (radius - d);
+    return true;
+  }
+
   function collide(t: SimTank) {
     const r = t.radius;
     // Bords de la carte.
@@ -464,83 +550,86 @@ export function createBattle(
       t.z = THREE.MathUtils.clamp(t.z, -lim, lim);
       t.speed *= 0.5;
     }
-    // Maisons : on repousse le long de l'axe le moins enfonce.
+    // Maisons : rectangle contre rectangle.
     for (const h of map.houses) {
-      const hx = h.w / 2 + r * 0.8;
-      const hz = h.d / 2 + r * 0.8;
-      const dx = t.x - h.x;
-      const dz = t.z - h.z;
-      if (Math.abs(dx) < hx && Math.abs(dz) < hz) {
-        const px = hx - Math.abs(dx);
-        const pz = hz - Math.abs(dz);
-        if (px < pz) t.x += Math.sign(dx || 1) * px;
-        else t.z += Math.sign(dz || 1) * pz;
+      if (Math.abs(t.x - h.x) > h.w / 2 + r * 1.6 || Math.abs(t.z - h.z) > h.d / 2 + r * 1.6) continue;
+      tankRect(t, rectA);
+      rectB.x = h.x;
+      rectB.z = h.z;
+      rectB.fx = 0;
+      rectB.fz = 1;
+      rectB.hl = h.d / 2;
+      rectB.hw = h.w / 2;
+      if (rectOverlap(rectA, rectB)) {
+        t.x -= sep.nx * sep.depth;
+        t.z -= sep.nz * sep.depth;
         t.speed *= 0.4;
       }
     }
-    // Murets.
+    // Murets : des rectangles fins le long du trace.
     for (const w of map.walls) {
-      const d = distToSegment(t.x, t.z, w.x0, w.z0, w.x1, w.z1);
-      if (d < r * 0.75) {
-        const len = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
-        const s = Math.max(0, Math.min(1, ((t.x - w.x0) * (w.x1 - w.x0) + (t.z - w.z0) * (w.z1 - w.z0)) / (len * len)));
-        const cx = w.x0 + (w.x1 - w.x0) * s;
-        const cz = w.z0 + (w.z1 - w.z0) * s;
-        const nx = (t.x - cx) / (d || 1);
-        const nz = (t.z - cz) / (d || 1);
-        t.x = cx + nx * r * 0.75;
-        t.z = cz + nz * r * 0.75;
+      if (distToSegment(t.x, t.z, w.x0, w.z0, w.x1, w.z1) > r * 1.6) continue;
+      const len = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
+      tankRect(t, rectA);
+      rectB.x = (w.x0 + w.x1) / 2;
+      rectB.z = (w.z0 + w.z1) / 2;
+      rectB.fx = (w.x1 - w.x0) / len;
+      rectB.fz = (w.z1 - w.z0) / len;
+      rectB.hl = len / 2;
+      rectB.hw = 0.4;
+      if (rectOverlap(rectA, rectB)) {
+        t.x -= sep.nx * sep.depth;
+        t.z -= sep.nz * sep.depth;
         t.speed *= 0.5;
       }
     }
-    // Rochers.
+    // Rochers : un disque contre le char.
     for (const rk of map.rocks) {
-      const dx = t.x - rk.x;
-      const dz = t.z - rk.z;
-      const d = Math.hypot(dx, dz);
-      const min = rk.r * 0.85 + r * 0.7;
-      if (d < min && d > 0.001) {
-        t.x = rk.x + (dx / d) * min;
-        t.z = rk.z + (dz / d) * min;
-        t.speed *= 0.5;
-      }
+      if (Math.abs(t.x - rk.x) > rk.r + r * 1.6 || Math.abs(t.z - rk.z) > rk.r + r * 1.6) continue;
+      if (pushFromDisc(t, rk.x, rk.z, rk.r * 0.85)) t.speed *= 0.5;
     }
     // Arbres : a plus de 5 km/h, on les couche ; sinon ils bloquent.
     for (let i = 0; i < map.trees.length; i++) {
       const tr = map.trees[i];
-      const dx = t.x - tr.x;
-      const dz = t.z - tr.z;
-      if (Math.abs(dx) > r + 2 || Math.abs(dz) > r + 2) continue;
+      if (Math.abs(t.x - tr.x) > r + 2 || Math.abs(t.z - tr.z) > r + 2) continue;
       if (treeDown[i]) continue;
-      const d = Math.hypot(dx, dz);
-      const min = r * 0.75 + 0.4;
-      if (d < min) {
-        if (Math.abs(t.speed) > 1.4) {
+      if (Math.abs(t.speed) > 1.4) {
+        // Le tronc touche-t-il le char ? (sans le repousser : il va tomber)
+        const fx = Math.sin(t.yaw);
+        const fz = Math.cos(t.yaw);
+        const dx = tr.x - t.x;
+        const dz = tr.z - t.z;
+        const along = Math.abs(dx * fx + dz * fz);
+        const side = Math.abs(dx * fz - dz * fx);
+        if (along < t.def.look.length * 0.5 + 0.4 && side < t.def.look.width * 0.5 + 0.4) {
           treeDown[i] = 1;
-          events.treeFell(i, Math.sin(t.yaw) * Math.sign(t.speed), Math.cos(t.yaw) * Math.sign(t.speed));
+          events.treeFell(i, fx * Math.sign(t.speed), fz * Math.sign(t.speed));
           t.speed *= 0.82;
-        } else if (d > 0.001) {
-          t.x = tr.x + (dx / d) * min;
-          t.z = tr.z + (dz / d) * min;
         }
+      } else {
+        pushFromDisc(t, tr.x, tr.z, 0.45);
       }
     }
-    // Les autres chars (et les epaves).
+    // Les autres chars (et les epaves) : on ne passe plus au travers.
     for (const o of tanks) {
       if (o === t) continue;
-      const dx = t.x - o.x;
-      const dz = t.z - o.z;
-      const d = Math.hypot(dx, dz);
-      const min = (r + o.radius) * 0.82;
-      if (d < min && d > 0.001) {
-        const push = (min - d) * (o.alive ? 0.5 : 1);
-        t.x += (dx / d) * push;
-        t.z += (dz / d) * push;
-        if (o.alive) {
-          o.x -= (dx / d) * push;
-          o.z -= (dz / d) * push;
-        }
-        t.speed *= 0.6;
+      if (Math.abs(t.x - o.x) > r + o.radius + 1 || Math.abs(t.z - o.z) > r + o.radius + 1) continue;
+      tankRect(t, rectA);
+      tankRect(o, rectB);
+      if (!rectOverlap(rectA, rectB)) continue;
+      // L'epave ne bouge pas ; entre deux chars vivants, chacun recule de moitie.
+      const share = o.alive ? 0.5 : 1;
+      t.x -= sep.nx * sep.depth * share;
+      t.z -= sep.nz * sep.depth * share;
+      if (o.alive) {
+        o.x += sep.nx * sep.depth * (1 - share);
+        o.z += sep.nz * sep.depth * (1 - share);
+      }
+      // Le choc freine celui qui pousse ; l'autre est un peu bouscule.
+      const closing = (Math.sin(t.yaw) * t.speed - Math.sin(o.yaw) * o.speed) * sep.nx + (Math.cos(t.yaw) * t.speed - Math.cos(o.yaw) * o.speed) * sep.nz;
+      if (closing > 0) {
+        t.speed *= 0.35;
+        if (o.alive) o.speed *= 0.7;
       }
     }
   }
@@ -814,10 +903,79 @@ export function createBattle(
     return t.team === 0 ? lane[Math.min(index, lane.length - 1)] : lane[Math.max(0, lane.length - 1 - index)];
   }
 
+  // --- Estimation du blindage ennemi : quelle face on voit, et la chance de la percer ---
+  const estDir = new THREE.Vector3();
+  const estNormal = new THREE.Vector3();
+  const estimate = { chance: 0, turret: false, zone: "avant" as Zone };
+
+  /** Penetration de l'obus a cette distance (les perforants perdent un peu au loin). */
+  function penAtDistance(t: SimTank, ammo: AmmoId, dist: number): number {
+    const p = t.def.ammo[ammo].penetration;
+    if (AMMO[ammo].explosive) return p;
+    const loss = ammo === "sousCalibre" ? 0.28 : 0.16;
+    return p * (1 - loss * Math.min(1, Math.max(0, dist - 100) / 400));
+  }
+
+  const faceOut = { chance: 0, zone: "avant" as Zone };
+
+  /** Chance de percer la plaque de `e` que voit `t`, cote caisse ou tourelle (resultat partage). */
+  function faceChance(t: SimTank, e: SimTank, ammo: AmmoId, dist: number, turret: boolean): typeof faceOut {
+    const yaw = turret && !e.model.fixedTurret ? e.yaw + e.turretYaw : e.yaw;
+    const armor = turret ? e.def.turret : e.def.hull;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    // Direction du tir dans le repere de la cible.
+    const along = -(estDir.x * fx + estDir.z * fz);
+    const side = -(estDir.x * fz - estDir.z * fx);
+    const hl = turret ? e.def.look.turret[2] / 2 : e.def.look.length / 2;
+    const hw = turret ? e.def.look.turret[0] / 2 : e.def.look.width / 2;
+    let zone: Zone;
+    if (Math.abs(along) / hl > Math.abs(side) / hw) {
+      zone = along > 0 ? "avant" : "arriere";
+      const s = zone === "avant" ? (armor.frontSlope * Math.PI) / 180 : 0;
+      const sign = zone === "avant" ? 1 : -1;
+      estNormal.set(fx * Math.cos(s) * sign, Math.sin(s), fz * Math.cos(s) * sign);
+    } else {
+      zone = "flanc";
+      const s = (armor.sideSlope * Math.PI) / 180;
+      const sign = side > 0 ? 1 : -1;
+      estNormal.set(fz * Math.cos(s) * sign, Math.sin(s), -fx * Math.cos(s) * sign);
+    }
+    const e1 = effectiveArmor(estDir, estNormal, zoneThickness(armor, zone), t.def.caliber, ammo);
+    faceOut.chance = e1.ricochet ? 0 : penetrationChance(penAtDistance(t, ammo, dist), e1.effective);
+    faceOut.zone = zone;
+    return faceOut;
+  }
+
+  /** La meilleure plaque a viser sur `e` avec cet obus. */
+  function estimatePen(t: SimTank, e: SimTank, ammo: AmmoId): typeof estimate {
+    const dx = e.x - t.x;
+    const dz = e.z - t.z;
+    const d = Math.hypot(dx, dz) || 1;
+    estDir.set(dx / d, -0.02, dz / d).normalize();
+    // faceChance rend un objet partage : on copie avant le second appel.
+    const hull = faceChance(t, e, ammo, d, false);
+    const hullChance = hull.chance;
+    const hullZone = hull.zone;
+    const tur = faceChance(t, e, ammo, d, true);
+    estimate.turret = tur.chance > hullChance + 0.05;
+    estimate.chance = Math.max(hullChance, tur.chance);
+    estimate.zone = estimate.turret ? tur.zone : hullZone;
+    return estimate;
+  }
+
+  /** Degats moyens attendus d'un obus contre `e` (eclats de l'explosif compris). */
+  function expectedDamage(t: SimTank, e: SimTank, ammo: AmmoId): number {
+    const c = estimatePen(t, e, ammo).chance;
+    const dmg = t.def.ammo[ammo].damage;
+    if (AMMO[ammo].explosive) return c * dmg + (1 - c) * Math.max(0, dmg * 0.5 - e.def.hull.side * 1.1) * 0.6;
+    return c * dmg;
+  }
+
   function think(t: SimTank) {
     const b = t.brain!;
     b.nextThink = time + 0.35 + rnd() * 0.2;
-    // --- Cible : l'ennemi repere, visible depuis le canon, le plus interessant ---
+    // --- Cible : l'ennemi repere, visible depuis le canon, qu'on peut vraiment percer ---
     const eye = t.y + t.def.look.clearance + t.def.look.hullHeight + 1.1;
     let best: SimTank | null = null;
     let bestScore = Infinity;
@@ -827,8 +985,13 @@ export function createBattle(
       if (d > 480) continue;
       const body = e.y + e.def.look.clearance + e.def.look.hullHeight * 0.7;
       if (!lineOfSight(map, t.x, eye, t.z, e.x, body, e.z)) continue;
-      // Les plus proches et les plus abimes d'abord.
-      const score = d * (0.35 + e.hp / e.def.hp) * (e === b.target ? 0.7 : 1);
+      // Proche, abime, et surtout percable ; on s'acharne un peu sur la cible
+      // en cours et sur celle que visent deja les allies (tir concentre).
+      let pen = 0;
+      for (const a of AMMO_ORDER) if (t.ammoLeft[a] > 0) pen = Math.max(pen, estimatePen(t, e, a).chance);
+      let focus = 1;
+      for (const o of tanks) if (o !== t && o.team === t.team && o.alive && o.brain?.target === e) focus = 0.8;
+      const score = (d * (0.4 + e.hp / e.def.hp) * focus * (e === b.target ? 0.75 : 1)) / (0.12 + pen);
       if (score < bestScore) {
         bestScore = score;
         best = e;
@@ -836,24 +999,46 @@ export function createBattle(
     }
     if (best !== b.target) {
       b.target = best;
-      if (best) {
-        b.readyAt = time + diff.reaction * (0.8 + rnd() * 0.5);
-        // Ou viser sur la cible : le centre, ou les points faibles au niveau As.
-        const hx = best.model.hullHalf;
-        if (diff.weakspots) b.aimLocal.set((rnd() - 0.5) * hx.x * 0.8, -hx.y * 0.12, (rnd() - 0.5) * hx.z * 0.4);
-        else b.aimLocal.set((rnd() - 0.5) * hx.x * 0.8, (rnd() - 0.3) * hx.y * 0.8, (rnd() - 0.5) * hx.z * 0.5);
-      }
+      if (best) b.readyAt = time + diff.reaction * (0.8 + rnd() * 0.5);
     }
-    if (b.target) b.lastTargetAt = time;
-    // Munition : explosif contre les legers, sous-calibre contre les lourds (a partir de Veteran).
     if (b.target) {
-      let want: AmmoId = "perforant";
-      if (b.target.def.cls === "leger" && t.ammoLeft.explosif > 0 && t.def.caliber >= 75) want = "explosif";
-      else if (b.target.def.cls === "lourd" && difficulty !== "recrue" && t.ammoLeft.sousCalibre > 0) want = "sousCalibre";
-      if (want !== t.ammo && t.reloadLeft <= 0.2 && (!t.def.clip || t.clipLeft === t.def.clip.size)) {
-        t.ammo = want;
-        startFullReload(t);
-        t.reloadLeft = t.def.reload * 0.5;
+      b.lastTargetAt = time;
+      // Le meilleur obus contre cette cible (a partir de Veteran ; la recrue garde le perforant).
+      if (difficulty !== "recrue") {
+        let want: AmmoId = t.ammo;
+        let bestDmg = t.ammoLeft[t.ammo] > 0 ? expectedDamage(t, b.target, t.ammo) : -1;
+        for (const a of AMMO_ORDER) {
+          if (a === t.ammo || t.ammoLeft[a] <= 0) continue;
+          const dmg = expectedDamage(t, b.target, a);
+          if (dmg > bestDmg * 1.25 + 1) {
+            bestDmg = dmg;
+            want = a;
+          }
+        }
+        if (want !== t.ammo && t.reloadLeft <= 0.2 && (!t.def.clip || t.clipLeft === t.def.clip.size)) {
+          t.ammo = want;
+          startFullReload(t);
+          t.reloadLeft = t.def.reload * 0.5;
+        }
+      }
+      // Ou viser : la plaque la plus faible visible (tourelle ou caisse).
+      const est = estimatePen(t, b.target, t.ammo);
+      b.pen = est.chance;
+      const hx = b.target.model.hullHalf;
+      const tx = b.target.model.turretHalf;
+      const spread = diff.weakspots ? 0.25 : 0.7;
+      if (est.turret) b.aimLocal.set((rnd() - 0.5) * tx.x * spread, hx.y + tx.y * 0.8, (rnd() - 0.5) * tx.z * spread * 0.5);
+      else b.aimLocal.set((rnd() - 0.5) * hx.x * spread, (diff.weakspots ? -0.1 : rnd() - 0.4) * hx.y * 0.8, (rnd() - 0.5) * hx.z * spread * 0.5);
+      // Impossible de percer de face : on contourne pour prendre le flanc.
+      if (b.pen < 0.1 && difficulty !== "recrue" && time > b.flankUntil && b.role !== "embuscade") {
+        b.flankUntil = time + 3.5 + rnd() * 2;
+        b.flankDir = rnd() < 0.5 ? -1 : 1;
+      }
+      // L'eclaireur ne reste jamais immobile au contact : il tourne autour de sa cible.
+      const dT = Math.hypot(b.target.x - t.x, b.target.z - t.z);
+      if (b.role === "eclaireur" && dT < 220 && time > b.flankUntil) {
+        b.flankUntil = time + 2 + rnd() * 1.5;
+        b.flankDir = rnd() < 0.5 ? -1 : 1;
       }
     }
 
@@ -869,12 +1054,18 @@ export function createBattle(
     }
     const enemiesAlive = tanks.some((e) => e.team !== t.team && e.alive);
     if (!enemiesAlive) return;
+    // Presque detruit : on recule vers sa base et on tire de loin.
+    if (t.hp < t.def.hp * 0.25 && b.role !== "eclaireur") {
+      setGoal(t, ownBase.x + (t.x - ownBase.x) * 0.4, ownBase.z + (t.z - ownBase.z) * 0.4);
+      if (b.target) b.holdUntil = time + 1;
+      return;
+    }
     // Au contact : les lourds et les chasseurs s'arretent pour tirer, les autres continuent.
     if (b.target) {
       const d = Math.hypot(b.target.x - t.x, b.target.z - t.z);
       const hold = b.role === "embuscade" || b.role === "soutien" ? 420 : b.role === "assaut" ? 260 : 120;
       // Canon en butee (cible trop bas sous une crete) : on avance au lieu d'attendre.
-      if (d < hold && !t.pitchBlocked) {
+      if (d < hold && !t.pitchBlocked && time > b.flankUntil) {
         b.holdUntil = time + 1.5;
         return;
       }
@@ -898,9 +1089,27 @@ export function createBattle(
     const b = t.brain!;
     let throttle = 0;
     let steer = 0;
+    const target = b.target && b.target.alive ? b.target : null;
+    const toTarget = target ? Math.atan2(target.x - t.x, target.z - t.z) : 0;
     if (time < b.reverseUntil) {
       throttle = -1;
       steer = b.reverseSteer;
+    } else if (target && time < b.retreatUntil) {
+      // Tir puis repli : on recule a couvert pendant le rechargement, face a l'ennemi.
+      throttle = -0.9;
+      steer = THREE.MathUtils.clamp(wrap(toTarget + b.angleSide * 0.4 - t.yaw) * 1.5, -1, 1);
+    } else if (target && time < b.flankUntil) {
+      // Contournement : on roule en travers pour prendre la cible de flanc.
+      const want = toTarget + b.flankDir * 1.25;
+      const d = wrap(want - t.yaw);
+      steer = THREE.MathUtils.clamp(d * 2, -1, 1);
+      throttle = Math.abs(d) < 1 ? 1 : 0.35;
+    } else if (target && time <= b.holdUntil) {
+      // A l'arret pour tirer. Chasseur (canon fixe) : la caisse vers la cible.
+      // Les autres presentent leur blindage en biais (25 degres) : les obus ricochent mieux.
+      const want = t.model.fixedTurret || b.role === "eclaireur" ? toTarget : toTarget + b.angleSide * 0.45;
+      const d = wrap(want - t.yaw);
+      if (Math.abs(d) > 0.05) steer = THREE.MathUtils.clamp(d * 2.5, -1, 1);
     } else if (time > b.holdUntil) {
       // Chemin vers l'objectif (recalcule de temps en temps, un par image au plus).
       if ((!b.path || time > b.repathAt) && pathBudget > 0) {
@@ -949,6 +1158,23 @@ export function createBattle(
     drive(t, throttle, THREE.MathUtils.clamp(steer, -1, 1), dt);
   }
 
+  /** Un allie coupe-t-il la ligne de tir entre le canon et le point vise ? */
+  function allyInLine(t: SimTank, from: THREE.Vector3, to: THREE.Vector3): boolean {
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const l2 = dx * dx + dz * dz;
+    if (l2 < 1) return false;
+    for (const o of tanks) {
+      if (o === t || o.team !== t.team || !o.alive) continue;
+      const s = ((o.x - from.x) * dx + (o.z - from.z) * dz) / l2;
+      if (s <= 0 || s >= 1) continue;
+      const px = from.x + dx * s - o.x;
+      const pz = from.z + dz * s - o.z;
+      if (px * px + pz * pz < o.radius * o.radius * 0.8) return true;
+    }
+    return false;
+  }
+
   function botGun(t: SimTank, dt: number) {
     const b = t.brain!;
     if (b.target && b.target.alive) {
@@ -969,12 +1195,26 @@ export function createBattle(
         const off = Math.abs(wrap(flatAim - flatGun));
         const tolerance = Math.max(0.012, 3 / Math.max(30, dist));
         const settled = t.bloom < 1.5 || time - b.readyAt > t.def.aimTime * 1.6;
-        if (off < tolerance && t.pitchError < tolerance && settled) {
+        // Discipline de tir : pas d'obus gaspille sur un blindage imperceable
+        // (la recrue tire quand meme, c'est ce qui la rend moins dangereuse).
+        const worthIt = difficulty === "recrue" || b.pen >= 0.06;
+        if (off < tolerance && t.pitchError < tolerance && settled && worthIt) {
           // Le bout du canon doit voir la cible : une crete peut cacher le tube
           // alors que le chef de char, plus haut, voit l'ennemi.
           t.model.muzzle.getWorldPosition(botGunPos);
-          if (lineOfSight(map, botGunPos.x, botGunPos.y, botGunPos.z, botAim.x, botAim.y, botAim.z)) fire(t, diff.aimFactor);
-          else b.readyAt = time + 0.6;
+          if (!lineOfSight(map, botGunPos.x, botGunPos.y, botGunPos.z, botAim.x, botAim.y, botAim.z)) b.readyAt = time + 0.6;
+          else if (allyInLine(t, botGunPos, botAim)) {
+            // Un allie dans la ligne de tir : on se decale au lieu de lui tirer dans le dos.
+            b.readyAt = time + 0.5;
+            if (time > b.flankUntil) {
+              b.flankUntil = time + 1.5;
+              b.flankDir = -b.flankDir;
+            }
+          } else {
+            fire(t, diff.aimFactor);
+            // Tir puis repli : les gros canons lents et les chargeurs vides reculent a couvert.
+            if (b.role !== "eclaireur" && (t.fullReload && t.reloadLeft > 5)) b.retreatUntil = time + (t.def.clip ? 2 : 1.2);
+          }
         }
       }
     } else {

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import Game3DSettings from "./Game3DSettings";
 import { TankClassIcon } from "./TankIcons";
-import { AMMO, AMMO_ORDER, tankById, type AmmoId, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
+import { AMMO, AMMO_ORDER, camoChoice, tankById, type AmmoId, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
 import { effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
   BASE_RADIUS,
@@ -112,11 +112,14 @@ const FEED_SECONDS = 7;
 
 export default function TankScene({
   tankId,
+  camo = null,
   difficulty,
   onEnd,
   onQuit,
 }: {
   tankId: string;
+  /** Camouflage choisi au garage pour le char du joueur (null : celui d'origine). */
+  camo?: string | null;
   difficulty: Difficulty;
   onEnd: (result: BattleResult) => void;
   onQuit: () => void;
@@ -254,8 +257,12 @@ export default function TankScene({
       map,
       def,
       difficulty,
-      (d) => {
-        const m = buildTankModel(d);
+      (d, isPlayer) => {
+        // Le joueur roule avec son camouflage ; chaque char a son numero.
+        const m = buildTankModel(d, {
+          camo: isPlayer ? camoChoice(camo) : null,
+          number: isPlayer ? "101" : String(200 + Math.floor(Math.random() * 700)),
+        });
         scene.add(m.root);
         return m;
       },
@@ -383,7 +390,8 @@ export default function TankScene({
     // Au clavier, la bataille attend le premier clic (on lit les commandes) ;
     // au doigt, elle part tout de suite.
     let pausedNow = !touch;
-    let firstFrame = true;
+    /** Sol peint et programmes compiles : on peut dessiner sans rien figer. */
+    let ready = false;
     let touchThrottle = 0;
     let touchSteer = 0;
     camYaw = player.yaw;
@@ -551,17 +559,13 @@ export default function TankScene({
     const input = { throttle: 0, steer: 0, aim: null as THREE.Vector3 | null, fire: false, ammo: "perforant" as AmmoId };
 
     const tick = () => {
-      if (disposed) return;
+      // Tant que tout n'est pas pret, on ne dessine rien (un dessin forcerait
+      // la compilation d'un bloc et figerait la page).
+      if (disposed || !ready) return;
       const now = performance.now();
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
       clock += dt;
-      if (firstFrame) {
-        // Le decor est pret : on retire l'ecran de chargement.
-        firstFrame = false;
-        setPlates(plateList);
-        setLoading(false);
-      }
 
       // --- Commandes du joueur ---
       const kf = keyFor();
@@ -885,9 +889,24 @@ export default function TankScene({
       }
     };
 
-    // Compiler tous les programmes avant la premiere image : sinon la premiere
-    // explosion ou la premiere tracante fige l'ecran le temps de les preparer.
-    renderer.compile(scene, camera);
+    // Tout preparer AVANT la premiere image, sans figer la page : le sol se
+    // peint par tranches, et les programmes des materiaux (effets compris) se
+    // compilent en arriere-plan (compileAsync). Sur un portable lent, les
+    // compiler d'un bloc gelait la page de longues secondes ; les compiler a
+    // la volee figeait la bataille a la premiere explosion.
+    camera.position.set(player.x, player.y + 8, player.z - 14);
+    camera.lookAt(player.x, player.y + 2, player.z);
+    Promise.all([world.ready, renderer.compileAsync(scene, camera)])
+      .catch(() => {})
+      .then(() => {
+        if (disposed) return;
+        // Une image cachee derriere l'ecran de chargement : les ombres se preparent aussi.
+        renderer.render(scene, camera);
+        ready = true;
+        lastTime = performance.now();
+        setPlates(plateList);
+        setLoading(false);
+      });
     const interval = window.setInterval(tick, 16);
 
     const onResize = () => {
@@ -919,7 +938,7 @@ export default function TankScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [tankId, difficulty, touch]);
+  }, [tankId, camo, difficulty, touch]);
 
   const def = tankById(tankId);
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

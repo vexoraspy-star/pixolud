@@ -85,7 +85,15 @@ export interface Armor {
   sideSlope: number;
 }
 
-export type TurretShape = "arrondie" | "anguleuse" | "casemate";
+/**
+ * Formes de tourelle : fonte arrondie, soudee anguleuse, casemate de chasseur,
+ * et deux formes modernes : en coin (blindage en fleche a l'avant) et plate
+ * (large, basse, grosse nuque).
+ */
+export type TurretShape = "arrondie" | "anguleuse" | "casemate" | "coin" | "plate";
+
+/** Camouflage : a taches, a bandes, uni, ou numerique (des pixels en grappes). */
+export type CamoStyle = "taches" | "bandes" | "uni" | "numerique";
 
 /** Allure du modele dessine en code. */
 export interface TankLook {
@@ -106,14 +114,30 @@ export interface TankLook {
   /** Galets de roulement par cote. */
   wheels: number;
   wheelRadius: number;
-  /** Couleur de base et couleur du camouflage. */
+  /** Couleur de base et couleur du camouflage (et une troisieme pour le numerique). */
   color: number;
   camo: number;
-  camoStyle: "taches" | "bandes" | "uni";
+  camo2?: number;
+  camoStyle: CamoStyle;
   /** Jupes laterales (plaques au-dessus des chenilles). */
   skirts: boolean;
   /** Canon automatique : tube fin, manchon de refroidissement, chargeur sur la tourelle. */
   autocannon?: boolean;
+  /**
+   * Char moderne : canon lisse long a manchon thermique, viseurs et capteurs
+   * sur la tourelle, lance-fumigenes, jupes a modules.
+   */
+  modern?: boolean;
+  /** Mitrailleuse de caisse (rotule sur la plaque avant). */
+  hullMG?: boolean;
+  /** Mitrailleuse du chef, sur affut au-dessus du tourelleau. */
+  aaMG?: boolean;
+  /** Tube double : deux mitrailleuses lourdes jumelees (pas de canon). */
+  twinMG?: boolean;
+  /** Caisse rivetee (annees trente). */
+  rivets?: boolean;
+  /** Caisse haute et longue d'un blinde d'infanterie. */
+  ifv?: boolean;
 }
 
 /** Canon automatique : des rafales, puis tout le chargeur a recharger. */
@@ -349,6 +373,7 @@ export const TANKS: TankDef[] = [
       camo: 0x3e4631,
       camoStyle: "uni",
       skirts: false,
+      hullMG: true,
     },
   },
   {
@@ -395,6 +420,8 @@ export const TANKS: TankDef[] = [
       camo: 0x8f8661,
       camoStyle: "taches",
       skirts: false,
+      hullMG: true,
+      aaMG: true,
     },
   },
   {
@@ -441,6 +468,8 @@ export const TANKS: TankDef[] = [
       camo: 0x6b6446,
       camoStyle: "taches",
       skirts: true,
+      hullMG: true,
+      aaMG: true,
     },
   },
   {
@@ -533,9 +562,283 @@ export const TANKS: TankDef[] = [
       camo: 0x3b422c,
       camoStyle: "uni",
       skirts: false,
+      aaMG: true,
+    },
+  },
+  {
+    id: "moustique",
+    name: "Moustique",
+    cls: "leger",
+    tier: 4,
+    description: "Une petite automitrailleuse des années trente : deux mitrailleuses lourdes jumelées qui crachent quarante balles d'affilée.",
+    hp: 400,
+    caliber: 13,
+    ammo: {
+      perforant: { penetration: 28, damage: 6, speed: 880, count: 1200 },
+      sousCalibre: { penetration: 36, damage: 6, speed: 1000, count: 400 },
+      explosif: { penetration: 10, damage: 8, speed: 880, count: 400 },
+    },
+    reload: 6,
+    clip: { size: 40, interval: 0.075 },
+    aimTime: 1.2,
+    dispersion: 0.62,
+    hull: { front: 16, side: 12, rear: 12, top: 6, frontSlope: 35, sideSlope: 0 },
+    turret: { front: 16, side: 12, rear: 12, top: 6, frontSlope: 10, sideSlope: 0 },
+    speed: 76,
+    reverse: 26,
+    accel: 6.4,
+    hullTraverse: 60,
+    turretTraverse: 70,
+    gunArc: 180,
+    depression: 12,
+    elevation: 30,
+    viewRange: 370,
+    look: {
+      length: 4.6,
+      width: 2.4,
+      hullHeight: 1.1,
+      clearance: 0.42,
+      turretShape: "anguleuse",
+      turret: [1.35, 0.72, 1.55],
+      turretOffset: -0.1,
+      gunLength: 1.25,
+      gunRadius: 0.022,
+      muzzleBrake: false,
+      wheels: 4,
+      wheelRadius: 0.44,
+      color: 0x3f4441,
+      camo: 0x49a04a,
+      camo2: 0x262a28,
+      camoStyle: "numerique",
+      skirts: false,
+      twinMG: true,
+      rivets: true,
+      hullMG: true,
+    },
+  },
+  {
+    id: "sentinelle",
+    name: "Sentinelle",
+    cls: "leger",
+    tier: 7,
+    description: "Un blindé d'infanterie moderne : caisse haute, petite tourelle et canon automatique de 30 mm. Il arrose tout ce qui bouge.",
+    hp: 1150,
+    caliber: 30,
+    ammo: {
+      perforant: { penetration: 82, damage: 28, speed: 1080, count: 480 },
+      sousCalibre: { penetration: 112, damage: 28, speed: 1300, count: 160 },
+      explosif: { penetration: 18, damage: 40, speed: 1080, count: 240 },
+    },
+    reload: 7,
+    clip: { size: 12, interval: 0.18 },
+    aimTime: 1.6,
+    dispersion: 0.38,
+    hull: { front: 50, side: 30, rear: 25, top: 12, frontSlope: 65, sideSlope: 8 },
+    turret: { front: 45, side: 30, rear: 25, top: 12, frontSlope: 30, sideSlope: 15 },
+    speed: 66,
+    reverse: 26,
+    accel: 5.2,
+    hullTraverse: 50,
+    turretTraverse: 58,
+    gunArc: 180,
+    depression: 10,
+    elevation: 40,
+    viewRange: 410,
+    look: {
+      length: 6.8,
+      width: 3.2,
+      hullHeight: 1.45,
+      clearance: 0.45,
+      turretShape: "anguleuse",
+      turret: [1.7, 0.7, 2.1],
+      turretOffset: 0.9,
+      gunLength: 2.6,
+      gunRadius: 0.04,
+      muzzleBrake: false,
+      wheels: 6,
+      wheelRadius: 0.36,
+      color: 0x44484a,
+      camo: 0x2c3032,
+      camo2: 0x5d6264,
+      camoStyle: "numerique",
+      skirts: true,
+      autocannon: true,
+      modern: true,
+      ifv: true,
+    },
+  },
+  {
+    id: "guepard",
+    name: "Guépard",
+    cls: "moyen",
+    tier: 8,
+    description: "Char de combat moderne à tourelle en coin : canon lisse de 120 mm, vitesse et précision redoutables.",
+    hp: 1900,
+    caliber: 120,
+    ammo: {
+      perforant: { penetration: 290, damage: 330, speed: 1650, count: 30 },
+      sousCalibre: { penetration: 370, damage: 330, speed: 1750, count: 10 },
+      explosif: { penetration: 62, damage: 430, speed: 1140, count: 12 },
+    },
+    reload: 7,
+    aimTime: 1.9,
+    dispersion: 0.28,
+    hull: { front: 150, side: 60, rear: 40, top: 30, frontSlope: 70, sideSlope: 0 },
+    turret: { front: 250, side: 100, rear: 50, top: 35, frontSlope: 55, sideSlope: 10 },
+    speed: 68,
+    reverse: 30,
+    accel: 5,
+    hullTraverse: 44,
+    turretTraverse: 42,
+    gunArc: 180,
+    depression: 9,
+    elevation: 20,
+    viewRange: 440,
+    look: {
+      length: 7.7,
+      width: 3.7,
+      hullHeight: 1.25,
+      clearance: 0.5,
+      turretShape: "coin",
+      turret: [3.3, 0.95, 3.8],
+      turretOffset: -0.1,
+      gunLength: 6,
+      gunRadius: 0.085,
+      muzzleBrake: false,
+      wheels: 7,
+      wheelRadius: 0.42,
+      color: 0x5a6446,
+      camo: 0x2d3326,
+      camo2: 0x7a5c3f,
+      camoStyle: "taches",
+      skirts: true,
+      modern: true,
+      aaMG: true,
+    },
+  },
+  {
+    id: "bastion",
+    name: "Bastion",
+    cls: "lourd",
+    tier: 8,
+    description: "Char lourd moderne : une énorme tourelle plate presque imperméable de face et une turbine qui le rend étonnamment vif.",
+    hp: 2150,
+    caliber: 120,
+    ammo: {
+      perforant: { penetration: 280, damage: 360, speed: 1575, count: 30 },
+      sousCalibre: { penetration: 360, damage: 360, speed: 1680, count: 10 },
+      explosif: { penetration: 60, damage: 460, speed: 1140, count: 12 },
+    },
+    reload: 8,
+    aimTime: 2.2,
+    dispersion: 0.31,
+    hull: { front: 190, side: 75, rear: 45, top: 35, frontSlope: 75, sideSlope: 0 },
+    turret: { front: 300, side: 110, rear: 60, top: 40, frontSlope: 20, sideSlope: 12 },
+    speed: 62,
+    reverse: 32,
+    accel: 4.6,
+    hullTraverse: 38,
+    turretTraverse: 36,
+    gunArc: 180,
+    depression: 9,
+    elevation: 20,
+    viewRange: 420,
+    look: {
+      length: 7.9,
+      width: 3.7,
+      hullHeight: 1.3,
+      clearance: 0.48,
+      turretShape: "plate",
+      turret: [3.6, 0.85, 4.4],
+      turretOffset: -0.35,
+      gunLength: 5.6,
+      gunRadius: 0.085,
+      muzzleBrake: false,
+      wheels: 7,
+      wheelRadius: 0.42,
+      color: 0xc2a878,
+      camo: 0x9c8660,
+      camo2: 0xd8c29a,
+      camoStyle: "uni",
+      skirts: true,
+      modern: true,
+      aaMG: true,
+    },
+  },
+  {
+    id: "aquilon",
+    name: "Aquilon",
+    cls: "moyen",
+    tier: 8,
+    description: "Char moderne à chargeur automatique : trois obus de 120 mm en quatre secondes, puis il faut recharger le barillet.",
+    hp: 1750,
+    caliber: 120,
+    ammo: {
+      perforant: { penetration: 275, damage: 300, speed: 1620, count: 30 },
+      sousCalibre: { penetration: 355, damage: 300, speed: 1720, count: 12 },
+      explosif: { penetration: 60, damage: 400, speed: 1140, count: 12 },
+    },
+    reload: 13,
+    clip: { size: 3, interval: 2 },
+    aimTime: 1.8,
+    dispersion: 0.3,
+    hull: { front: 140, side: 55, rear: 35, top: 30, frontSlope: 72, sideSlope: 0 },
+    turret: { front: 230, side: 90, rear: 45, top: 30, frontSlope: 35, sideSlope: 14 },
+    speed: 71,
+    reverse: 38,
+    accel: 5.4,
+    hullTraverse: 46,
+    turretTraverse: 44,
+    gunArc: 180,
+    depression: 8,
+    elevation: 20,
+    viewRange: 430,
+    look: {
+      length: 7.2,
+      width: 3.6,
+      hullHeight: 1.2,
+      clearance: 0.5,
+      turretShape: "coin",
+      turret: [3.1, 0.9, 3.5],
+      turretOffset: -0.2,
+      gunLength: 5.4,
+      gunRadius: 0.085,
+      muzzleBrake: false,
+      wheels: 6,
+      wheelRadius: 0.44,
+      color: 0x5f6a4c,
+      camo: 0x3b4430,
+      camo2: 0x8b7a55,
+      camoStyle: "bandes",
+      skirts: true,
+      modern: true,
+      aaMG: true,
     },
   },
 ];
+
+/** Camouflages au choix du garage (en plus de celui d'origine). */
+export interface CamoChoice {
+  id: string;
+  name: string;
+  style: CamoStyle;
+  color: number;
+  camo: number;
+  camo2: number;
+}
+
+export const CAMO_CHOICES: CamoChoice[] = [
+  { id: "foret", name: "Numérique forêt", style: "numerique", color: 0x3b403c, camo: 0x3fa045, camo2: 0x1f2320 },
+  { id: "ocean", name: "Numérique océan", style: "numerique", color: 0x2b2f35, camo: 0x2f7fe0, camo2: 0x14171b },
+  { id: "braise", name: "Numérique braise", style: "numerique", color: 0x2e2c2a, camo: 0xe0622a, camo2: 0x161514 },
+  { id: "hiver", name: "Numérique hiver", style: "numerique", color: 0xc9ccd0, camo: 0x5b6066, camo2: 0x2c2f33 },
+  { id: "desert", name: "Désert", style: "taches", color: 0xc8b084, camo: 0x9c7d52, camo2: 0x6b5638 },
+  { id: "urbain", name: "Urbain", style: "bandes", color: 0x7c8185, camo: 0x3e4246, camo2: 0xb5b9bd },
+];
+
+export function camoChoice(id: string | null | undefined): CamoChoice | null {
+  return CAMO_CHOICES.find((c) => c.id === id) ?? null;
+}
 
 export function tankById(id: string): TankDef {
   return TANKS.find((t) => t.id === id) ?? TANKS.find((t) => t.id === "bouledogue") ?? TANKS[0];

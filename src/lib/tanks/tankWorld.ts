@@ -5,8 +5,8 @@ import {
   makeGroundDetailTexture,
   makeRoofTexture,
   makeSkyTexture,
-  makeTerrainTexture,
   makeWallTexture,
+  paintTerrainTexture,
 } from "./tankTextures";
 
 // Le decor de « Tonnerre d'Acier » en maillages three.js : terrain, lac,
@@ -16,6 +16,8 @@ import {
 
 export interface TankWorld {
   group: THREE.Group;
+  /** Se resout quand l'image du sol est entierement peinte (par tranches). */
+  ready: Promise<void>;
   /** Couche un arbre dans la direction (dx, dz). */
   fellTree: (index: number, dx: number, dz: number) => void;
   /** Arbre deja couche (on passe dessus). */
@@ -55,7 +57,8 @@ export function buildTankWorld(map: TankMap, detail: boolean): TankWorld {
     tuv.setXY(k, (x + WORLD_HALF) / (WORLD_HALF * 2), 1 - (z + WORLD_HALF) / (WORLD_HALF * 2));
   }
   terrainGeo.computeVertexNormals();
-  const terrainTex = keep(makeTerrainTexture(map, detail ? 2048 : 1536));
+  const terrainPaint = paintTerrainTexture(map, detail ? 2048 : 1536);
+  const terrainTex = keep(terrainPaint.texture);
   terrainTex.flipY = true;
   const groundDetail = keep(makeGroundDetailTexture());
   const terrainMat = keep(new THREE.MeshLambertMaterial({ map: terrainTex }));
@@ -366,6 +369,7 @@ export function buildTankWorld(map: TankMap, detail: boolean): TankWorld {
 
   return {
     group,
+    ready: terrainPaint.ready,
     fellTree: (index, dx, dz) => {
       if (index < 0 || index >= trees.length || down[index]) return;
       down[index] = 1;

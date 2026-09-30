@@ -8,6 +8,7 @@ import { TankClassIcon } from "./TankIcons";
 import type { BattleResult } from "./TankScene";
 import {
   AMMO,
+  CAMO_CHOICES,
   DIFFICULTIES,
   TANKS,
   TANK_CLASS_NAMES,
@@ -32,6 +33,24 @@ const TankGaragePreview = dynamic(() => import("./TankGaragePreview"), { ssr: fa
 const CHAR_KEY = "pixolud-tanks-char";
 const DIFF_KEY = "pixolud-tanks-difficulte";
 const CAREER_KEY = "pixolud-tanks-carriere";
+/** Camouflage choisi pour chaque char : { idDuChar: idDuCamouflage }. */
+const CAMO_KEY = "pixolud-tanks-camouflages";
+
+function readCamos(): Record<string, string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(CAMO_KEY) ?? "{}") as unknown;
+    if (!v || typeof v !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const [k, id] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof id === "string" && CAMO_CHOICES.some((c) => c.id === id)) out[k] = id;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+const hex = (n: number) => `#${n.toString(16).padStart(6, "0")}`;
 
 interface Career {
   battles: number;
@@ -95,6 +114,7 @@ export default function TankGame({ title }: { title: string }) {
   const [battleKey, setBattleKey] = useState(0);
   const [result, setResult] = useState<BattleResult | null>(null);
   const [career, setCareer] = useState<Career>(EMPTY_CAREER);
+  const [camos, setCamos] = useState<Record<string, string>>({});
 
   // Choix memorises (lus apres le premier rendu : le serveur ne les connait pas).
   useEffect(() => {
@@ -108,6 +128,7 @@ export default function TankGame({ title }: { title: string }) {
         // stockage indisponible
       }
       setCareer(readCareer());
+      setCamos(readCamos());
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -124,6 +145,16 @@ export default function TankGame({ title }: { title: string }) {
     setDifficulty(d);
     save(DIFF_KEY, d);
   }
+
+  function pickCamo(id: string | null) {
+    const next = { ...camos };
+    if (id) next[tankId] = id;
+    else delete next[tankId];
+    setCamos(next);
+    save(CAMO_KEY, JSON.stringify(next));
+  }
+
+  const camo = camos[tankId] ?? null;
 
   function startBattle() {
     setResult(null);
@@ -150,6 +181,7 @@ export default function TankGame({ title }: { title: string }) {
       <TankScene
         key={battleKey}
         tankId={tankId}
+        camo={camo}
         difficulty={difficulty}
         onEnd={endBattle}
         onQuit={() => setScreen("garage")}
@@ -267,7 +299,34 @@ export default function TankGame({ title }: { title: string }) {
       {/* Centre : le char et sa fiche */}
       <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="relative min-h-[180px] flex-1 overflow-hidden">
-          <TankGaragePreview tankId={tankId} />
+          <TankGaragePreview tankId={tankId} camo={camo} />
+          {/* Camouflages : l'origine et six peintures, dont quatre numeriques. */}
+          <div className="absolute inset-x-2 bottom-2 flex flex-wrap items-center gap-1.5 rounded-md bg-black/55 p-1.5 sm:inset-x-auto sm:left-3">
+            <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Camouflage</span>
+            <button
+              type="button"
+              onClick={() => pickCamo(null)}
+              className={`rounded px-2 py-1 text-[10px] font-bold ${camo === null ? "bg-amber-400 text-black" : "bg-white/10 text-zinc-200 hover:bg-white/20"}`}
+            >
+              Origine
+            </button>
+            {CAMO_CHOICES.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                title={c.name}
+                aria-label={c.name}
+                onClick={() => pickCamo(c.id)}
+                className={`h-7 w-7 overflow-hidden rounded ring-2 ${camo === c.id ? "ring-amber-400" : "ring-white/15 hover:ring-white/50"}`}
+                style={{
+                  background:
+                    c.style === "numerique"
+                      ? `conic-gradient(${hex(c.camo)} 0 25%, ${hex(c.color)} 0 50%, ${hex(c.camo2)} 0 75%, ${hex(c.color)} 0) 0 0 / 50% 50%`
+                      : `linear-gradient(135deg, ${hex(c.color)} 0 40%, ${hex(c.camo)} 40% 70%, ${hex(c.camo2)} 70%)`,
+                }}
+              />
+            ))}
+          </div>
           <div className="pointer-events-none absolute left-3 top-3 sm:left-4 sm:top-4">
             <p className="flex items-center gap-2 text-xl font-black sm:text-2xl">
               <span className="font-mono text-lg text-amber-300">{tierLabel(def.tier)}</span>

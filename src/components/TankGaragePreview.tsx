@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { tankById } from "@/lib/tanks/tankDefs";
+import { camoChoice, tankById } from "@/lib/tanks/tankDefs";
 import { buildTankModel, type TankModel } from "@/lib/tanks/tankModel";
 
 /** Sol du hangar : beton tache, joints et lignes de securite jaunes. */
@@ -57,9 +57,9 @@ function hangarFloorTexture(): THREE.CanvasTexture {
  * Le char du garage : il tourne lentement sur un plateau dans un hangar,
  * et on le fait tourner a la souris ou au doigt.
  */
-export default function TankGaragePreview({ tankId }: { tankId: string }) {
+export default function TankGaragePreview({ tankId, camo = null }: { tankId: string; camo?: string | null }) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<{ scene: THREE.Scene; setModel: (id: string) => void } | null>(null);
+  const sceneRef = useRef<{ scene: THREE.Scene; setModel: (id: string, camo: string | null) => void } | null>(null);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -129,12 +129,12 @@ export default function TankGaragePreview({ tankId }: { tankId: string }) {
     holder.position.y = 0.16;
     scene.add(holder);
     let model: TankModel | null = null;
-    const setModel = (id: string) => {
+    const setModel = (id: string, camoId: string | null) => {
       if (model) {
         holder.remove(model.root);
         model.dispose();
       }
-      model = buildTankModel(tankById(id));
+      model = buildTankModel(tankById(id), { camo: camoChoice(camoId), number: "101" });
       model.root.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
       });
@@ -219,8 +219,8 @@ export default function TankGaragePreview({ tankId }: { tankId: string }) {
   }, []);
 
   useEffect(() => {
-    sceneRef.current?.setModel(tankId);
-  }, [tankId]);
+    sceneRef.current?.setModel(tankId, camo);
+  }, [tankId, camo]);
 
   return <div ref={mountRef} className="absolute inset-0" />;
 }

@@ -118,7 +118,7 @@ export const GAMES_3D: Game3D[] = [
     genre: "Combat de chars",
     players: "Solo contre des bots",
     duration: "5 à 8 min",
-    highlights: ["Huit chars, dont deux qui mitraillent", "Blindage, ricochets, pénétration", "Capture de base", "Garage en 3D"],
+    highlights: ["13 chars, des années trente aux modernes", "Rafales et chargeurs automatiques", "Camouflages numériques", "Blindage, ricochets, capture"],
   },
   {
     slug: "manoir-maudit",
