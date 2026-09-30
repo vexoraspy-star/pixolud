@@ -1,4 +1,4 @@
-import type { TankClass } from "@/lib/tanks/tankDefs";
+import type { AmmoId, TankClass } from "@/lib/tanks/tankDefs";
 
 /**
  * Icone de classe de char, comme sur les panneaux d'equipe des jeux de
@@ -20,6 +20,18 @@ export function TankClassIcon({ cls, className = "", title }: { cls: TankClass; 
           {cls === "lourd" && <path d="M5 11h10v1.4H5z" fill="rgba(0,0,0,.55)" />}
         </>
       )}
+    </svg>
+  );
+}
+
+/** Un obus dessine, de la couleur de son type (perforant dore, sous-calibre acier, explosif rouge). */
+export function ShellIcon({ ammo, className = "" }: { ammo: AmmoId; className?: string }) {
+  const color = ammo === "perforant" ? "#d6a741" : ammo === "sousCalibre" ? "#9fb6cc" : "#d9573b";
+  return (
+    <svg viewBox="0 0 12 28" className={className} aria-hidden>
+      <path d="M2 11 Q6 0 10 11 V24 H2Z" fill={color} />
+      <rect x="1.5" y="23" width="9" height="4" rx="0.6" fill="#b08a3e" />
+      <rect x="2" y="15" width="8" height="1.2" fill="rgba(0,0,0,.35)" />
     </svg>
   );
 }

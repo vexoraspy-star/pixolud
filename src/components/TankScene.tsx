@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import Game3DSettings from "./Game3DSettings";
-import { TankClassIcon } from "./TankIcons";
+import { ShellIcon, TankClassIcon } from "./TankIcons";
 import { AMMO, AMMO_ORDER, MODES, camoChoice, tankById, type AmmoId, type BattleMode, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
 import { artyCharge, effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
@@ -101,6 +101,11 @@ interface Hud {
   zoom: number;
   /** Vue d'artillerie : temps de vol de l'obus jusqu'au point vise (null : hors de portee). */
   artyFlight: number | null;
+  /** Schema du char : caisse et tourelle par rapport a la camera (radians). */
+  hullAngle: number;
+  turretAngle: number;
+  /** Case de la carte ou se trouve le char (« H8 »). */
+  cell: string;
 }
 
 interface Msg {
@@ -120,6 +125,16 @@ interface Feed {
 }
 
 const FEED_SECONDS = 7;
+
+/** Lettres des lignes de la mini-carte (sans I ni J : on les confond). */
+const GRID_ROWS = "ABCDEFGHKL";
+
+/** La case de la carte (10 x 10) ou se trouve un point : « H8 ». */
+function mapCell(x: number, z: number): string {
+  const col = Math.max(0, Math.min(9, Math.floor(((x + MAP_HALF) / (MAP_HALF * 2)) * 10)));
+  const row = Math.max(0, Math.min(9, Math.floor(((z + MAP_HALF) / (MAP_HALF * 2)) * 10)));
+  return `${GRID_ROWS[row]}${(col + 1) % 10}`;
+}
 
 export default function TankScene({
   tankId,
@@ -413,6 +428,13 @@ export default function TankScene({
         g.moveTo(0, (s * 256) / 10);
         g.lineTo(256, (s * 256) / 10);
         g.stroke();
+      }
+      // Reperes des cases : lettres en ligne, chiffres en colonne.
+      g.font = "bold 9px sans-serif";
+      g.fillStyle = "rgba(255,255,255,0.55)";
+      for (let s = 0; s < 10; s++) {
+        g.fillText(GRID_ROWS[s], 2, (s * 256) / 10 + 10);
+        g.fillText(String((s + 1) % 10), (s * 256) / 10 + 16, 10);
       }
     }
 
@@ -886,6 +908,9 @@ export default function TankScene({
           spectate: !player.alive && spectate ? `${spectate.name} (${spectate.def.name})` : null,
           zoom,
           artyFlight: artyMode ? artyFlightTime() : null,
+          hullAngle: player.yaw - camYaw,
+          turretAngle: player.yaw + (player.model.fixedTurret ? 0 : player.turretYaw) - camYaw,
+          cell: mapCell(player.x, player.z),
         });
         setMessages((list) => (list.some((m) => m.until < clock) ? list.filter((m) => m.until >= clock) : list));
         setFeed((list) => (list.some((f) => f.until < clock) ? list.filter((f) => f.until >= clock) : list));
@@ -1185,21 +1210,36 @@ export default function TankScene({
       {/* Haut : equipes, score et chrono */}
       {hud && (
         <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex items-start justify-center gap-3 px-2">
-          <div className="flex flex-wrap justify-end gap-0.5">
+          <div className="flex flex-wrap justify-end gap-0.5 rounded-l bg-gradient-to-l from-black/70 to-transparent py-1 pl-3 pr-1">
             {hud.teams[0].map((t) => (
               <TankClassIcon
                 key={t.id}
                 cls={t.cls}
-                className={`h-4 w-4 ${t.alive ? "text-green-400" : "text-zinc-600"}`}
+                className={`h-4 w-4 drop-shadow ${t.alive ? "text-green-400" : "text-zinc-600"}`}
                 title={`${t.name} (${t.tank})`}
               />
             ))}
           </div>
           <div className="flex flex-col items-center">
-            <div className="flex items-center gap-2 rounded bg-black/70 px-3 py-0.5 font-mono text-sm font-bold">
-              <span className="text-green-400">{7 - alive[1]}</span>
-              <span className="text-zinc-300">{fmtTime(hud.timeLeft)}</span>
-              <span className="text-red-400">{7 - alive[0]}</span>
+            <div className="flex items-center gap-3 rounded bg-black/75 px-3 py-0.5 font-mono font-black shadow">
+              <span className="text-xl text-green-400">{hud.teams[1].length - alive[1]}</span>
+              <span className="text-xs text-zinc-300">{fmtTime(hud.timeLeft)}</span>
+              <span className="text-xl text-red-400">{hud.teams[0].length - alive[0]}</span>
+            </div>
+            {/* Drapeaux des bases : le cercle se remplit pendant la capture. */}
+            <div className="mt-1 flex gap-2">
+              {[0, 1].map((b) => (
+                <span
+                  key={b}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-black text-white shadow"
+                  style={{
+                    background: `conic-gradient(${b === 0 ? "#ef4444" : "#22c55e"} ${hud.capture[b]}%, ${b === 0 ? "#166534" : "#991b1b"} 0)`,
+                  }}
+                  title={b === 0 ? "Notre base" : "Base ennemie"}
+                >
+                  ⚑
+                </span>
+              ))}
             </div>
             <p className="mt-0.5 rounded bg-black/55 px-2 text-[10px] font-bold text-zinc-200">
               Ennemis restants : <span className="text-red-300">{alive[1]}</span> · Alliés : <span className="text-green-300">{alive[0]}</span>
@@ -1217,12 +1257,12 @@ export default function TankScene({
               ) : null,
             )}
           </div>
-          <div className="flex flex-wrap gap-0.5">
+          <div className="flex flex-wrap gap-0.5 rounded-r bg-gradient-to-r from-black/70 to-transparent py-1 pl-1 pr-3">
             {hud.teams[1].map((t) => (
               <TankClassIcon
                 key={t.id}
                 cls={t.cls}
-                className={`h-4 w-4 ${!t.alive ? "text-zinc-600" : t.seen ? "text-red-400" : "text-red-400/40"}`}
+                className={`h-4 w-4 drop-shadow ${!t.alive ? "text-zinc-600" : t.seen ? "text-red-400" : "text-red-400/40"}`}
                 title={`${t.name} (${t.tank})`}
               />
             ))}
@@ -1252,12 +1292,26 @@ export default function TankScene({
 
       {/* Bas gauche : mon char */}
       {hud && (
-        <div className="pointer-events-none absolute left-2 top-[60px] z-20 w-44 rounded-md bg-black/65 p-1.5 sm:bottom-3 sm:left-3 sm:top-auto sm:w-60 sm:p-2">
+        <div className="pointer-events-none absolute left-2 top-[60px] z-20 w-44 rounded-md border-l-2 border-green-500 bg-black/65 p-1.5 sm:bottom-3 sm:left-3 sm:top-auto sm:w-64 sm:p-2">
           <div className="flex items-center gap-2">
             <TankClassIcon cls={def.cls} className="h-4 w-4 text-green-400" />
-            <p className="text-sm font-bold">{def.name}</p>
+            <p className="text-sm font-bold">
+              <span className="mr-1 font-mono text-xs text-amber-300">{["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][def.tier]}</span>
+              {def.name}
+            </p>
             <p className="ml-auto font-mono text-xs text-zinc-300">{hud.speed} km/h</p>
           </div>
+          {/* Schema vu de dessus : la caisse et la tourelle par rapport a la camera. */}
+          <svg viewBox="-20 -20 40 40" className="mx-auto my-1 hidden h-16 w-16 sm:block" aria-hidden>
+            <g transform={`rotate(${(-hud.hullAngle * 180) / Math.PI})`}>
+              <rect x="-7" y="-11" width="14" height="22" rx="1.5" fill="none" stroke="rgba(255,255,255,.75)" strokeWidth="1.4" />
+              <path d="M-7 -8h-2v16h2M7 -8h2v16h-2" fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="1.2" />
+            </g>
+            <g transform={`rotate(${(-hud.turretAngle * 180) / Math.PI})`}>
+              <circle r="4.5" fill="rgba(74,222,128,.25)" stroke="#4ade80" strokeWidth="1.2" />
+              <path d="M0 -4.5V-17" stroke="#4ade80" strokeWidth="1.6" />
+            </g>
+          </svg>
           <div className="mt-1.5 h-2.5 overflow-hidden rounded bg-white/15">
             <div
               className={`h-full ${hud.hp / hud.maxHp > 0.5 ? "bg-green-500" : hud.hp / hud.maxHp > 0.25 ? "bg-yellow-400" : "bg-red-500"}`}
@@ -1285,8 +1339,11 @@ export default function TankScene({
                 hud.ammo === a ? "border-amber-300 bg-amber-300/20" : "border-white/15 bg-black/65"
               }`}
             >
-              <p className="flex justify-between text-[10px] text-zinc-400">
-                <span>{i + 1}</span>
+              <p className="flex items-center justify-between text-[10px] text-zinc-400">
+                <span className="flex items-center gap-1">
+                  <ShellIcon ammo={a} className="h-4 w-2" />
+                  {i + 1}
+                </span>
                 <span className="font-mono text-zinc-100">{hud.ammoLeft[a]}</span>
               </p>
               <p className="text-xs font-bold">
@@ -1317,6 +1374,7 @@ export default function TankScene({
       {/* Bas droite : mini-carte */}
       <div className="pointer-events-none absolute left-2 top-[124px] z-20 rounded-md border border-white/20 bg-black/60 p-1 sm:bottom-3 sm:left-auto sm:right-3 sm:top-auto">
         <canvas ref={minimapRef} width={200} height={200} className="block h-[110px] w-[110px] sm:h-[200px] sm:w-[200px]" />
+        {hud && <p className="mt-0.5 text-center font-mono text-[10px] font-bold text-zinc-300">Case {hud.cell}</p>}
       </div>
 
       {/* Char detruit : spectateur */}
