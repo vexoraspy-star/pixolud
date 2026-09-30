@@ -18,6 +18,8 @@ export interface Game3D {
   featured?: boolean;
   /** Illustration de la vignette (fichier de public/, dessine maison) ; sinon l'emoji. */
   cover?: string;
+  /** Avertissement affiche sur la vignette (jeu tres exigeant, par exemple). */
+  warning?: string;
   /**
    * Annonce mais pas encore jouable : visible dans la galerie avec un badge
    * "Bientot", jamais cliquable, et sa page renvoie une 404. Le jeu n'existe
@@ -96,6 +98,8 @@ export const GAMES_3D: Game3D[] = [
     genre: "Tir tactique",
     players: "Solo",
     duration: "5 à 15 min",
+    warning:
+      "Jeu très exigeant : sur un PC peu puissant, le chargement peut prendre plusieurs minutes et la page peut ralentir. Le mode rapide aide.",
     highlights: [
       "Ennemis qui se couvrent et contournent",
       "Glissade, escalade, se pencher",

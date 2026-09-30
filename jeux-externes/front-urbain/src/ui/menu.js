@@ -5,6 +5,8 @@ import {
   enregistrerQualite,
   adaptatifActif,
   enregistrerAdaptatif,
+  enregistrerModeRapide,
+  relancerAvecModeRapide,
   sensibilite,
   enregistrerSensibilite,
   sensibiliteMoteur,
@@ -63,7 +65,21 @@ export class PauseMenu {
     this.qNoteTxt = el('span', null, this.qNote, '');
     const relancer = el('button', 'ow-btn small', this.qNote, 'Relancer');
     relancer.type = 'button';
-    relancer.addEventListener('click', () => location.reload());
+    relancer.addEventListener('click', () => relancerAvecModeRapide(this.rapideVoulu));
+
+    // ---- mode rapide (Pixolud) ---------------------------------------------
+    // Il change tout le demarrage (compilation, textures) : il ne s'applique
+    // qu'en relancant, avec le bon parametre d'adresse.
+    this.rapideVoulu = this.ctx.config.rapide === true;
+    this.rapideBtns = this._toggle('Mode rapide', (v) => {
+      enregistrerModeRapide(v);
+      this.rapideVoulu = v;
+    });
+    this.rNote = el('div', 'ow-note', this.rows);
+    this.rNoteTxt = el('span', null, this.rNote, '');
+    const relancerRapide = el('button', 'ow-btn small', this.rNote, 'Relancer');
+    relancerRapide.type = 'button';
+    relancerRapide.addEventListener('click', () => relancerAvecModeRapide(this.rapideVoulu));
 
     // ---- resolution adaptative --------------------------------------------
     this.adaptBtns = this._toggle('Résolution adaptative', (v) => {
@@ -233,6 +249,31 @@ export class PauseMenu {
     }
     const relancer = this.qNote.querySelector('button');
     if (relancer) setStyle(relancer, 'display', this.pending ? '' : 'none');
+    // Le mode rapide impose la qualite Basse : le choix attend qu'on le coupe.
+    if (this.pending && this.rapideVoulu) {
+      setText(this.qNoteTxt, `${NOMS_NIVEAUX[this.pending]} enregistrée : coupe d’abord le mode rapide, puis relance.`);
+      if (relancer) setStyle(relancer, 'display', 'none');
+    }
+
+    const rapideActuel = cfg.rapide === true;
+    for (const [b, v] of this.rapideBtns) b.classList.toggle('on', this.rapideVoulu === v);
+    const rapideRelance = this.rNote.querySelector('button');
+    if (this.rapideVoulu !== rapideActuel) {
+      setText(
+        this.rNoteTxt,
+        this.rapideVoulu
+          ? 'Relance pour démarrer plus vite (qualité Basse, effets simplifiés).'
+          : 'Relance pour la qualité complète. Attention : sur un PC peu puissant, le chargement peut prendre plusieurs minutes.'
+      );
+      setStyle(this.rNote, 'display', '');
+      if (rapideRelance) setStyle(rapideRelance, 'display', '');
+    } else if (rapideActuel) {
+      setText(this.rNoteTxt, 'Actif : démarrage allégé, qualité Basse imposée.');
+      setStyle(this.rNote, 'display', '');
+      if (rapideRelance) setStyle(rapideRelance, 'display', 'none');
+    } else {
+      setStyle(this.rNote, 'display', 'none');
+    }
 
     const adapt = this.ctx.peek('resolution')?.actif ?? adaptatifActif();
     for (const [b, v] of this.adaptBtns) b.classList.toggle('on', adapt === v);

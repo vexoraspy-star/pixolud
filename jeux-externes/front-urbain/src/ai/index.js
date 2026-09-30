@@ -59,7 +59,8 @@ export class AiSystem {
 
     const t0 = performance.now();
     this.materials = new SoldierMaterials(this.rng.fork(), {
-      size: 512,
+      // Pixolud : textures des uniformes deux fois plus petites en mode rapide.
+      size: ctx.config.rapide ? 256 : 512,
       anisotropy: ctx.config.q.anisotropy ?? 8,
       camo: ['arid', 'woodland', 'urban'],
     });
@@ -151,7 +152,9 @@ export class AiSystem {
     // unchanged. `update()` keeps the same code as a fallback for the case where
     // the collision world is not registered yet.
     this._bootNav(ctx);
-    await this.prewarmMaterials();
+    // Pixolud : en mode rapide, les programmes des soldats se compilent a leur
+    // premiere apparition au lieu de retenir l'ecran de chargement (13 s mesurees).
+    if (!ctx.config.rapide) await this.prewarmMaterials();
   }
 
   /**

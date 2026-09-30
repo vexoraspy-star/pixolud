@@ -55,6 +55,8 @@ export class MaterialSystem {
     // Texture budget scales with the quality preset; 1K is the reference.
     this._quality =
       ctx?.config?.quality === 'low' ? 0.5 : ctx?.config?.quality === 'medium' ? 0.75 : 1;
+    // Pixolud : mode rapide, textures cuites deux fois plus petites.
+    if (ctx?.config?.rapide) this._quality = 0.25;
     this._tryBuild();
   }
 
@@ -193,9 +195,23 @@ export class MaterialSystem {
     // relief (jusqu'a 48 lectures de texture par pixel) coute peu a l'ecran mais
     // enormement a la compilation des shaders sous Windows (Direct3D).
     if (this.ctx?.config?.quality === 'low') p.parallax = 0;
+    // Pixolud : mode rapide, chaque option du shader est une variante de plus
+    // a compiler (plus d'une seconde piece sous Windows). On ne garde que la
+    // projection des textures : ni anti-repetition, ni meteo, ni taches, ni
+    // tissu, ni relief de grande echelle.
+    const rapide = this.ctx?.config?.rapide === true;
+    if (rapide) {
+      p.parallax = 0;
+      p.detile = 0;
+      p.macroRelief = 0;
+      p.weather = [0, 0, 0, p.weather?.[3] ?? 0];
+      p.patch = [0, ...(p.patch ?? [0, 0, 0, 0]).slice(1)];
+      p.cloth = [0, 1, 0, 0];
+    }
 
     const threeProps = { ...(def.three ?? {}), ...(opts.three ?? {}) };
-    const usePhysical = threeProps.physical === true;
+    // Le materiau « physique » (vernis, transmission) est un programme a part.
+    const usePhysical = threeProps.physical === true && !rapide;
     delete threeProps.physical;
 
     const Ctor = usePhysical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;

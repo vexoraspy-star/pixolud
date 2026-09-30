@@ -3,12 +3,14 @@
   --portal-bg: #f5f4f0; --portal-surface: #fff; --portal-soft: #eeedf3;
   --portal-ink: #242333; --portal-muted: #696779; --portal-line: #dfdee6;
   --portal-accent: #6b4de6; --portal-accent-soft: #eee9fc; --portal-shadow: 0 16px 45px #25213b0b;
+  --portal-warn: #8a4b00; --portal-warn-soft: #fdf1dc;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --portal-bg: #101118; --portal-surface: #191b26; --portal-soft: #232535;
     --portal-ink: #f3f0f8; --portal-muted: #adaabb; --portal-line: #2c2e3e;
     --portal-accent: #b6a1ff; --portal-accent-soft: #29233e; --portal-shadow: 0 16px 45px #00000025;
+    --portal-warn: #f7c26b; --portal-warn-soft: #2e2415;
   }
 }
 body.portal-shell { background: var(--portal-bg); color: var(--portal-ink); font-family: var(--font-geist-sans),Arial,sans-serif; }
@@ -122,6 +124,7 @@ body.portal-shell { background: var(--portal-bg); color: var(--portal-ink); font
 .world-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--portal-muted); font-size: 10px; }
 .world-card h2 { font-size: 22px; font-weight: 750; letter-spacing: -.7px; margin-block: 10px; }
 .world-description { font-size: 13px; line-height: 1.8; color: var(--portal-muted); }
+.world-warning { margin-top: 14px; padding: 9px 11px; border-radius: 7px; background: var(--portal-warn-soft); color: var(--portal-warn); font-size: 11px; line-height: 1.6; }
 .world-highlights { display: flex; flex-wrap: wrap; gap: 6px; padding-block: 20px; margin-top: auto; }
 .world-highlights span { padding: 5px 8px; border-radius: 6px; background: var(--portal-soft); color: var(--portal-muted); font-size: 9px; }
 .world-cta { display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid var(--portal-line); color: var(--portal-accent); font-size: 12px; font-weight: 650; }

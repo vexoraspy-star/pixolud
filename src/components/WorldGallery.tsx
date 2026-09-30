@@ -14,6 +14,7 @@ function GameCard({ game }: { game: Game3D }) {
       <p className="world-meta">{game.players}<span>·</span>{game.duration}</p>
       <h2>{game.title}</h2>
       <p className="world-description">{game.description}</p>
+      {game.warning && <p className="world-warning"><span aria-hidden="true">⚠ </span>{game.warning}</p>}
       <div className="world-highlights">{game.highlights.map(h => <span key={h}>{h}</span>)}</div>
       <span className="world-cta">{game.locked ? "En préparation" : "Explorer ce monde"}<span aria-hidden="true">{game.locked ? "◷" : "↗"}</span></span>
     </div>

@@ -157,8 +157,11 @@ export class Partie {
       'p',
       'fu-note',
       carte,
-      `Qualité graphique : ${nomQualite}${this.qualite.auto ? ' (choisie automatiquement)' : ''} — ` +
-        'modifiable dans le menu Échap. D’après Claude of Duty de mshumer (licence MIT).'
+      (this.ctx.config?.rapide
+        ? 'Mode rapide : qualité Basse et effets simplifiés pour démarrer plus vite — ' +
+          'désactivable dans le menu Échap. '
+        : `Qualité graphique : ${nomQualite}${this.qualite.auto ? ' (choisie automatiquement)' : ''} — ` +
+          'modifiable dans le menu Échap. ') + 'D’après Claude of Duty de mshumer (licence MIT).'
     );
 
     this.etat = 'accueil';

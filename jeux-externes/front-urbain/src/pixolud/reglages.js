@@ -20,6 +20,8 @@ const CLE_QUALITE_PIXOLUD = 'pixolud-3d-quality';
 // Cles propres a Front Urbain.
 const CLE_QUALITE = 'pixolud-front-urbain-qualite';
 const CLE_ADAPTATIF = 'pixolud-front-urbain-adaptatif';
+// Meme cle que src/components/FrontUrbainGame.tsx du site : ne pas la renommer.
+const CLE_RAPIDE = 'pixolud-front-urbain-rapide';
 
 export const NIVEAUX = ['low', 'medium', 'high', 'ultra'];
 export const NOMS_NIVEAUX = { low: 'Basse', medium: 'Moyenne', high: 'Haute', ultra: 'Ultra' };
@@ -112,6 +114,43 @@ export function qualiteDeDepart(params) {
   const choisie = qualiteEnregistree();
   if (choisie) return { niveau: choisie, auto: false };
   return { niveau: detecterQualite(), auto: true };
+}
+
+/* ---------------------------------------------------------- mode rapide --- */
+
+/**
+ * Mode rapide : demarrage en quelques dizaines de secondes au lieu de plusieurs
+ * minutes sur un portable. Il saute la compilation anticipee des shaders,
+ * allege les materiaux (ni relief, ni meteo, ni variantes) et force la qualite
+ * Basse. Les shaders restants se compilent pendant les premieres secondes de
+ * jeu. Actif par defaut : c'est la version qui ne fait pas planter la page.
+ *
+ * `?rapide=1` / `?rapide=0` (mis par la page du site) > choix enregistre > oui.
+ */
+export function modeRapide(params) {
+  const force = params?.get?.('rapide');
+  if (force === '1') return true;
+  if (force === '0') return false;
+  return lire(CLE_RAPIDE) !== 'off';
+}
+
+export function enregistrerModeRapide(actif) {
+  ecrire(CLE_RAPIDE, actif ? 'on' : 'off');
+}
+
+/**
+ * Relance le jeu avec (ou sans) le mode rapide. La page du site passe
+ * `?rapide=` a l'iframe et ce parametre l'emporte sur le choix enregistre :
+ * un simple rechargement garderait l'ancien mode.
+ */
+export function relancerAvecModeRapide(actif) {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('rapide', actif ? '1' : '0');
+    location.replace(u.toString());
+  } catch {
+    location.reload();
+  }
 }
 
 /* -------------------------------------------------- resolution adaptative --- */

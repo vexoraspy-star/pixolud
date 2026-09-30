@@ -24,6 +24,10 @@ aucun fichier d'image, de modèle ou de son. La seule dépendance est `three`.
   mémorisé dans le navigateur ; plafond de densité de pixels par niveau.
 - Résolution adaptative (ajout) : l'image baisse un peu en résolution quand le
   jeu rame, et remonte quand il redevient fluide.
+- Mode rapide (ajout, actif par défaut) : pas de compilation anticipée des
+  shaders, matériaux allégés, textures cuites plus petites, qualité Basse.
+  Mesuré sur un portable Windows : environ 2 min 45 au lieu de 5 min. Choisi sur
+  l'écran de lancement du site (`?rapide=1` / `?rapide=0`) et dans le menu Échap.
 - Réglages partagés avec les autres jeux 3D du site (clavier AZERTY/QWERTY,
   sensibilité, luminosité) : mêmes clés que `src/lib/settings3d.ts`.
 - Déroulement de mission (ajout) : écran d'accueil avec les touches, score

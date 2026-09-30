@@ -19,6 +19,7 @@ import { prewarm } from './core/prewarm.js';
 // Ajouts Pixolud : reglages partages, deroulement de la mission, resolution adaptative.
 import {
   qualiteDeDepart,
+  modeRapide,
   sensibilite,
   sensibiliteMoteur,
   luminosite,
@@ -38,12 +39,25 @@ const lockstep = capture && params.get('lockstep') === '1';
 // Pixolud : niveau prudent par defaut (detection simple de la carte graphique),
 // ou celui que le joueur a choisi dans le menu. `?q=` reste possible pour mesurer.
 const qualite = qualiteDeDepart(params);
+// Pixolud : le mode rapide force la qualite Basse et allege le demarrage
+// (voir modeRapide dans pixolud/reglages.js). Jamais pendant une capture.
+const rapide = !capture && modeRapide(params);
+if (rapide) {
+  qualite.niveau = 'low';
+  qualite.auto = false;
+}
 const config = createConfig({
   quality: qualite.niveau,
   deterministic: capture,
   sensitivity: sensibiliteMoteur(sensibilite()),
 });
 config.qualityAuto = qualite.auto;
+config.rapide = rapide;
+if (rapide) {
+  // Moins de programmes a compiler et moins de travail par image : pas de
+  // halo lumineux, ombres plus petites, image un peu moins definie.
+  Object.assign(config.q, { bloom: false, shadowMapSize: 512, renderScale: 0.55, anisotropy: 2 });
+}
 
 const canvas = document.getElementById('game');
 
@@ -150,9 +164,12 @@ avancer(0.7, texteChrono());
 const chrono = setInterval(() => avancer(0.7 + 0.3 * avancePrewarm, texteChrono()), 1000);
 let warmup;
 try {
+  // Pixolud : en mode rapide, pas de compilation anticipee (plus de trois
+  // minutes mesurees sur un portable Windows) ; les shaders se compilent a la
+  // premiere apparition de chaque objet.
   warmup =
-    params.get('prewarm') === '0'
-      ? { ok: false, reason: 'disabled by ?prewarm=0' }
+    params.get('prewarm') === '0' || rapide
+      ? { ok: false, reason: rapide ? 'mode rapide' : 'disabled by ?prewarm=0' }
       : await prewarm(engine, {
           onProgress: (p) => {
             avancePrewarm = typeof p === 'number' ? p : avancePrewarm;
