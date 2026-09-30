@@ -24,7 +24,7 @@ import {
 import {
   BASE_RADIUS,
   MAP_HALF,
-  WATER_LEVEL,
+  deepWater,
   distToSegment,
   findPath,
   groundHeight,
@@ -455,8 +455,8 @@ export function createBattle(
     t.yaw = wrap(t.yaw + t.turnRate * dt);
     const nx = t.x + Math.sin(t.yaw) * t.speed * dt;
     const nz = t.z + Math.cos(t.yaw) * t.speed * dt;
-    // Pas dans l'eau profonde (seulement dans le lac : ailleurs, un creux reste du sol).
-    if (Math.hypot(nx - map.lake.x, nz - map.lake.z) < map.lake.r + 12 && groundHeight(map, nx, nz) < WATER_LEVEL - 0.9) {
+    // Pas dans l'eau profonde (lac, mare, riviere hors des ponts et du gue ; on roule sur la glace).
+    if (deepWater(map, nx, nz)) {
       t.speed *= -0.2;
     } else {
       t.x = nx;

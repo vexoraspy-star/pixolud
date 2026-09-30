@@ -244,6 +244,8 @@ export interface TankEffects {
   burn: (pos: THREE.Vector3, seconds: number) => void;
   /** Poussiere des chenilles. */
   dust: (x: number, y: number, z: number, amount: number) => void;
+  /** Fumee d'echappement du moteur (0 : ralenti, 1 : pleine charge). */
+  exhaust: (pos: THREE.Vector3, amount: number) => void;
   /** Tracantes : a remplir a chaque image entre begin et end. */
   beginTracers: () => void;
   addTracer: (pos: THREE.Vector3, dir: THREE.Vector3) => void;
@@ -252,7 +254,14 @@ export interface TankEffects {
   dispose: () => void;
 }
 
-export function createTankEffects(): TankEffects {
+/** Couleurs du sol souleve : poussiere des chenilles et gerbes des impacts (0 a 1). */
+export interface GroundColors {
+  dust: [number, number, number];
+  soil: [number, number, number];
+}
+
+export function createTankEffects(ground: GroundColors = { dust: [0.66, 0.58, 0.45], soil: [0.42, 0.34, 0.24] }): TankEffects {
+  const [dr, dg, db] = ground.dust;
   const group = new THREE.Group();
   const fireTex = makeParticleTexture("feu");
   const smokeTex = makeParticleTexture("fumee");
@@ -320,14 +329,14 @@ export function createTankEffects(): TankEffects {
       if (pos.y - groundY < 4) {
         for (let i = 0; i < 10; i++) {
           const a = (i / 10) * Math.PI * 2;
-          spawn(smoke, pos.x + Math.cos(a) * 1.5, groundY + 0.4, pos.z + Math.sin(a) * 1.5, Math.cos(a) * 7, 0.6, Math.sin(a) * 7, 1.4, 1, 3.5, 0.62, 0.55, 0.42, 0.4, -0.1, 2.5);
+          spawn(smoke, pos.x + Math.cos(a) * 1.5, groundY + 0.4, pos.z + Math.sin(a) * 1.5, Math.cos(a) * 7, 0.6, Math.sin(a) * 7, 1.4, 1, 3.5, dr * 0.94, dg * 0.94, db * 0.94, 0.4, -0.1, 2.5);
         }
       }
     },
     impact: (pos, kind) => {
       if (kind === "sol" || kind === "mur") {
         // Gerbe de terre (ou de platre) et nuage.
-        const [r, g, b] = kind === "sol" ? [0.42, 0.34, 0.24] : [0.78, 0.74, 0.66];
+        const [r, g, b] = kind === "sol" ? ground.soil : [0.78, 0.74, 0.66];
         for (let i = 0; i < 14; i++) {
           spawn(smoke, pos.x, pos.y, pos.z, rnd(8), 4 + Math.random() * 9, rnd(8), 1 + Math.random(), 0.5, 2.6, r, g, b, 0.85, 9, 0.6);
         }
@@ -365,7 +374,12 @@ export function createTankEffects(): TankEffects {
     },
     dust: (x, y, z, amount) => {
       if (Math.random() > amount) return;
-      spawn(smoke, x + rnd(0.8), y + 0.3, z + rnd(0.8), rnd(1.5), 0.6 + Math.random() * 0.8, rnd(1.5), 1.4 + Math.random(), 0.8, 3.2, 0.66, 0.58, 0.45, 0.32, -0.15, 1.3);
+      spawn(smoke, x + rnd(0.8), y + 0.3, z + rnd(0.8), rnd(1.5), 0.6 + Math.random() * 0.8, rnd(1.5), 1.4 + Math.random(), 0.8, 3.2, dr, dg, db, 0.32, -0.15, 1.3);
+    },
+    exhaust: (pos, amount) => {
+      if (Math.random() > 0.25 + amount * 0.6) return;
+      const k = 0.5 + amount;
+      spawn(smoke, pos.x + rnd(0.15), pos.y, pos.z + rnd(0.15), rnd(0.6), 0.7 + Math.random() * 0.7, rnd(0.6), 1 + Math.random() * 0.9, 0.25 * k, 1.5 * k, 0.15, 0.145, 0.14, 0.22 + amount * 0.25, -0.3, 1.2);
     },
     beginTracers: () => {
       tracers.count = 0;

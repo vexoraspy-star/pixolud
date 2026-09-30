@@ -18,6 +18,7 @@ import {
   tierLabel,
   type Difficulty,
 } from "@/lib/tanks/tankDefs";
+import { MAP_LIST, mapInfo, type MapId } from "@/lib/tanks/tankTerrain";
 
 const TankScene = dynamic(() => import("./TankScene"), {
   ssr: false,
@@ -35,6 +36,10 @@ const DIFF_KEY = "pixolud-tanks-difficulte";
 const CAREER_KEY = "pixolud-tanks-carriere";
 /** Camouflage choisi pour chaque char : { idDuChar: idDuCamouflage }. */
 const CAMO_KEY = "pixolud-tanks-camouflages";
+/** Carte choisie au garage, ou « hasard ». */
+const MAP_KEY = "pixolud-tanks-carte";
+
+type MapChoice = MapId | "hasard";
 
 function readCamos(): Record<string, string> {
   try {
@@ -115,6 +120,9 @@ export default function TankGame({ title }: { title: string }) {
   const [result, setResult] = useState<BattleResult | null>(null);
   const [career, setCareer] = useState<Career>(EMPTY_CAREER);
   const [camos, setCamos] = useState<Record<string, string>>({});
+  const [mapChoice, setMapChoice] = useState<MapChoice>("hasard");
+  /** Carte de la bataille en cours (tiree au sort au lancement si « hasard »). */
+  const [battleMap, setBattleMap] = useState<MapId | null>(null);
 
   // Choix memorises (lus apres le premier rendu : le serveur ne les connait pas).
   useEffect(() => {
@@ -124,6 +132,8 @@ export default function TankGame({ title }: { title: string }) {
         if (c && TANKS.some((d) => d.id === c)) setTankId(c);
         const d = localStorage.getItem(DIFF_KEY);
         if (d === "recrue" || d === "veteran" || d === "as") setDifficulty(d);
+        const m = localStorage.getItem(MAP_KEY);
+        if (m && (m === "hasard" || MAP_LIST.some((x) => x.id === m))) setMapChoice(m as MapChoice);
       } catch {
         // stockage indisponible
       }
@@ -156,7 +166,15 @@ export default function TankGame({ title }: { title: string }) {
 
   const camo = camos[tankId] ?? null;
 
+  function pickMap(m: MapChoice) {
+    setMapChoice(m);
+    save(MAP_KEY, m);
+  }
+
   function startBattle() {
+    // Au hasard : jamais deux fois de suite la meme carte.
+    const pool = MAP_LIST.filter((m) => m.id !== battleMap);
+    setBattleMap(mapChoice === "hasard" ? pool[Math.floor(Math.random() * pool.length)].id : mapChoice);
     setResult(null);
     setBattleKey((k) => k + 1);
     setScreen("bataille");
@@ -176,12 +194,13 @@ export default function TankGame({ title }: { title: string }) {
     setScreen("resultats");
   }
 
-  if (screen === "bataille") {
+  if (screen === "bataille" && battleMap) {
     return (
       <TankScene
         key={battleKey}
         tankId={tankId}
         camo={camo}
+        mapId={battleMap}
         difficulty={difficulty}
         onEnd={endBattle}
         onQuit={() => setScreen("garage")}
@@ -208,6 +227,7 @@ export default function TankGame({ title }: { title: string }) {
                 : "Toute ton équipe a été détruite."
               : "Le temps est écoulé."}{" "}
           · {Math.floor(result.seconds / 60)} min {result.seconds % 60} s
+          {battleMap && <> · {mapInfo(battleMap).name}</>}
         </p>
         <div className="mt-6 grid w-full max-w-lg grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -271,6 +291,24 @@ export default function TankGame({ title }: { title: string }) {
           </span>
         </div>
         <div className="flex w-full flex-wrap items-center justify-between gap-2 pr-12 sm:ml-auto sm:w-auto sm:justify-end">
+          <label
+            className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-zinc-300"
+            title={mapChoice === "hasard" ? "Une carte différente à chaque bataille" : mapInfo(mapChoice).tagline}
+          >
+            Carte
+            <select
+              value={mapChoice}
+              onChange={(e) => pickMap(e.target.value as MapChoice)}
+              className="rounded-md border border-white/15 bg-black/70 px-2 py-1.5 text-[11px] font-bold normal-case text-zinc-100"
+            >
+              <option value="hasard">Au hasard</option>
+              {MAP_LIST.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="flex overflow-hidden rounded-md border border-white/15">
             {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
               <button

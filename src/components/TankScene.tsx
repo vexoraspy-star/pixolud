@@ -9,16 +9,18 @@ import { effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbH
 import {
   BASE_RADIUS,
   MAP_HALF,
-  WATER_LEVEL,
   buildTankMap,
+  deepWater,
   groundHeight,
+  mapInfo,
   segmentGround,
   segmentHouse,
   segmentRock,
+  type MapId,
   type TankMap,
 } from "@/lib/tanks/tankTerrain";
 import { buildTankModel } from "@/lib/tanks/tankModel";
-import { buildTankWorld } from "@/lib/tanks/tankWorld";
+import { BIOME_LOOK, buildTankWorld } from "@/lib/tanks/tankWorld";
 import { createTankEffects } from "@/lib/tanks/tankEffects";
 import { createBattle, type BattleEnd, type SimTank } from "@/lib/tanks/tankSim";
 import {
@@ -113,11 +115,14 @@ const FEED_SECONDS = 7;
 export default function TankScene({
   tankId,
   camo = null,
+  mapId,
   difficulty,
   onEnd,
   onQuit,
 }: {
   tankId: string;
+  /** Champ de bataille choisi au garage. */
+  mapId: MapId;
   /** Camouflage choisi au garage pour le char du joueur (null : celui d'origine). */
   camo?: string | null;
   difficulty: Difficulty;
@@ -179,14 +184,16 @@ export default function TankScene({
     container.appendChild(renderer.domElement);
     renderer.domElement.style.display = "block";
 
+    // Lumiere et brume du climat de la carte.
+    const ambiance = BIOME_LOOK[mapInfo(mapId).biome];
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0xc4d2da, 170, 1000);
+    scene.fog = new THREE.Fog(ambiance.fog, ambiance.fogNear, ambiance.fogFar);
     const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.3, 2600);
     camera.rotation.order = "YXZ";
 
-    const hemi = new THREE.HemisphereLight(0xdbe8ff, 0x5b5238, 1.6);
-    const sun = new THREE.DirectionalLight(0xfff0d6, 2.7);
-    const sunDir = new THREE.Vector3(-0.45, 0.78, 0.43).normalize();
+    const hemi = new THREE.HemisphereLight(ambiance.hemiSky, ambiance.hemiGround, ambiance.hemi);
+    const sun = new THREE.DirectionalLight(ambiance.sun, ambiance.sunI);
+    const sunDir = new THREE.Vector3(...ambiance.sunDir).normalize();
     sun.castShadow = detail;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.left = -75;
@@ -198,17 +205,17 @@ export default function TankScene({
     sun.shadow.bias = -0.0006;
     scene.add(hemi, sun, sun.target);
     const applyBrightness = () => {
-      hemi.intensity = 1.6 * brightness;
-      sun.intensity = 2.7 * brightness;
+      hemi.intensity = ambiance.hemi * brightness;
+      sun.intensity = ambiance.sunI * brightness;
     };
     applyBrightness();
 
     // --- Carte, decor, effets, son ---
     const seed = Math.floor(Math.random() * 1e9);
-    const map: TankMap = buildTankMap(seed);
+    const map: TankMap = buildTankMap(seed, mapId);
     const world = buildTankWorld(map, detail);
     scene.add(world.group);
-    const effects = createTankEffects();
+    const effects = createTankEffects({ dust: ambiance.dust, soil: ambiance.soil });
     scene.add(effects.group);
     const audio = createTankAudio();
 
@@ -344,11 +351,12 @@ export default function TankScene({
           const h = groundHeight(map, wx, wz);
           const hx = groundHeight(map, wx + 3, wz) - groundHeight(map, wx - 3, wz);
           const shade = 0.82 + Math.max(-0.2, Math.min(0.2, -hx * 0.12)) + h * 0.004;
-          const water = h < WATER_LEVEL && Math.hypot(wx - map.lake.x, wz - map.lake.z) < map.lake.r + 10;
+          const ice = map.waterKind === "glace" && Math.hypot(wx - map.lake.x, wz - map.lake.z) < map.lake.r;
+          const water = !ice && h < map.waterLevel && deepWater(map, wx, wz);
           const i = (y * 256 + x) * 4;
-          img.data[i] = water ? 60 : 96 * shade;
-          img.data[i + 1] = water ? 110 : 118 * shade;
-          img.data[i + 2] = water ? 140 : 72 * shade;
+          img.data[i] = ice ? 196 : water ? 60 : ambiance.mini[0] * shade;
+          img.data[i + 1] = ice ? 220 : water ? 110 : ambiance.mini[1] * shade;
+          img.data[i + 2] = ice ? 234 : water ? 140 : ambiance.mini[2] * shade;
           img.data[i + 3] = 255;
         }
       }
@@ -360,6 +368,15 @@ export default function TankScene({
       for (const road of map.roads) {
         g.beginPath();
         road.forEach(([x, z], i) => (i === 0 ? g.moveTo(px(x), px(z)) : g.lineTo(px(x), px(z))));
+        g.stroke();
+      }
+      // Ponts : un trait clair au-dessus de la riviere.
+      g.strokeStyle = "rgba(214,200,170,0.95)";
+      g.lineWidth = 3;
+      for (const br of map.bridges) {
+        g.beginPath();
+        g.moveTo(px(br.x0), px(br.z0));
+        g.lineTo(px(br.x1), px(br.z1));
         g.stroke();
       }
       g.fillStyle = "rgba(40,34,30,0.85)";
@@ -623,7 +640,7 @@ export default function TankScene({
       // --- Simulation ---
       if (!pausedNow) {
         battle.update(dt, input);
-        world.update(dt, clock);
+        world.update(dt, clock, camera.position);
         effects.update(dt);
         // Poussiere derriere les chenilles quand on roule.
         tracksDust += dt;
@@ -938,7 +955,7 @@ export default function TankScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [tankId, camo, difficulty, touch]);
+  }, [tankId, camo, mapId, difficulty, touch]);
 
   const def = tankById(tankId);
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -952,6 +969,8 @@ export default function TankScene({
       {loading && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-stone-950">
           <p className="text-lg font-black uppercase tracking-[0.3em] text-amber-300">Tonnerre d&apos;Acier</p>
+          <p className="text-base font-bold text-zinc-100">{mapInfo(mapId).name}</p>
+          <p className="max-w-xs text-center text-xs text-zinc-400">{mapInfo(mapId).tagline}</p>
           <p className="text-sm text-zinc-400">Préparation du champ de bataille…</p>
         </div>
       )}
