@@ -108,6 +108,19 @@ export const GAMES_3D: Game3D[] = [
     ],
   },
   {
+    slug: "tonnerre-acier",
+    title: "Tonnerre d'Acier",
+    description:
+      "Batailles de chars à sept contre sept dans une vallée méditerranéenne, autour d'un village perché. Choisis ton blindé au garage, vise les flancs et les points faibles, présente ton blindage en biais pour faire ricocher les obus, et capture la base ennemie avant la fin du chrono.",
+    emoji: "💥",
+    gradient: "from-lime-800 to-stone-950",
+    cover: "/covers/tanks.svg",
+    genre: "Combat de chars",
+    players: "Solo contre des bots",
+    duration: "5 à 8 min",
+    highlights: ["Huit chars, dont deux qui mitraillent", "Blindage, ricochets, pénétration", "Capture de base", "Garage en 3D"],
+  },
+  {
     slug: "manoir-maudit",
     title: "Le Manoir Maudit",
     description:

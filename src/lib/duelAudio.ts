@@ -504,3 +504,123 @@ export function playKnifeFoley(ctx: AudioContext, master: GainNode, sound: Knife
       break;
   }
 }
+
+// ------------------------------------------------------- avion et parachute
+// Sons continus de la battle royale : on regle leur volume a chaque image
+// (distance a l'avion, vitesse de chute) au lieu de rejouer un son court.
+
+/** Un son en boucle dont on regle le volume ; `stop` le coupe en douceur. */
+export interface LoopSound {
+  set: (gain: number) => void;
+  stop: () => void;
+}
+
+/** Bruit blanc de deux secondes, joue en boucle. */
+function loopNoise(ctx: AudioContext): AudioBufferSourceNode {
+  const size = ctx.sampleRate * 2;
+  const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  return src;
+}
+
+/**
+ * Les quatre moteurs de l'avion : dents de scie graves legerement desaccordees
+ * (le battement lent des helices) et un grondement de souffle.
+ */
+export function startPlaneDrone(ctx: AudioContext, master: GainNode): LoopSound {
+  const outGain = ctx.createGain();
+  outGain.gain.value = 0;
+  outGain.connect(master);
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 480;
+  lp.connect(outGain);
+  const oscs: OscillatorNode[] = [];
+  for (const [f, g] of [
+    [56, 0.42],
+    [57.7, 0.38],
+    [112.5, 0.2],
+    [169, 0.1],
+  ] as const) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.value = f;
+    const og = ctx.createGain();
+    og.gain.value = g;
+    o.connect(og);
+    og.connect(lp);
+    o.start();
+    oscs.push(o);
+  }
+  const rumble = loopNoise(ctx);
+  const rumbleLp = ctx.createBiquadFilter();
+  rumbleLp.type = "lowpass";
+  rumbleLp.frequency.value = 260;
+  const rumbleGain = ctx.createGain();
+  rumbleGain.gain.value = 0.5;
+  rumble.connect(rumbleLp);
+  rumbleLp.connect(rumbleGain);
+  rumbleGain.connect(outGain);
+  rumble.start();
+  let stopped = false;
+  return {
+    set: (gain) => {
+      if (!stopped) outGain.gain.setTargetAtTime(Math.max(0, gain), ctx.currentTime, 0.15);
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      outGain.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
+      const end = ctx.currentTime + 1.2;
+      for (const o of oscs) o.stop(end);
+      rumble.stop(end);
+    },
+  };
+}
+
+/** Le vent de la chute : un souffle dont le filtre s'ouvre avec le volume. */
+export function startWind(ctx: AudioContext, master: GainNode): LoopSound {
+  const outGain = ctx.createGain();
+  outGain.gain.value = 0;
+  outGain.connect(master);
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.frequency.value = 500;
+  band.Q.value = 0.6;
+  band.connect(outGain);
+  const src = loopNoise(ctx);
+  src.connect(band);
+  src.start();
+  let stopped = false;
+  return {
+    set: (gain) => {
+      if (stopped) return;
+      const g = Math.max(0, gain);
+      outGain.gain.setTargetAtTime(g, ctx.currentTime, 0.2);
+      band.frequency.setTargetAtTime(350 + Math.min(1, g * 2) * 1300, ctx.currentTime, 0.3);
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      outGain.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
+      src.stop(ctx.currentTime + 1.5);
+    },
+  };
+}
+
+/** La voile qui s'ouvre : un claquement de toile et une secousse sourde. */
+export function playChuteOpen(ctx: AudioContext, master: GainNode) {
+  noise(ctx, master, 0.42, 0.34, (t) => (t < 0.08 ? t / 0.08 : Math.pow(1 - t, 2)), { type: "lowpass", freq: 1100 });
+  noise(ctx, master, 0.18, 0.18, (t) => 1 - t, { type: "bandpass", freq: 2200, q: 1.2 }, 0.03);
+  tone(ctx, master, "sine", 120, 55, 0.3, 0.22, 0.004, 0.02);
+}
+
+/** Le saut : la porte, le souffle qui happe. */
+export function playPlaneJump(ctx: AudioContext, master: GainNode) {
+  noise(ctx, master, 0.5, 0.26, (t) => Math.sin(Math.PI * t) * (1 - t * 0.4), { type: "lowpass", freq: 1600 });
+  tone(ctx, master, "triangle", 330, 520, 0.16, 0.08, 0.004);
+}

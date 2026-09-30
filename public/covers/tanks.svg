@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2d4a6e"/>
+      <stop offset=".55" stop-color="#d98b52"/>
+      <stop offset="1" stop-color="#f3c27a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff4cf"/>
+      <stop offset=".4" stop-color="#ffd38a" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffb35c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="flash" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fffbe6"/>
+      <stop offset=".35" stop-color="#ffcc5c"/>
+      <stop offset=".7" stop-color="#ff7a2a" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#ff5a1a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6e7650"/>
+      <stop offset="1" stop-color="#3f4430"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7c6a3c"/>
+      <stop offset="1" stop-color="#3c3320"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="750" fill="url(#sky)"/>
+  <circle cx="900" cy="330" r="190" fill="url(#sun)"/>
+  <!-- Montagnes lointaines et village perche -->
+  <path d="M0 430 L130 360 L240 400 L370 320 L500 390 L640 330 L780 395 L930 340 L1060 390 L1200 350 V750 H0Z" fill="#6f5b62" opacity=".55"/>
+  <path d="M0 470 C160 420 300 440 430 400 C560 360 640 380 760 420 C880 460 1020 440 1200 470 V750 H0Z" fill="#6b6a45"/>
+  <g fill="#e6cfa3">
+    <rect x="520" y="352" width="26" height="30"/>
+    <rect x="552" y="342" width="22" height="40"/>
+    <rect x="580" y="358" width="30" height="24"/>
+    <rect x="612" y="318" width="14" height="64"/>
+    <rect x="632" y="360" width="24" height="22"/>
+  </g>
+  <g fill="#a3532f">
+    <path d="M516 352h34l-17-12z"/>
+    <path d="M548 342h30l-15-11z"/>
+    <path d="M576 358h38l-19-12z"/>
+    <path d="M608 318h22l-11-16z"/>
+    <path d="M628 360h32l-16-11z"/>
+  </g>
+  <!-- Cypres -->
+  <g fill="#2f3e27">
+    <path d="M430 410c10-60 16-60 26 0z"/>
+    <path d="M462 404c9-52 14-52 22 0z"/>
+    <path d="M760 420c10-58 16-58 26 0z"/>
+    <path d="M1080 440c12-70 18-70 30 0z"/>
+  </g>
+  <!-- Colline du premier plan -->
+  <path d="M0 560 C220 500 420 520 620 540 C820 560 1000 520 1200 540 V750 H0Z" fill="url(#ground)"/>
+  <!-- Poussiere soulevee -->
+  <g fill="#c9a877" opacity=".45">
+    <circle cx="180" cy="560" r="60"/>
+    <circle cx="120" cy="590" r="80"/>
+    <circle cx="250" cy="580" r="50"/>
+  </g>
+  <!-- Le char -->
+  <g transform="translate(250 430)">
+    <!-- Chenille -->
+    <path d="M20 130 H520 C560 130 575 165 545 190 H45 C10 190 -5 150 20 130Z" fill="#2c2b27"/>
+    <g fill="#4a4843" stroke="#1d1c19" stroke-width="4">
+      <circle cx="70" cy="160" r="26"/>
+      <circle cx="140" cy="165" r="28"/>
+      <circle cx="215" cy="165" r="28"/>
+      <circle cx="290" cy="165" r="28"/>
+      <circle cx="365" cy="165" r="28"/>
+      <circle cx="440" cy="165" r="28"/>
+      <circle cx="510" cy="158" r="24"/>
+    </g>
+    <!-- Caisse -->
+    <path d="M10 70 L90 40 H470 L560 80 L545 130 H25Z" fill="url(#hull)"/>
+    <path d="M90 40 H470 L500 55 H70Z" fill="#8a9166" opacity=".6"/>
+    <!-- Tourelle -->
+    <path d="M160 40 C170 -30 390 -40 410 5 L420 40Z" fill="#646c49"/>
+    <path d="M190 5 C220 -22 360 -24 390 0" fill="none" stroke="#8d9669" stroke-width="6"/>
+    <rect x="215" y="-38" width="46" height="20" rx="6" fill="#525a3c"/>
+    <!-- Canon -->
+    <rect x="400" y="-4" width="360" height="20" rx="4" fill="#4c5237"/>
+    <rect x="740" y="-10" width="46" height="32" rx="4" fill="#3c412c"/>
+    <!-- Etoile de camouflage et numero -->
+    <text x="300" y="100" fill="#d8d2b0" font-family="Arial, sans-serif" font-weight="bold" font-size="34" opacity=".8">217</text>
+  </g>
+  <!-- Coup de canon -->
+  <circle cx="1080" cy="432" r="120" fill="url(#flash)"/>
+  <g fill="#e7e1d4" opacity=".55">
+    <circle cx="1130" cy="400" r="46"/>
+    <circle cx="1165" cy="450" r="36"/>
+    <circle cx="1100" cy="470" r="30"/>
+  </g>
+  <rect x="0" y="0" width="1200" height="750" fill="none"/>
+</svg>

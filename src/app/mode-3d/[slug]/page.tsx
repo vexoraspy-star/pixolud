@@ -7,6 +7,7 @@ import BackroomsGame from "@/components/BackroomsGame";
 import CubesGame from "@/components/CubesGame";
 import ColossesGame from "@/components/ColossesGame";
 import FrontUrbainGame from "@/components/FrontUrbainGame";
+import TankGame from "@/components/TankGame";
 import Game3DFrame from "@/components/Game3DFrame";
 import { createClient } from "@/lib/supabase/server";
 import { enabledCheatGames } from "@/lib/admin";
@@ -87,6 +88,7 @@ export default async function Play3DPage({
       {slug === "duel-1v1" && <DuelGame title={title} devAllowed={devAllowed} />}
       {slug === "backrooms" && <BackroomsGame title={title} pseudo={pseudo} devAllowed={devAllowed} />}
       {slug === "front-urbain" && <FrontUrbainGame title={title} />}
+      {slug === "tonnerre-acier" && <TankGame title={title} />}
     </Game3DFrame>
   );
 }
