@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import Game3DSettings from "./Game3DSettings";
 import { TankClassIcon } from "./TankIcons";
-import { AMMO, AMMO_ORDER, camoChoice, tankById, type AmmoId, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
-import { effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
+import { AMMO, AMMO_ORDER, MODES, camoChoice, tankById, type AmmoId, type BattleMode, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
+import { artyCharge, effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
   BASE_RADIUS,
   MAP_HALF,
@@ -59,6 +59,13 @@ export interface BattleResult {
   xp: number;
   credits: number;
   seconds: number;
+  mode: BattleMode;
+  mapName: string;
+  damageBlocked: number;
+  assist: number;
+  detections: number;
+  /** Tableau des scores : chaque char de la bataille. */
+  board: { team: number; name: string; tank: string; cls: TankClass; tier: number; damage: number; kills: number; alive: boolean; isPlayer: boolean }[];
 }
 
 interface TeamSlot {
@@ -92,6 +99,8 @@ interface Hud {
   dead: boolean;
   spectate: string | null;
   zoom: number;
+  /** Vue d'artillerie : temps de vol de l'obus jusqu'au point vise (null : hors de portee). */
+  artyFlight: number | null;
 }
 
 interface Msg {
@@ -116,6 +125,7 @@ export default function TankScene({
   tankId,
   camo = null,
   mapId,
+  mode = "normale",
   difficulty,
   onEnd,
   onQuit,
@@ -123,6 +133,8 @@ export default function TankScene({
   tankId: string;
   /** Champ de bataille choisi au garage. */
   mapId: MapId;
+  /** Guerre normale ou Guerre de 100. */
+  mode?: BattleMode;
   /** Camouflage choisi au garage pour le char du joueur (null : celui d'origine). */
   camo?: string | null;
   difficulty: Difficulty;
@@ -161,6 +173,7 @@ export default function TankScene({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [feed, setFeed] = useState<Feed[]>([]);
   const [sniper, setSniper] = useState(false);
+  const [artyView, setArtyView] = useState(false);
   const [ended, setEnded] = useState<BattleEnd | null>(null);
   const [plates, setPlates] = useState<{ id: number; team: number; name: string; tank: string }[]>([]);
 
@@ -335,7 +348,14 @@ export default function TankScene({
           if (sp.dist < 120) playGroundHit(audio, { ...sp, gain: sp.gain * 0.4 });
         },
         reloaded: () => playReloaded(audio),
+        blast: (point) => {
+          effects.explosion(point);
+          const sp = spatial(point.x, point.z);
+          playTankExplosion(audio, sp);
+          if (sp.dist < 40) shake = Math.max(shake, 0.8 * (1 - sp.dist / 40));
+        },
       },
+      mode,
     );
     const player = battle.player;
     const plateList = battle.tanks.filter((t) => !t.isPlayer).map((t) => ({ id: t.id, team: t.team, name: t.name, tank: t.def.name }));
@@ -402,6 +422,11 @@ export default function TankScene({
     let camDist = 13;
     let sniperMode = false;
     let zoom = 2;
+    // Artillerie : Maj passe en vue du dessus ; la souris deplace le point de chute.
+    const isArty = def.artyAngle !== undefined;
+    let artyMode = false;
+    const artyTarget = new THREE.Vector3();
+    let artyHeight = 170;
     let freeLook = false;
     let firePressed = false;
     /** Bouton de tir tenu : un canon automatique tire toute sa rafale. */
@@ -423,7 +448,10 @@ export default function TankScene({
       const k = e.key.toLowerCase();
       keys.add(k);
       if (e.code === "Space" || e.key === "Tab") e.preventDefault();
-      if (e.key === "Shift" && !e.repeat) setSniperMode(!sniperMode);
+      if (e.key === "Shift" && !e.repeat) {
+        if (isArty) setArtyMode(!artyMode);
+        else setSniperMode(!sniperMode);
+      }
       const digit = /^Digit([1-3])$/.exec(e.code);
       if (digit) ammo = AMMO_ORDER[Number(digit[1]) - 1];
     };
@@ -433,7 +461,24 @@ export default function TankScene({
       sniperMode = on;
       setSniper(on);
     };
+    const setArtyMode = (on: boolean) => {
+      if (on && !artyMode) {
+        // Le point de chute part de 200 m devant la camera.
+        artyTarget.set(player.x + Math.sin(camYaw) * 200, 0, player.z + Math.cos(camYaw) * 200);
+      }
+      artyMode = on;
+      setArtyView(on);
+    };
     const look = (dx: number, dy: number) => {
+      if (artyMode) {
+        const k = artyHeight * 0.0016 * (sensitivity / 1.5);
+        const fx = Math.sin(camYaw);
+        const fz = Math.cos(camYaw);
+        // Vue du dessus, le haut de l'ecran vers l'avant : la droite de l'ecran est (-cos, sin).
+        artyTarget.x = THREE.MathUtils.clamp(artyTarget.x - Math.cos(camYaw) * dx * k - fx * dy * k, -MAP_HALF, MAP_HALF);
+        artyTarget.z = THREE.MathUtils.clamp(artyTarget.z + Math.sin(camYaw) * dx * k - fz * dy * k, -MAP_HALF, MAP_HALF);
+        return;
+      }
       const s = 0.0022 * (sensitivity / 1.5) * (sniperMode ? 1 / zoom : 1);
       camYaw -= dx * s;
       camPitch = THREE.MathUtils.clamp(camPitch + dy * s, sniperMode ? -0.45 : -0.35, sniperMode ? 0.5 : 1.15);
@@ -460,6 +505,10 @@ export default function TankScene({
     const onWheel = (e: WheelEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       const inward = e.deltaY < 0;
+      if (artyMode) {
+        artyHeight = THREE.MathUtils.clamp(artyHeight * (inward ? 0.85 : 1.18), 70, 320);
+        return;
+      }
       if (sniperMode) {
         if (inward) zoom = Math.min(8, zoom * 2);
         else if (zoom <= 2) setSniperMode(false);
@@ -522,6 +571,10 @@ export default function TankScene({
         fireHeld = on;
       },
       toggleSniper: () => {
+        if (isArty) {
+          setArtyMode(!artyMode);
+          return;
+        }
         zoom = 2;
         setSniperMode(!sniperMode);
       },
@@ -559,6 +612,16 @@ export default function TankScene({
       }
       aimPoint.copy(camera.position).addScaledVector(camDir, best * len);
       return aimPoint;
+    };
+
+    /** Temps de vol de l'obus d'artillerie jusqu'au point vise (null : hors de portee). */
+    const artyFlightTime = (): number | null => {
+      const range = Math.hypot(artyTarget.x - player.x, artyTarget.z - player.z);
+      if (range > (def.artyRange ?? 600)) return null;
+      const angle = def.artyAngle ?? 45;
+      const v = artyCharge(range, artyTarget.y - player.y - 2, angle, def.shellGravity ?? 9.81);
+      if (!v) return null;
+      return range / (v * Math.cos((angle * Math.PI) / 180));
     };
 
     // --- Boucle ---
@@ -609,11 +672,19 @@ export default function TankScene({
       if (!player.alive && (!spectate || !spectate.alive)) {
         spectate = battle.tanks.find((t) => t.team === 0 && t.alive) ?? null;
         if (sniperMode) setSniperMode(false);
+        if (artyMode) setArtyMode(false);
       }
       const target = focus ?? player;
       lookDir.set(Math.sin(camYaw) * Math.cos(camPitch), -Math.sin(camPitch), Math.cos(camYaw) * Math.cos(camPitch));
       const deck = target.def.look.clearance + target.def.look.hullHeight;
-      if (sniperMode && player.alive) {
+      if (artyMode && player.alive) {
+        // Vue d'artillerie : haut au-dessus du point de chute, un peu inclinee vers l'avant.
+        const gy = groundHeight(map, artyTarget.x, artyTarget.z);
+        artyTarget.y = gy + 1;
+        camera.position.set(artyTarget.x - Math.sin(camYaw) * artyHeight * 0.3, gy + artyHeight, artyTarget.z - Math.cos(camYaw) * artyHeight * 0.3);
+        camera.fov = 50;
+        player.model.root.visible = true;
+      } else if (sniperMode && player.alive) {
         player.model.gun.getWorldPosition(gunPos);
         camera.position.copy(gunPos).addScaledVector(lookDir, 0.6);
         camera.position.y += 0.35;
@@ -630,7 +701,8 @@ export default function TankScene({
         camera.fov = 70;
       }
       camera.updateProjectionMatrix();
-      if (sniperMode && player.alive) camera.lookAt(camera.position.x + lookDir.x, camera.position.y + lookDir.y, camera.position.z + lookDir.z);
+      if (artyMode && player.alive) camera.lookAt(artyTarget.x, artyTarget.y - 1, artyTarget.z);
+      else if (sniperMode && player.alive) camera.lookAt(camera.position.x + lookDir.x, camera.position.y + lookDir.y, camera.position.z + lookDir.z);
       else camera.lookAt(pivot.x + lookDir.x * 30, pivot.y + lookDir.y * 30 + 1.5, pivot.z + lookDir.z * 30);
       if (shake > 0) {
         shake = Math.max(0, shake - dt * 2.2);
@@ -638,12 +710,15 @@ export default function TankScene({
         camera.rotation.y += (Math.random() - 0.5) * shake * 0.012;
       }
       camera.updateMatrixWorld();
-      input.aim = freeLook || !player.alive ? null : findAim();
+      input.aim = !player.alive ? null : artyMode ? artyTarget : freeLook ? null : findAim();
 
       // --- Simulation ---
       if (!pausedNow) {
         battle.update(dt, input);
         world.update(dt, clock, camera.position);
+        // Le faisceau des canons Gatling tourne pendant la rafale.
+        const now = battle.time();
+        for (const t of battle.tanks) if (t.def.look.gatling) t.model.spin(dt, t.alive && now - t.lastShotAt < 0.25);
         effects.update(dt);
         // Poussiere derriere les chenilles quand on roule.
         tracksDust += dt;
@@ -710,7 +785,13 @@ export default function TankScene({
           const sy = (-proj.y * 0.5 + 0.5) * h;
           // Rayon du cercle : l'ecart angulaire ne depend pas de la distance.
           const tanHalf = Math.tan(((camera.fov / 2) * Math.PI) / 180);
-          const radius = THREE.MathUtils.clamp(((player.def.dispersion * player.bloom) / 100 / tanHalf) * (h / 2), 10, h * 0.45);
+          let radius = THREE.MathUtils.clamp(((player.def.dispersion * player.bloom) / 100 / tanHalf) * (h / 2), 10, h * 0.45);
+          if (artyMode) {
+            // Vue du dessus : le cercle ou l'obus peut tomber, dessine a sa vraie taille au sol.
+            const range = Math.hypot(marker.x - player.x, marker.z - player.z);
+            const worldR = (player.def.dispersion * player.bloom * Math.max(60, range)) / 100;
+            radius = THREE.MathUtils.clamp((worldR / (camera.position.distanceTo(marker) * tanHalf)) * (h / 2), 8, h * 0.45);
+          }
           let color = "rgba(255,255,255,0.9)";
           if (mk.tank && mk.hit && mk.tank.team !== 0 && mk.tank.alive) {
             const armor = mk.turret ? mk.tank.def.turret : mk.tank.def.hull;
@@ -804,6 +885,7 @@ export default function TankScene({
           dead: !player.alive,
           spectate: !player.alive && spectate ? `${spectate.name} (${spectate.def.name})` : null,
           zoom,
+          artyFlight: artyMode ? artyFlightTime() : null,
         });
         setMessages((list) => (list.some((m) => m.until < clock) ? list.filter((m) => m.until >= clock) : list));
         setFeed((list) => (list.some((f) => f.until < clock) ? list.filter((f) => f.until >= clock) : list));
@@ -834,6 +916,18 @@ export default function TankScene({
             g.arc(px(b.x), px(b.z), BASE_RADIUS * k, 0, Math.PI * 2);
             g.stroke();
           });
+          // Point de chute de l'artillerie.
+          if (artyMode && player.alive) {
+            g.strokeStyle = "#f97316";
+            g.lineWidth = 2;
+            g.beginPath();
+            g.arc(px(artyTarget.x), px(artyTarget.z), 5, 0, Math.PI * 2);
+            g.moveTo(px(artyTarget.x) - 8, px(artyTarget.z));
+            g.lineTo(px(artyTarget.x) + 8, px(artyTarget.z));
+            g.moveTo(px(artyTarget.x), px(artyTarget.z) - 8);
+            g.lineTo(px(artyTarget.x), px(artyTarget.z) + 8);
+            g.stroke();
+          }
           // Portee de vue.
           if (player.alive) {
             g.strokeStyle = "rgba(255,255,255,0.35)";
@@ -914,6 +1008,22 @@ export default function TankScene({
           xp,
           credits: Math.round(xp * 12 + (win ? 4000 : 1500)),
           seconds: Math.round(battle.time()),
+          mode,
+          mapName: map.name,
+          damageBlocked: player.damageBlocked,
+          assist: player.assist,
+          detections: player.detections,
+          board: battle.tanks.map((t) => ({
+            team: t.team,
+            name: t.name,
+            tank: t.def.name,
+            cls: t.def.cls,
+            tier: t.def.tier,
+            damage: t.damageDealt,
+            kills: t.kills,
+            alive: t.alive,
+            isPlayer: t.isPlayer,
+          })),
         });
       }
     };
@@ -967,7 +1077,7 @@ export default function TankScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [tankId, camo, mapId, difficulty, touch]);
+  }, [tankId, camo, mapId, mode, difficulty, touch]);
 
   const def = tankById(tankId);
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -981,9 +1091,21 @@ export default function TankScene({
       {loading && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-stone-950">
           <p className="text-lg font-black uppercase tracking-[0.3em] text-amber-300">Tonnerre d&apos;Acier</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">{MODES[mode].name}</p>
           <p className="text-base font-bold text-zinc-100">{mapInfo(mapId).name}</p>
           <p className="max-w-xs text-center text-xs text-zinc-400">{mapInfo(mapId).tagline}</p>
           <p className="text-sm text-zinc-400">Préparation du champ de bataille…</p>
+        </div>
+      )}
+
+      {/* Vue d'artillerie : vignette legere et temps de vol */}
+      {artyView && (
+        <div className="pointer-events-none absolute inset-0 z-10">
+          <div className="absolute inset-0" style={{ background: "radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.55) 100%)" }} />
+          <p className="absolute left-1/2 top-16 -translate-x-1/2 rounded bg-black/65 px-3 py-1 text-xs font-bold uppercase tracking-widest text-orange-300">
+            Vue d&apos;artillerie ·{" "}
+            {hud?.artyFlight == null ? "hors de portée" : `vol ${hud.artyFlight.toFixed(1)} s`}
+          </p>
         </div>
       )}
 

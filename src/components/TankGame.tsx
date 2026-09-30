@@ -10,12 +10,15 @@ import {
   AMMO,
   CAMO_CHOICES,
   DIFFICULTIES,
+  MODES,
   TANKS,
   TANK_CLASS_NAMES,
   damagePerMinute,
   rateOfFire,
   tankById,
+  tanksForMode,
   tierLabel,
+  type BattleMode,
   type Difficulty,
 } from "@/lib/tanks/tankDefs";
 import { MAP_LIST, mapInfo, type MapId } from "@/lib/tanks/tankTerrain";
@@ -38,6 +41,8 @@ const CAREER_KEY = "pixolud-tanks-carriere";
 const CAMO_KEY = "pixolud-tanks-camouflages";
 /** Carte choisie au garage, ou « hasard ». */
 const MAP_KEY = "pixolud-tanks-carte";
+/** Mode de bataille choisi au garage. */
+const MODE_KEY = "pixolud-tanks-mode";
 
 type MapChoice = MapId | "hasard";
 
@@ -121,6 +126,7 @@ export default function TankGame({ title }: { title: string }) {
   const [career, setCareer] = useState<Career>(EMPTY_CAREER);
   const [camos, setCamos] = useState<Record<string, string>>({});
   const [mapChoice, setMapChoice] = useState<MapChoice>("hasard");
+  const [mode, setMode] = useState<BattleMode>("normale");
   /** Carte de la bataille en cours (tiree au sort au lancement si « hasard »). */
   const [battleMap, setBattleMap] = useState<MapId | null>(null);
 
@@ -134,6 +140,8 @@ export default function TankGame({ title }: { title: string }) {
         if (d === "recrue" || d === "veteran" || d === "as") setDifficulty(d);
         const m = localStorage.getItem(MAP_KEY);
         if (m && (m === "hasard" || MAP_LIST.some((x) => x.id === m))) setMapChoice(m as MapChoice);
+        const md = localStorage.getItem(MODE_KEY);
+        if (md === "normale" || md === "cent") setMode(md);
       } catch {
         // stockage indisponible
       }
@@ -143,7 +151,6 @@ export default function TankGame({ title }: { title: string }) {
     return () => clearTimeout(t);
   }, []);
 
-  const def = tankById(tankId);
   const maxOf = (f: (d: (typeof TANKS)[number]) => number) => Math.max(...TANKS.map(f));
 
   function pickTank(id: string) {
@@ -158,18 +165,31 @@ export default function TankGame({ title }: { title: string }) {
 
   function pickCamo(id: string | null) {
     const next = { ...camos };
-    if (id) next[tankId] = id;
-    else delete next[tankId];
+    if (id) next[shownId] = id;
+    else delete next[shownId];
     setCamos(next);
     save(CAMO_KEY, JSON.stringify(next));
   }
 
-  const camo = camos[tankId] ?? null;
 
   function pickMap(m: MapChoice) {
     setMapChoice(m);
     save(MAP_KEY, m);
   }
+
+  /** Changer de mode : si le char choisi n'y joue pas, on prend le premier du mode. */
+  function pickMode(m: BattleMode) {
+    setMode(m);
+    save(MODE_KEY, m);
+    const list = tanksForMode(m);
+    if (!list.some((d) => d.id === tankId)) pickTank(list[0].id);
+  }
+
+  const modeTanks = tanksForMode(mode);
+  // Un char d'un autre mode (memorise) : on montre le premier du mode.
+  const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : modeTanks[0].id;
+  const def = tankById(shownId);
+  const camo = camos[shownId] ?? null;
 
   function startBattle() {
     // Au hasard : jamais deux fois de suite la meme carte.
@@ -198,9 +218,10 @@ export default function TankGame({ title }: { title: string }) {
     return (
       <TankScene
         key={battleKey}
-        tankId={tankId}
-        camo={camo}
+        tankId={shownId}
+        camo={camos[shownId] ?? null}
         mapId={battleMap}
+        mode={mode}
         difficulty={difficulty}
         onEnd={endBattle}
         onQuit={() => setScreen("garage")}
@@ -227,7 +248,7 @@ export default function TankGame({ title }: { title: string }) {
                 : "Toute ton équipe a été détruite."
               : "Le temps est écoulé."}{" "}
           · {Math.floor(result.seconds / 60)} min {result.seconds % 60} s
-          {battleMap && <> · {mapInfo(battleMap).name}</>}
+          {battleMap && <> · {mapInfo(battleMap).name}</>} · {MODES[result.mode].name}
         </p>
         <div className="mt-6 grid w-full max-w-lg grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -291,6 +312,20 @@ export default function TankGame({ title }: { title: string }) {
           </span>
         </div>
         <div className="flex w-full flex-wrap items-center justify-between gap-2 pr-12 sm:ml-auto sm:w-auto sm:justify-end">
+          <div className="flex overflow-hidden rounded-md border border-red-500/40" title={MODES[mode].tagline}>
+            {(["normale", "cent"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => pickMode(m)}
+                className={`px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide ${
+                  mode === m ? (m === "cent" ? "bg-red-600 text-white" : "bg-amber-400 text-black") : "bg-white/5 text-zinc-300 hover:bg-white/10"
+                }`}
+              >
+                {MODES[m].name}
+              </button>
+            ))}
+          </div>
           <label
             className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-zinc-300"
             title={mapChoice === "hasard" ? "Une carte différente à chaque bataille" : mapInfo(mapChoice).tagline}
@@ -337,7 +372,7 @@ export default function TankGame({ title }: { title: string }) {
       {/* Centre : le char et sa fiche */}
       <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="relative min-h-[180px] flex-1 overflow-hidden">
-          <TankGaragePreview tankId={tankId} camo={camo} />
+          <TankGaragePreview tankId={shownId} camo={camo} />
           {/* Camouflages : l'origine et six peintures, dont quatre numeriques. */}
           <div className="absolute inset-x-2 bottom-2 flex flex-wrap items-center gap-1.5 rounded-md bg-black/55 p-1.5 sm:inset-x-auto sm:left-3">
             <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Camouflage</span>
@@ -427,13 +462,13 @@ export default function TankGame({ title }: { title: string }) {
 
       {/* Bas : le carrousel des chars */}
       <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-black/70 p-2">
-        {TANKS.map((d) => (
+        {modeTanks.map((d) => (
           <button
             key={d.id}
             type="button"
             onClick={() => pickTank(d.id)}
             className={`min-w-[132px] rounded-md border p-2 text-left transition ${
-              d.id === tankId ? "border-amber-300 bg-amber-300/15" : "border-white/10 bg-white/5 hover:bg-white/10"
+              d.id === shownId ? "border-amber-300 bg-amber-300/15" : "border-white/10 bg-white/5 hover:bg-white/10"
             }`}
           >
             <p className="flex items-center gap-1.5 text-[11px] text-zinc-400">
@@ -443,9 +478,11 @@ export default function TankGame({ title }: { title: string }) {
             </p>
             <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black">
               {d.name}
-              {d.clip && (
+              {d.look.gatling ? (
+                <span className="rounded bg-red-600/85 px-1 text-[9px] font-bold uppercase tracking-wide text-white">Gatling</span>
+              ) : d.clip ? (
                 <span className="rounded bg-orange-500/80 px-1 text-[9px] font-bold uppercase tracking-wide text-white">Rafale</span>
-              )}
+              ) : null}
             </p>
             <p className="font-mono text-[10px] text-zinc-400">
               {d.hp} PS · {d.ammo.perforant.damage} dég.

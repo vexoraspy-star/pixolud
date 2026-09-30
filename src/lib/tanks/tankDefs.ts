@@ -1,14 +1,16 @@
 // Les chars de « Tonnerre d'Acier » : caracteristiques de combat et allure.
 //
-// Des chars inventes, inspires des blindes de la Seconde Guerre mondiale
-// (aucun nom ni modele d'un jeu existant). Les regles de tir suivent le genre :
+// Des chars inventes, inspires des blindes de la Seconde Guerre mondiale et
+// de la guerre froide (aucun nom ni modele d'un jeu existant). Deux modes :
+// la guerre normale (rangs IV a VIII) et la « Guerre de 100 » (rangs VIII a X,
+// super-lourds, canons Gatling, artillerie). Les regles de tir suivent le genre :
 // penetration contre epaisseur effective du blindage, ricochet au-dela de 70
 // degres, obus perforants qui « se redressent » un peu a l'impact.
 //
 // Unites : millimetres pour le blindage et le calibre, metres et secondes
 // pour le reste, km/h pour les vitesses affichees.
 
-export type TankClass = "leger" | "moyen" | "lourd" | "chasseur";
+export type TankClass = "leger" | "moyen" | "lourd" | "chasseur" | "artillerie";
 export type AmmoId = "perforant" | "sousCalibre" | "explosif";
 
 export const TANK_CLASS_NAMES: Record<TankClass, string> = {
@@ -16,6 +18,7 @@ export const TANK_CLASS_NAMES: Record<TankClass, string> = {
   moyen: "Char moyen",
   lourd: "Char lourd",
   chasseur: "Chasseur de chars",
+  artillerie: "Artillerie",
 };
 
 export interface AmmoSpec {
@@ -138,6 +141,18 @@ export interface TankLook {
   rivets?: boolean;
   /** Caisse haute et longue d'un blinde d'infanterie. */
   ifv?: boolean;
+  /** Canon Gatling : un faisceau de six tubes qui tourne pendant la rafale. */
+  gatling?: boolean;
+  /** Antenne radar en parabole sur la tourelle. */
+  radar?: boolean;
+  /** Deux petites tourelles de mitrailleuse a l'avant de la caisse (super-lourd). */
+  miniTurrets?: boolean;
+  /** Obusier : beche de recul a l'arriere, verrou de route sur le glacis. */
+  howitzer?: boolean;
+  /** Casemate a l'arriere de la caisse (le canon passe au-dessus du moteur). */
+  rearCasemate?: boolean;
+  /** Casemate ouverte sur le dessus. */
+  openTop?: boolean;
 }
 
 /** Canon automatique : des rafales, puis tout le chargeur a recharger. */
@@ -183,6 +198,17 @@ export interface TankDef {
   elevation: number;
   /** Portee de vue, en metres. */
   viewRange: number;
+  /**
+   * Artillerie : le canon tire a hausse fixe (degres) et la charge varie avec
+   * la distance ; l'obus monte haut et retombe sur le toit des chars.
+   */
+  artyAngle?: number;
+  /** Pesanteur des obus d'artillerie (plus forte : des vols courts et hauts). */
+  shellGravity?: number;
+  /** Portee maximale de l'artillerie, en metres. */
+  artyRange?: number;
+  /** Rayon d'eclatement de l'obus explosif, en metres (artillerie). */
+  splash?: number;
   look: TankLook;
 }
 
@@ -815,6 +841,494 @@ export const TANKS: TankDef[] = [
       aaMG: true,
     },
   },
+  // ------------------------------------------------ Guerre de 100 (rangs IX et X)
+  {
+    id: "furet",
+    name: "Furet",
+    cls: "leger",
+    tier: 9,
+    description: "Char léger moderne : canon de 105 mm, tourelleau téléopéré, chenilles vives. Il repère tout, tire vite et disparaît.",
+    hp: 1350,
+    caliber: 105,
+    ammo: {
+      perforant: { penetration: 220, damage: 320, speed: 1400, count: 30 },
+      sousCalibre: { penetration: 290, damage: 320, speed: 1500, count: 10 },
+      explosif: { penetration: 55, damage: 420, speed: 1100, count: 10 },
+    },
+    reload: 7,
+    aimTime: 1.7,
+    dispersion: 0.33,
+    hull: { front: 50, side: 30, rear: 25, top: 15, frontSlope: 62, sideSlope: 0 },
+    turret: { front: 60, side: 30, rear: 25, top: 15, frontSlope: 50, sideSlope: 12 },
+    speed: 72,
+    reverse: 30,
+    accel: 6,
+    hullTraverse: 58,
+    turretTraverse: 50,
+    gunArc: 180,
+    depression: 10,
+    elevation: 20,
+    viewRange: 460,
+    look: {
+      length: 6.2,
+      width: 3.1,
+      hullHeight: 1.15,
+      clearance: 0.45,
+      turretShape: "coin",
+      turret: [2.5, 0.85, 2.9],
+      turretOffset: 0.1,
+      gunLength: 4.6,
+      gunRadius: 0.07,
+      muzzleBrake: true,
+      wheels: 6,
+      wheelRadius: 0.38,
+      color: 0x7c8676,
+      camo: 0x566052,
+      camo2: 0x9aa393,
+      camoStyle: "numerique",
+      skirts: true,
+      modern: true,
+      aaMG: true,
+    },
+  },
+  {
+    id: "crecelle",
+    name: "Crécelle",
+    cls: "leger",
+    tier: 9,
+    description: "Un blindé léger armé d'un canon Gatling de 20 mm guidé par radar : cent obus en trois secondes et demie. Il déchire les flancs.",
+    hp: 1200,
+    caliber: 20,
+    ammo: {
+      perforant: { penetration: 62, damage: 11, speed: 1030, count: 2000 },
+      sousCalibre: { penetration: 82, damage: 11, speed: 1200, count: 600 },
+      explosif: { penetration: 16, damage: 15, speed: 1030, count: 800 },
+    },
+    reload: 7.5,
+    clip: { size: 100, interval: 0.035 },
+    aimTime: 1,
+    dispersion: 0.6,
+    hull: { front: 38, side: 32, rear: 32, top: 12, frontSlope: 45, sideSlope: 0 },
+    turret: { front: 20, side: 15, rear: 15, top: 8, frontSlope: 10, sideSlope: 5 },
+    speed: 68,
+    reverse: 24,
+    accel: 5.6,
+    hullTraverse: 56,
+    turretTraverse: 70,
+    gunArc: 180,
+    depression: 8,
+    elevation: 60,
+    viewRange: 450,
+    look: {
+      length: 5,
+      width: 2.7,
+      hullHeight: 1.55,
+      clearance: 0.42,
+      turretShape: "anguleuse",
+      turret: [1.5, 0.75, 1.6],
+      turretOffset: -0.3,
+      gunLength: 2.2,
+      gunRadius: 0.03,
+      muzzleBrake: false,
+      wheels: 5,
+      wheelRadius: 0.33,
+      color: 0x6b6f57,
+      camo: 0x4b4f3c,
+      camoStyle: "taches",
+      skirts: false,
+      ifv: true,
+      gatling: true,
+      radar: true,
+    },
+  },
+  {
+    id: "moissonneuse",
+    name: "Moissonneuse",
+    cls: "moyen",
+    tier: 9,
+    description: "Char moyen à canon Gatling de 37 mm : quatre-vingts obus perçants à la suite. Rien ne résiste longtemps à la moisson, sauf le rechargement.",
+    hp: 1600,
+    caliber: 37,
+    ammo: {
+      perforant: { penetration: 100, damage: 22, speed: 1100, count: 1200 },
+      sousCalibre: { penetration: 135, damage: 22, speed: 1300, count: 400 },
+      explosif: { penetration: 22, damage: 30, speed: 1100, count: 400 },
+    },
+    reload: 9,
+    clip: { size: 80, interval: 0.05 },
+    aimTime: 1.2,
+    dispersion: 0.5,
+    hull: { front: 60, side: 45, rear: 30, top: 15, frontSlope: 60, sideSlope: 5 },
+    turret: { front: 80, side: 50, rear: 40, top: 15, frontSlope: 25, sideSlope: 10 },
+    speed: 60,
+    reverse: 22,
+    accel: 4.6,
+    hullTraverse: 44,
+    turretTraverse: 45,
+    gunArc: 180,
+    depression: 8,
+    elevation: 25,
+    viewRange: 400,
+    look: {
+      length: 6.4,
+      width: 3.2,
+      hullHeight: 1.4,
+      clearance: 0.45,
+      turretShape: "anguleuse",
+      turret: [2.3, 1, 2.6],
+      turretOffset: 0.2,
+      gunLength: 3,
+      gunRadius: 0.05,
+      muzzleBrake: false,
+      wheels: 5,
+      wheelRadius: 0.4,
+      color: 0x2c2e2d,
+      camo: 0x1b1c1c,
+      camo2: 0x3e4040,
+      camoStyle: "bandes",
+      skirts: true,
+      gatling: true,
+    },
+  },
+  {
+    id: "albatros",
+    name: "Albatros",
+    cls: "moyen",
+    tier: 10,
+    description: "Char moyen de la guerre froide : peu de blindage, mais un canon de 105 mm précis et une vitesse qui lui permet d'être partout.",
+    hp: 2000,
+    caliber: 105,
+    ammo: {
+      perforant: { penetration: 268, damage: 390, speed: 1480, count: 50 },
+      sousCalibre: { penetration: 330, damage: 390, speed: 1560, count: 15 },
+      explosif: { penetration: 60, damage: 480, speed: 1150, count: 12 },
+    },
+    reload: 8.5,
+    aimTime: 1.6,
+    dispersion: 0.28,
+    hull: { front: 70, side: 35, rear: 25, top: 15, frontSlope: 60, sideSlope: 0 },
+    turret: { front: 110, side: 60, rear: 40, top: 20, frontSlope: 45, sideSlope: 15 },
+    speed: 65,
+    reverse: 26,
+    accel: 5.4,
+    hullTraverse: 48,
+    turretTraverse: 44,
+    gunArc: 180,
+    depression: 9,
+    elevation: 20,
+    viewRange: 430,
+    look: {
+      length: 7.1,
+      width: 3.3,
+      hullHeight: 1.2,
+      clearance: 0.46,
+      turretShape: "plate",
+      turret: [2.9, 0.95, 3.4],
+      turretOffset: 0.1,
+      gunLength: 5.4,
+      gunRadius: 0.075,
+      muzzleBrake: false,
+      wheels: 7,
+      wheelRadius: 0.4,
+      color: 0x55603f,
+      camo: 0x363d28,
+      camo2: 0x6d5a3a,
+      camoStyle: "taches",
+      skirts: true,
+      modern: true,
+      aaMG: true,
+    },
+  },
+  {
+    id: "mastodonte",
+    name: "Mastodonte",
+    cls: "lourd",
+    tier: 10,
+    description: "Super-lourd de cent tonnes : un canon de 150 mm qui arrache 750 points par obus et une caisse immense. Lent, mais il faut l'arrêter.",
+    hp: 2700,
+    caliber: 150,
+    ammo: {
+      perforant: { penetration: 235, damage: 750, speed: 880, count: 40 },
+      sousCalibre: { penetration: 320, damage: 750, speed: 1100, count: 8 },
+      explosif: { penetration: 90, damage: 1000, speed: 880, count: 12 },
+    },
+    reload: 17,
+    aimTime: 2.6,
+    dispersion: 0.4,
+    hull: { front: 200, side: 120, rear: 150, top: 40, frontSlope: 60, sideSlope: 0 },
+    turret: { front: 200, side: 120, rear: 150, top: 40, frontSlope: 15, sideSlope: 20 },
+    speed: 30,
+    reverse: 12,
+    accel: 2.2,
+    hullTraverse: 20,
+    turretTraverse: 18,
+    gunArc: 180,
+    depression: 7,
+    elevation: 15,
+    viewRange: 380,
+    look: {
+      length: 9.2,
+      width: 4.2,
+      hullHeight: 1.6,
+      clearance: 0.52,
+      turretShape: "anguleuse",
+      turret: [3.4, 1.35, 4.6],
+      turretOffset: -0.9,
+      gunLength: 6.2,
+      gunRadius: 0.1,
+      muzzleBrake: true,
+      wheels: 8,
+      wheelRadius: 0.5,
+      color: 0x72746b,
+      camo: 0x5b5d55,
+      camo2: 0x8a8c80,
+      camoStyle: "uni",
+      skirts: true,
+    },
+  },
+  {
+    id: "monolithe",
+    name: "Monolithe",
+    cls: "lourd",
+    tier: 10,
+    description: "La forteresse roulante : un blindage de 240 mm, 3200 points de structure et une tourelle énorme. Il avance au pas, et rien ne le traverse de face.",
+    hp: 3200,
+    caliber: 128,
+    ammo: {
+      perforant: { penetration: 246, damage: 490, speed: 920, count: 68 },
+      sousCalibre: { penetration: 311, damage: 490, speed: 1150, count: 10 },
+      explosif: { penetration: 65, damage: 630, speed: 920, count: 12 },
+    },
+    reload: 12.5,
+    aimTime: 2.3,
+    dispersion: 0.38,
+    hull: { front: 220, side: 185, rear: 160, top: 60, frontSlope: 55, sideSlope: 0 },
+    turret: { front: 240, side: 200, rear: 200, top: 60, frontSlope: 10, sideSlope: 15 },
+    speed: 20,
+    reverse: 12,
+    accel: 1.6,
+    hullTraverse: 16,
+    turretTraverse: 16,
+    gunArc: 180,
+    depression: 7,
+    elevation: 20,
+    viewRange: 390,
+    look: {
+      length: 9.6,
+      width: 4.1,
+      hullHeight: 1.9,
+      clearance: 0.5,
+      turretShape: "arrondie",
+      turret: [3.3, 1.5, 3.9],
+      turretOffset: -1.2,
+      gunLength: 5.2,
+      gunRadius: 0.1,
+      muzzleBrake: false,
+      wheels: 8,
+      wheelRadius: 0.36,
+      color: 0x8a8466,
+      camo: 0x5d5a45,
+      camo2: 0x7b6a4b,
+      camoStyle: "taches",
+      skirts: true,
+    },
+  },
+  {
+    id: "tourmente",
+    name: "Tourmente",
+    cls: "lourd",
+    tier: 10,
+    description: "Char lourd à barillet : quatre obus de 120 mm tirés en dix secondes, puis trente secondes pour recharger. Il vide son barillet et se met à l'abri.",
+    hp: 2250,
+    caliber: 120,
+    ammo: {
+      perforant: { penetration: 258, damage: 400, speed: 1000, count: 40 },
+      sousCalibre: { penetration: 340, damage: 400, speed: 1250, count: 12 },
+      explosif: { penetration: 60, damage: 515, speed: 1000, count: 12 },
+    },
+    reload: 30,
+    clip: { size: 4, interval: 2.5 },
+    aimTime: 2.3,
+    dispersion: 0.35,
+    hull: { front: 127, side: 76, rear: 25, top: 25, frontSlope: 60, sideSlope: 0 },
+    turret: { front: 203, side: 137, rear: 51, top: 40, frontSlope: 10, sideSlope: 20 },
+    speed: 35,
+    reverse: 16,
+    accel: 3,
+    hullTraverse: 28,
+    turretTraverse: 26,
+    gunArc: 180,
+    depression: 10,
+    elevation: 15,
+    viewRange: 390,
+    look: {
+      length: 7.4,
+      width: 3.7,
+      hullHeight: 1.35,
+      clearance: 0.5,
+      turretShape: "arrondie",
+      turret: [3, 1.2, 5.2],
+      turretOffset: -1.4,
+      gunLength: 6.4,
+      gunRadius: 0.085,
+      muzzleBrake: false,
+      wheels: 7,
+      wheelRadius: 0.44,
+      color: 0x5d6146,
+      camo: 0x3e4230,
+      camo2: 0x777a5c,
+      camoStyle: "taches",
+      skirts: false,
+      aaMG: true,
+    },
+  },
+  {
+    id: "donjon",
+    name: "Donjon",
+    cls: "lourd",
+    tier: 10,
+    description: "Une tour de 3000 points de structure : caisse haute comme un mur, 260 mm de blindage droit, deux tourelles de mitrailleuses. Très lent, très dur.",
+    hp: 3000,
+    caliber: 140,
+    ammo: {
+      perforant: { penetration: 225, damage: 560, speed: 850, count: 40 },
+      sousCalibre: { penetration: 295, damage: 560, speed: 1050, count: 10 },
+      explosif: { penetration: 70, damage: 800, speed: 850, count: 12 },
+    },
+    reload: 15,
+    aimTime: 2.7,
+    dispersion: 0.42,
+    hull: { front: 260, side: 200, rear: 150, top: 50, frontSlope: 25, sideSlope: 0 },
+    turret: { front: 260, side: 200, rear: 180, top: 50, frontSlope: 5, sideSlope: 5 },
+    speed: 25,
+    reverse: 10,
+    accel: 1.8,
+    hullTraverse: 18,
+    turretTraverse: 16,
+    gunArc: 180,
+    depression: 8,
+    elevation: 15,
+    viewRange: 370,
+    look: {
+      length: 8.6,
+      width: 4,
+      hullHeight: 2.3,
+      clearance: 0.55,
+      turretShape: "anguleuse",
+      turret: [3.1, 1.6, 3.6],
+      turretOffset: -0.2,
+      gunLength: 5.6,
+      gunRadius: 0.1,
+      muzzleBrake: false,
+      wheels: 7,
+      wheelRadius: 0.4,
+      color: 0x57614a,
+      camo: 0x3d4535,
+      camoStyle: "uni",
+      skirts: false,
+      miniTurrets: true,
+    },
+  },
+  {
+    id: "lancefoudre",
+    name: "Lance-Foudre",
+    cls: "chasseur",
+    tier: 10,
+    description: "Chasseur à casemate ouverte, posée à l'arrière : un canon de 150 mm immense et d'une précision chirurgicale. Mais un rien le perce.",
+    hp: 1950,
+    caliber: 150,
+    ammo: {
+      perforant: { penetration: 330, damage: 750, speed: 1050, count: 30 },
+      sousCalibre: { penetration: 390, damage: 750, speed: 1400, count: 10 },
+      explosif: { penetration: 90, damage: 950, speed: 1050, count: 10 },
+    },
+    reload: 14,
+    aimTime: 1.8,
+    dispersion: 0.24,
+    hull: { front: 50, side: 40, rear: 30, top: 15, frontSlope: 60, sideSlope: 0 },
+    turret: { front: 30, side: 20, rear: 16, top: 0, frontSlope: 20, sideSlope: 10 },
+    speed: 50,
+    reverse: 20,
+    accel: 3.8,
+    hullTraverse: 40,
+    turretTraverse: 12,
+    gunArc: 15,
+    depression: 8,
+    elevation: 15,
+    viewRange: 440,
+    look: {
+      length: 7.4,
+      width: 3.4,
+      hullHeight: 1.2,
+      clearance: 0.45,
+      turretShape: "casemate",
+      turret: [2.8, 1.5, 3],
+      turretOffset: 0,
+      gunLength: 8.5,
+      gunRadius: 0.1,
+      muzzleBrake: true,
+      wheels: 5,
+      wheelRadius: 0.5,
+      color: 0x6d6f6a,
+      camo: 0x4e504c,
+      camoStyle: "uni",
+      skirts: false,
+      rearCasemate: true,
+      openTop: true,
+    },
+  },
+  {
+    id: "fracas",
+    name: "Fracas",
+    cls: "artillerie",
+    tier: 10,
+    description: "Artillerie autotractée : son obusier de 155 mm tire en cloche, de très loin, sur tout ce que l'équipe repère. Vue du dessus avec Maj.",
+    hp: 1450,
+    caliber: 155,
+    ammo: {
+      perforant: { penetration: 150, damage: 780, speed: 200, count: 10 },
+      sousCalibre: { penetration: 110, damage: 600, speed: 200, count: 10 },
+      explosif: { penetration: 90, damage: 780, speed: 200, count: 40 },
+    },
+    reload: 28,
+    aimTime: 5,
+    dispersion: 0.9,
+    hull: { front: 30, side: 20, rear: 20, top: 15, frontSlope: 50, sideSlope: 0 },
+    turret: { front: 30, side: 20, rear: 15, top: 15, frontSlope: 10, sideSlope: 10 },
+    speed: 50,
+    reverse: 18,
+    accel: 3.6,
+    hullTraverse: 36,
+    turretTraverse: 18,
+    gunArc: 180,
+    depression: 0,
+    elevation: 65,
+    viewRange: 320,
+    artyAngle: 48,
+    shellGravity: 60,
+    artyRange: 650,
+    splash: 9,
+    look: {
+      length: 8.2,
+      width: 3.5,
+      hullHeight: 1.2,
+      clearance: 0.5,
+      turretShape: "anguleuse",
+      turret: [3.3, 1.8, 3.6],
+      turretOffset: -1.2,
+      gunLength: 7.4,
+      gunRadius: 0.11,
+      muzzleBrake: true,
+      wheels: 6,
+      wheelRadius: 0.5,
+      color: 0x4f5a3c,
+      camo: 0x384128,
+      camo2: 0x6a6040,
+      camoStyle: "bandes",
+      skirts: false,
+      howitzer: true,
+    },
+  },
 ];
 
 /** Camouflages au choix du garage (en plus de celui d'origine). */
@@ -847,6 +1361,50 @@ export function tankById(id: string): TankDef {
 /** Chiffre romain du rang (V, VI, VII). */
 export function tierLabel(tier: number): string {
   return ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][tier] ?? String(tier);
+}
+
+// ------------------------------------------------------------------- modes
+
+export type BattleMode = "normale" | "cent";
+
+export interface ModeInfo {
+  id: BattleMode;
+  name: string;
+  tagline: string;
+  /** Rangs des chars de ce mode (inclus). */
+  tiers: [number, number];
+  teamSize: number;
+  /** Duree de la bataille, en secondes. */
+  seconds: number;
+  /** Bots plus rapides, plus precis, qui visent toujours les points faibles. */
+  hard: boolean;
+}
+
+export const MODES: Record<BattleMode, ModeInfo> = {
+  normale: {
+    id: "normale",
+    name: "Guerre normale",
+    tagline: "Chars des rangs IV à VIII, sept contre sept.",
+    tiers: [4, 8],
+    teamSize: 7,
+    seconds: 420,
+    hard: false,
+  },
+  cent: {
+    id: "cent",
+    name: "Guerre de 100",
+    tagline: "Le mode le plus dur : rangs VIII à X, super-lourds, canons Gatling et artillerie, huit contre huit, des bots redoutables.",
+    tiers: [8, 10],
+    teamSize: 8,
+    seconds: 480,
+    hard: true,
+  },
+};
+
+/** Les chars jouables dans un mode. */
+export function tanksForMode(mode: BattleMode): TankDef[] {
+  const [lo, hi] = MODES[mode].tiers;
+  return TANKS.filter((t) => t.tier >= lo && t.tier <= hi);
 }
 
 /** Coups par minute, pour la fiche du garage (rafales et rechargement compris). */

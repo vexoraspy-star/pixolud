@@ -37,6 +37,8 @@ export interface TankModel {
   fixedTurret: boolean;
   /** Sorties d'echappement, dans le repere du char. */
   exhausts: THREE.Vector3[];
+  /** Fait tourner le faisceau d'un canon Gatling (il accelere pendant la rafale). */
+  spin: (dt: number, firing: boolean) => void;
   /** Fait defiler chaque chenille (metres parcourus par cote). */
   roll: (left: number, right: number) => void;
   /** Char detruit : acier noirci. */
@@ -442,9 +444,54 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   const [tWid, tHei, tLen] = L.turret;
   const casemate = L.turretShape === "casemate";
   const tSlope = (def.turret.frontSlope * Math.PI) / 180;
-  const cmFront = len / 2 - glacis + 0.1;
+  // Casemate a l'avant (chasseur classique) ou posee a l'arriere, le canon au-dessus du moteur.
+  const cmFront = L.rearCasemate ? -len / 2 + 0.25 + tLen : len / 2 - glacis + 0.1;
   const cmRear = cmFront - tLen;
-  if (casemate) {
+  if (casemate && L.openTop) {
+    // Casemate ouverte : des plaques fines, un plancher sombre et des casiers a obus.
+    const topInset = Math.tan(tSlope) * tHei;
+    const sideIn = Math.tan((def.turret.sideSlope * Math.PI) / 180) * tHei;
+    const th = 0.09;
+    camoParts.push(
+      part(
+        convex([
+          [-tWid / 2, deckY - 0.05, cmFront],
+          [tWid / 2, deckY - 0.05, cmFront],
+          [-tWid / 2, deckY - 0.05, cmFront - th * 1.6],
+          [tWid / 2, deckY - 0.05, cmFront - th * 1.6],
+          [-(tWid / 2 - sideIn), deckY + tHei, cmFront - topInset],
+          [tWid / 2 - sideIn, deckY + tHei, cmFront - topInset],
+          [-(tWid / 2 - sideIn), deckY + tHei, cmFront - topInset - th * 1.6],
+          [tWid / 2 - sideIn, deckY + tHei, cmFront - topInset - th * 1.6],
+        ]),
+        1.03,
+      ),
+    );
+    for (const side of [-1, 1]) {
+      camoParts.push(
+        part(
+          convex([
+            [side * (tWid / 2), deckY - 0.05, cmRear],
+            [side * (tWid / 2 - th), deckY - 0.05, cmRear],
+            [side * (tWid / 2), deckY - 0.05, cmFront],
+            [side * (tWid / 2 - th), deckY - 0.05, cmFront],
+            [side * (tWid / 2 - sideIn), deckY + tHei * 0.85, cmRear + 0.15],
+            [side * (tWid / 2 - sideIn - th), deckY + tHei * 0.85, cmRear + 0.15],
+            [side * (tWid / 2 - sideIn), deckY + tHei, cmFront - topInset],
+            [side * (tWid / 2 - sideIn - th), deckY + tHei, cmFront - topInset],
+          ]),
+          1.03,
+        ),
+      );
+    }
+    camoParts.push(part(box(tWid - 0.1, tHei * 0.5, th, 0, deckY + tHei * 0.25, cmRear + 0.06), 1));
+    darkParts.push(part(box(tWid - 0.25, 0.05, tLen - 0.3, 0, deckY + 0.02, (cmFront + cmRear) / 2), 0.45));
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < 4; k++) {
+        darkParts.push(part(tubeZ(0.08, 0.08, 0.5, side * (tWid / 2 - 0.3), deckY + 0.2 + (k % 2) * 0.18, cmRear + 0.3 + Math.floor(k / 2) * 0.2, 8), 0.9));
+      }
+    }
+  } else if (casemate) {
     const topInset = Math.tan(tSlope) * tHei;
     const sideIn = Math.tan((def.turret.sideSlope * Math.PI) / 180) * tHei;
     camoParts.push(
@@ -581,6 +628,26 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     }
   }
 
+  // Super-lourd : deux petites tourelles de mitrailleuse aux coins avant du pont.
+  if (L.miniTurrets) {
+    for (const side of [-1, 1]) {
+      const mx = side * W * 0.37;
+      const mz = len / 2 - glacis - 0.4;
+      camoParts.push(part(new THREE.CylinderGeometry(0.36, 0.4, 0.34, 14).translate(mx, deckY + 0.17, mz), 1.02));
+      camoParts.push(part(new THREE.SphereGeometry(0.36, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(mx, deckY + 0.34, mz), 1.02));
+      darkParts.push(part(tubeZ(0.025, 0.025, 0.6, mx, deckY + 0.24, mz + 0.3, 8), 0.3));
+      darkParts.push(part(box(0.14, 0.05, 0.05, mx, deckY + 0.46, mz + 0.18), 0.3));
+    }
+  }
+  // Obusier : beche de recul repliee a l'arriere, caisses de gargousses sur le pont.
+  if (L.howitzer) {
+    const spade = box(W * 0.72, 0.9, 0.09, 0, c + H * 0.45, -len / 2 - 0.18);
+    spade.rotateX(-0.28);
+    camoParts.push(part(spade, 0.95));
+    for (const side of [-1, 1]) darkParts.push(part(rod(0.05, side * W * 0.3, c + H * 0.3, -len / 2 + 0.1, side * W * 0.3, c + H * 0.7, -len / 2 - 0.25, 6), 0.45));
+    for (let k = 0; k < 3; k++) gearParts.push(gear(box(0.5, 0.3, 0.7, (k - 1) * 0.6, deckY + 0.15, len / 2 - glacis - 0.6), WOOD, 0.9 + k * 0.05));
+  }
+
   // --- Paquetage du pont arriere ---
   if (!modern) {
     // Bache roulee en travers du pont arriere, tenue par deux sangles.
@@ -634,6 +701,8 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     gunY = deckY + tHei * 0.42;
     gunZ = cmFront - Math.tan(tSlope) * tHei * 0.42 + 0.05;
     turretParts.push(part(new THREE.SphereGeometry(0.34, 14, 10).translate(0, gunY, gunZ - 0.05), 1));
+    // Casemate ouverte : on voit le berceau et la culasse du canon.
+    if (L.openTop) turretDark.push(part(box(0.55, 0.5, 1.7, 0, gunY - 0.05, gunZ - 0.95), 0.6));
   } else if (L.turretShape === "coin") {
     // Tourelle moderne en coin : un corps en boite et deux coins de blindage
     // en fleche de part et d'autre du masque du canon.
@@ -764,6 +833,15 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     for (const side of [-1, 1]) {
       turretDark.push(part(new THREE.TorusGeometry(0.06, 0.018, 5, 10).translate(side * tWid * 0.3, roofY + 0.05, tLen * 0.1), 0.5));
     }
+    // Radar de conduite de tir : une parabole sur un mat, a l'arriere de la tourelle.
+    if (L.radar) {
+      turretDark.push(part(rod(0.04, 0, roofY, -tLen * 0.3, 0, roofY + 0.55, -tLen * 0.3, 6), 0.5));
+      const dish = new THREE.SphereGeometry(0.5, 14, 6, 0, Math.PI * 2, 0, 1.0);
+      dish.scale(1, 0.4, 1);
+      dish.rotateX(-1.25);
+      dish.translate(0, roofY + 0.75, -tLen * 0.3 + 0.08);
+      turretDark.push(part(dish, 1.1));
+    }
     // Coffre de rangement a l'arriere de la tourelle.
     if (!modern) {
       turretParts.push(part(box(tWid * 0.55, tHei * 0.45, 0.35, 0, tHei * 0.42, -tLen / 2 - 0.16), 0.9));
@@ -826,7 +904,22 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   const gl = L.gunLength;
   const gr = L.gunRadius;
   let tip = gl;
-  if (L.twinMG) {
+  /** Faisceau tournant d'un canon Gatling. */
+  const barrels = new THREE.Group();
+  const barrelParts: THREE.BufferGeometry[] = [];
+  if (L.gatling) {
+    // Canon Gatling : six tubes en faisceau autour de l'axe, trois colliers, un carter a l'arriere.
+    gunParts.push(part(box(0.55, 0.46, 0.55, 0, 0, 0.1), 0.95));
+    const ring = gr * 2.3;
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      barrelParts.push(part(tubeZ(gr, gr, gl, Math.cos(a) * ring, Math.sin(a) * ring, 0.3, 8), 0.35));
+    }
+    for (const z of [0.36, gl * 0.55, gl + 0.22]) barrelParts.push(part(tubeZ(ring + gr * 1.4, ring + gr * 1.4, 0.07, 0, 0, z, 12), 0.5));
+    // Tambour de munitions contre la tourelle.
+    turretDark.push(part(new THREE.CylinderGeometry(0.34, 0.34, 0.5, 14).rotateZ(Math.PI / 2).translate(tWid * 0.34, tHei * 0.45, tLen * 0.1), 0.8));
+    tip = gl + 0.32;
+  } else if (L.twinMG) {
     // Deux mitrailleuses lourdes jumelees : deux tubes a manchon perce.
     for (const side of [-1, 1]) {
       gunDark.push(part(tubeZ(gr * 3, gr * 3, gl * 0.55, side * 0.12, 0, 0.05, 10), 0.4));
@@ -904,8 +997,12 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   enhance(camoMat, shading, 0.22);
   enhance(darkMat, shading, 0.42);
   enhance(gearMat, shading, 0.06);
-  enhance(trackMatL, shading, 0.14);
-  enhance(trackMatR, shading, 0.14);
+  // Chenilles : acier plus sombre et boue plus foncee (humide, tassee dans les patins).
+  const trackShading: TankShading = { ...shading, uDirt: { value: shading.uDirt.value.clone().multiplyScalar(0.55) } };
+  trackMatL.color.setHex(0x8a8a8a);
+  trackMatR.color.setHex(0x8a8a8a);
+  enhance(trackMatL, trackShading, 0.14);
+  enhance(trackMatR, trackShading, 0.14);
 
   const root = new THREE.Group();
   const geos: THREE.BufferGeometry[] = [];
@@ -949,6 +1046,10 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   addMesh(gun, gunParts, camoMat, turretLift + gun.position.y);
   addMesh(gun, gunDark, darkMat, turretLift + gun.position.y);
   addMesh(gun, gunGear, gearMat, turretLift + gun.position.y);
+  if (barrelParts.length) {
+    addMesh(barrels, barrelParts, darkMat, turretLift + gun.position.y);
+    gun.add(barrels);
+  }
   turret.add(gun);
   // La tourelle repose sur un support : l'explosion d'une epave peut la deloger.
   const mount = new THREE.Group();
@@ -997,6 +1098,7 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
 
   let offL = 0;
   let offR = 0;
+  let spinRate = 0;
   return {
     root,
     turret,
@@ -1008,6 +1110,11 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     turretHalf,
     fixedTurret: casemate,
     exhausts,
+    spin: (dt, firing) => {
+      if (!barrelParts.length) return;
+      spinRate += ((firing ? 34 : 0) - spinRate) * Math.min(1, dt * (firing ? 6 : 1.2));
+      barrels.rotation.z += spinRate * dt;
+    },
     roll: (left, right) => {
       offL = (offL + left / 0.16) % 1000;
       offR = (offR + right / 0.16) % 1000;

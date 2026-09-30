@@ -196,6 +196,19 @@ export function launchAngle(x: number, y: number, v: number, g = SHELL_GRAVITY):
 }
 
 /**
+ * Artillerie : vitesse initiale (la « charge ») pour qu'un obus tire a la
+ * hausse `angleDeg` retombe a `dist` metres, `dy` plus haut, sous la
+ * pesanteur `g`. Null si la cible est hors d'atteinte a cette hausse.
+ */
+export function artyCharge(dist: number, dy: number, angleDeg: number, g: number): number | null {
+  const a = (angleDeg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const denom = 2 * c * c * (dist * Math.tan(a) - dy);
+  if (denom <= 0 || c <= 0.01) return null;
+  return Math.sqrt((g * dist * dist) / denom);
+}
+
+/**
  * Ecart d'un tir : un point au hasard dans le cercle de dispersion, plus
  * souvent pres du centre (loi normale tronquee a deux ecarts-types).
  */
