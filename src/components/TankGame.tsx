@@ -183,7 +183,7 @@ function Cost({ def }: { def: TankDef }) {
 
 // ------------------------------------------------------------------ jeu
 
-export default function TankGame({ title }: { title: string }) {
+export default function TankGame({ title, admin = false }: { title: string; /** Compte admin : tous les chars sont au garage. */ admin?: boolean }) {
   const [tankId, setTankId] = useState("bouledogue");
   const [difficulty, setDifficulty] = useState<Difficulty>("veteran");
   const [screen, setScreen] = useState<"garage" | "bataille" | "resultats">("garage");
@@ -228,12 +228,14 @@ export default function TankGame({ title }: { title: string }) {
   }, [flash]);
 
   const maxOf = (f: (d: TankDef) => number) => Math.max(...TANKS.map(f));
+  // Un admin possede tous les chars (sans rien changer a la carriere enregistree).
+  const garage: Career = admin ? { ...career, owned: TANKS.map((t) => t.id) } : career;
   const modeTanks = tanksForMode(mode);
   // Un char d'un autre mode (memorise) : on montre le premier du mode.
   const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : modeTanks[0].id;
   const def = tankById(shownId);
   const camo = camos[shownId] ?? null;
-  const state = unlockState(career, def);
+  const state = unlockState(garage, def);
   const mast = mastery(career.bestByTank[def.id] ?? 0, def);
 
   function pickTank(id: string) {
@@ -265,7 +267,7 @@ export default function TankGame({ title }: { title: string }) {
     save(MODE_KEY, m);
     const list = tanksForMode(m);
     if (!list.some((d) => d.id === tankId)) {
-      const owned = list.filter((d) => career.owned.includes(d.id)).sort((a, b) => b.tier - a.tier);
+      const owned = list.filter((d) => garage.owned.includes(d.id)).sort((a, b) => b.tier - a.tier);
       pickTank((owned[0] ?? list[0]).id);
     }
   }
@@ -290,7 +292,7 @@ export default function TankGame({ title }: { title: string }) {
   }
 
   function startBattle() {
-    if (!career.owned.includes(shownId)) return;
+    if (!garage.owned.includes(shownId)) return;
     // Au hasard : jamais deux fois de suite la meme carte.
     const pool = MAP_LIST.filter((m) => m.id !== battleMap);
     setBattleMap(mapChoice === "hasard" ? pool[Math.floor(Math.random() * pool.length)].id : mapChoice);
@@ -590,6 +592,11 @@ export default function TankGame({ title }: { title: string }) {
           <span className="hidden sm:inline">
             {career.battles} batailles · {winRate} % victoires
           </span>
+          {admin && (
+            <span className="rounded bg-red-700 px-1.5 font-sans text-[10px] font-black uppercase tracking-wider text-white" title="Compte admin : tous les chars sont débloqués">
+              Admin · tous les chars
+            </span>
+          )}
         </div>
       </div>
 
@@ -606,7 +613,7 @@ export default function TankGame({ title }: { title: string }) {
                 <div className="flex gap-2 md:flex-col">
                   {(["cent", "normale"] as const).map((m) => {
                     const info = MODES[m];
-                    const hasTank = tanksForMode(m).some((d) => career.owned.includes(d.id));
+                    const hasTank = tanksForMode(m).some((d) => garage.owned.includes(d.id));
                     return (
                       <button
                         key={m}
@@ -777,7 +784,7 @@ export default function TankGame({ title }: { title: string }) {
           {/* Bas : les chars du mode */}
           <div className="flex gap-2 overflow-x-auto border-t border-red-900/50 bg-black/80 p-2">
             {modeTanks.map((d) => {
-              const st = unlockState(career, d);
+              const st = unlockState(garage, d);
               const m = mastery(career.bestByTank[d.id] ?? 0, d);
               return (
                 <button
@@ -816,9 +823,9 @@ export default function TankGame({ title }: { title: string }) {
         </>
       )}
 
-      {tab === "chars" && <TechTree career={career} onOpen={openTank} onBuy={buy} />}
+      {tab === "chars" && <TechTree career={garage} onOpen={openTank} onBuy={buy} />}
 
-      {tab === "profil" && <Profile career={career} />}
+      {tab === "profil" && <Profile career={garage} />}
 
       <Game3DSettings />
     </div>

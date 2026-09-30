@@ -55,8 +55,10 @@ export default async function Play3DPage({
   // groupes des Backrooms.
   const cheatsOn = (await enabledCheatGames()).some((g) => g === slug);
   let devAllowed = false;
+  // Tonnerre d'Acier : un compte admin a tous les chars du garage, sans les debloquer.
+  let adminTanks = false;
   let pseudo: string | null = null;
-  if (slug === "manoir-maudit" || slug === "backrooms" || slug === "duel-1v1") {
+  if (slug === "manoir-maudit" || slug === "backrooms" || slug === "duel-1v1" || slug === "tonnerre-acier") {
     const supabase = await createClient();
     const {
       data: { user },
@@ -68,6 +70,7 @@ export default async function Play3DPage({
         .eq("id", user.id)
         .maybeSingle<{ is_admin: boolean | null; pseudo: string | null }>();
       devAllowed = profile?.is_admin === true && cheatsOn;
+      adminTanks = slug === "tonnerre-acier" && profile?.is_admin === true;
       pseudo = profile?.pseudo ?? null;
     }
   }
@@ -88,7 +91,7 @@ export default async function Play3DPage({
       {slug === "duel-1v1" && <DuelGame title={title} devAllowed={devAllowed} />}
       {slug === "backrooms" && <BackroomsGame title={title} pseudo={pseudo} devAllowed={devAllowed} />}
       {slug === "front-urbain" && <FrontUrbainGame title={title} />}
-      {slug === "tonnerre-acier" && <TankGame title={title} />}
+      {slug === "tonnerre-acier" && <TankGame title={title} admin={adminTanks} />}
     </Game3DFrame>
   );
 }

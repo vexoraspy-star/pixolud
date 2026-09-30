@@ -141,8 +141,14 @@ export interface TankLook {
   rivets?: boolean;
   /** Caisse haute et longue d'un blinde d'infanterie. */
   ifv?: boolean;
-  /** Canon Gatling : un faisceau de six tubes qui tourne pendant la rafale. */
+  /** Canon Gatling : un faisceau de tubes qui tourne pendant la rafale. */
   gatling?: boolean;
+  /** Nombre de tubes du canon Gatling (six par defaut). */
+  barrels?: number;
+  /** Boule de capteurs sur un mat, sur la tourelle. */
+  sensorDome?: boolean;
+  /** Gueule de requin rouge peinte sur la tourelle (edition noire). */
+  sharkMouth?: boolean;
   /** Antenne radar en parabole sur la tourelle. */
   radar?: boolean;
   /** Deux petites tourelles de mitrailleuse a l'avant de la caisse (super-lourd). */
@@ -988,6 +994,59 @@ export const TANKS: TankDef[] = [
       camoStyle: "bandes",
       skirts: true,
       gatling: true,
+    },
+  },
+  {
+    id: "deluge",
+    name: "Déluge",
+    cls: "moyen",
+    tier: 10,
+    description: "Édition noire : une caisse de char moyen classique et un énorme canon Gatling de 30 mm à sept tubes. Cent obus en trois secondes et demie, une gueule de requin sur la tourelle.",
+    hp: 2100,
+    caliber: 30,
+    ammo: {
+      perforant: { penetration: 120, damage: 20, speed: 1070, count: 1500 },
+      sousCalibre: { penetration: 160, damage: 20, speed: 1300, count: 500 },
+      explosif: { penetration: 28, damage: 28, speed: 1070, count: 500 },
+    },
+    reload: 12,
+    clip: { size: 100, interval: 0.035 },
+    aimTime: 1.3,
+    dispersion: 0.5,
+    hull: { front: 110, side: 76, rear: 25, top: 25, frontSlope: 60, sideSlope: 0 },
+    turret: { front: 180, side: 110, rear: 60, top: 30, frontSlope: 10, sideSlope: 20 },
+    speed: 48,
+    reverse: 18,
+    accel: 3.8,
+    hullTraverse: 36,
+    turretTraverse: 36,
+    gunArc: 180,
+    depression: 9,
+    elevation: 25,
+    viewRange: 420,
+    look: {
+      length: 7.1,
+      width: 3.6,
+      hullHeight: 1.35,
+      clearance: 0.46,
+      turretShape: "arrondie",
+      turret: [3, 1.15, 3.4],
+      turretOffset: -0.2,
+      gunLength: 3.4,
+      gunRadius: 0.055,
+      muzzleBrake: false,
+      wheels: 6,
+      wheelRadius: 0.42,
+      color: 0x232425,
+      camo: 0x151616,
+      camo2: 0x3a3c3e,
+      camoStyle: "taches",
+      skirts: false,
+      gatling: true,
+      barrels: 7,
+      sensorDome: true,
+      sharkMouth: true,
+      aaMG: true,
     },
   },
   {

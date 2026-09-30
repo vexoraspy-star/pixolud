@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CamoChoice, TankDef } from "./tankDefs";
-import { makeCamoTexture, makeGrimeTexture, makeNumberTexture, makeReliefTexture, makeTrackTexture, type CamoPaint } from "./tankTextures";
+import { makeCamoTexture, makeGrimeTexture, makeNumberTexture, makeReliefTexture, makeSharkTexture, makeTrackTexture, type CamoPaint } from "./tankTextures";
 
 // Les chars dessines en code : caisse a plaques inclinees, chenilles
 // epaisses qui defilent, roues a pneus et jantes boulonnees, tourelle (fonte
@@ -842,6 +842,11 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       dish.translate(0, roofY + 0.75, -tLen * 0.3 + 0.08);
       turretDark.push(part(dish, 1.1));
     }
+    // Boule de capteurs sur un mat, a l'arriere gauche de la tourelle.
+    if (L.sensorDome) {
+      turretDark.push(part(rod(0.035, -tWid * 0.26, roofY, -tLen * 0.24, -tWid * 0.26, roofY + 0.42, -tLen * 0.24, 6), 0.5));
+      turretGear.push(gear(new THREE.SphereGeometry(0.3, 16, 10).translate(-tWid * 0.26, roofY + 0.62, -tLen * 0.24), 0xc9cdd1));
+    }
     // Coffre de rangement a l'arriere de la tourelle.
     if (!modern) {
       turretParts.push(part(box(tWid * 0.55, tHei * 0.45, 0.35, 0, tHei * 0.42, -tLen / 2 - 0.16), 0.9));
@@ -911,8 +916,9 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     // Canon Gatling : six tubes en faisceau autour de l'axe, trois colliers, un carter a l'arriere.
     gunParts.push(part(box(0.55, 0.46, 0.55, 0, 0, 0.1), 0.95));
     const ring = gr * 2.3;
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2;
+    const nb = L.barrels ?? 6;
+    for (let k = 0; k < nb; k++) {
+      const a = (k / nb) * Math.PI * 2;
       barrelParts.push(part(tubeZ(gr, gr, gl, Math.cos(a) * ring, Math.sin(a) * ring, 0.3, 8), 0.35));
     }
     for (const z of [0.36, gl * 0.55, gl + 0.22]) barrelParts.push(part(tubeZ(ring + gr * 1.4, ring + gr * 1.4, 0.07, 0, 0, z, 12), 0.5));
@@ -1083,6 +1089,36 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     (casemate ? root : turret).add(mesh);
   }
 
+  // Gueule de requin peinte sur le fut arrondi de la tourelle, de chaque cote de l'avant.
+  let sharkMat: THREE.MeshLambertMaterial | null = null;
+  let sharkTex: THREE.CanvasTexture | null = null;
+  if (L.sharkMouth && L.turretShape === "arrondie") {
+    sharkTex = makeSharkTexture();
+    sharkMat = new THREE.MeshLambertMaterial({
+      map: sharkTex,
+      transparent: true,
+      alphaTest: 0.3,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+    });
+    const bands: THREE.BufferGeometry[] = [];
+    for (const side of [-1, 1]) {
+      // Une bande du fut elliptique, un peu decollee ; la gueule s'ouvre vers l'avant des deux cotes (u = 1 devant).
+      const start = side > 0 ? 0.18 : -1.5;
+      const band = new THREE.CylinderGeometry(1.012, 1.052, tHei * 0.36, 16, 1, true, start, 1.32);
+      band.scale(tWid / 2, 1, tLen / 2);
+      band.translate(0, tHei * 0.21, 0);
+      const uv = band.getAttribute("uv");
+      for (let k = 0; k < uv.count; k++) if (side > 0) uv.setX(k, 1 - uv.getX(k));
+      bands.push(band);
+    }
+    const g = mergeGeometries(bands, false)!;
+    for (const b of bands) b.dispose();
+    geos.push(g);
+    turret.add(new THREE.Mesh(g, sharkMat));
+  }
+
   // Boites de collision des obus.
   const hullCenter = new THREE.Vector3(0, (0.1 + deckY) / 2, 0);
   const hullHalf = new THREE.Vector3(W / 2, (deckY - 0.1) / 2, len / 2);
@@ -1151,6 +1187,8 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       trackTexR.dispose();
       numberMat.dispose();
       numberTex.dispose();
+      sharkMat?.dispose();
+      sharkTex?.dispose();
     },
   };
 }

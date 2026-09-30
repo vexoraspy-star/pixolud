@@ -762,6 +762,77 @@ export function makeGrimeTexture(): THREE.CanvasTexture {
 }
 
 /**
+ * Gueule de requin peinte sur la tourelle (fond transparent) : le coin de la
+ * gueule a gauche, l'ouverture et l'oeil a droite (vers l'avant du char),
+ * levres rouges, dents blanches, un peu ecaillee.
+ */
+export function makeSharkTexture(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 128;
+  const { canvas, ctx } = canvas2d(W, H);
+  const rnd = seeded(517);
+  ctx.clearRect(0, 0, W, H);
+  const mouth = (grow: number) => {
+    ctx.beginPath();
+    ctx.moveTo(18 - grow, 70);
+    ctx.bezierCurveTo(140, 58 - grow, 330, 22 - grow, 470 + grow, 30 - grow);
+    ctx.lineTo(470 + grow, 108 + grow);
+    ctx.bezierCurveTo(330, 112 + grow, 140, 92 + grow, 18 - grow, 70);
+    ctx.closePath();
+  };
+  // Levres rouges, puis l'interieur sombre de la gueule.
+  mouth(10);
+  ctx.fillStyle = "#a3141a";
+  ctx.fill();
+  mouth(0);
+  ctx.fillStyle = "#16090a";
+  ctx.fill();
+  // Dents : des triangles blancs le long des deux machoires.
+  ctx.fillStyle = "#f2efe6";
+  for (let k = 0; k < 16; k++) {
+    const t = (k + 0.5) / 16;
+    const x = 30 + t * 430;
+    const top = 70 - (70 - 30) * Math.pow(t, 0.8) + 2;
+    const bottom = 70 + (108 - 70) * Math.pow(t, 0.8) - 2;
+    const s = 6 + t * 12;
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.5, top);
+    ctx.lineTo(x + s * 0.5, top);
+    ctx.lineTo(x, top + s * 1.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.5, bottom);
+    ctx.lineTo(x + s * 0.5, bottom);
+    ctx.lineTo(x, bottom - s * 1.3);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // L'oeil, au-dessus de la gueule.
+  ctx.fillStyle = "#a3141a";
+  ctx.beginPath();
+  ctx.ellipse(400, 14, 22, 11, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f2efe6";
+  ctx.beginPath();
+  ctx.ellipse(400, 14, 15, 7, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#0d0d0d";
+  ctx.beginPath();
+  ctx.arc(396, 14, 5, 0, Math.PI * 2);
+  ctx.fill();
+  // Peinture ecaillee.
+  ctx.globalCompositeOperation = "destination-out";
+  for (let k = 0; k < 120; k++) {
+    ctx.beginPath();
+    ctx.arc(rnd() * W, rnd() * H, 0.8 + rnd() * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+  return finish(canvas, false);
+}
+
+/**
  * Numero tactique peint au pochoir sur les flancs de tourelle (fond
  * transparent), un peu use.
  */
