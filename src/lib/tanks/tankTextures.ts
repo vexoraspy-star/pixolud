@@ -575,12 +575,12 @@ export function makeCamoTexture(look: CamoPaint, seed: number): THREE.CanvasText
     ctx.fillStyle = t < 0.5 ? "rgba(40,34,26,0.10)" : t < 0.85 ? "rgba(170,150,110,0.10)" : "rgba(210,200,180,0.18)";
     ctx.fillRect(x, y, 1 + rnd() * 3, 1 + rnd() * 3);
   }
-  for (let p = 0; p < 90; p++) {
+  for (let p = 0; p < 60; p++) {
     // Eclats : un point d'acier nu cerne de peinture soulevee.
     const x = rnd() * S;
     const y = rnd() * S;
-    const r = 1.5 + rnd() * 3.5;
-    ctx.fillStyle = "rgba(230,222,200,0.25)";
+    const r = 1.5 + rnd() * 3;
+    ctx.fillStyle = "rgba(230,222,200,0.14)";
     ctx.beginPath();
     ctx.ellipse(x, y, r * 1.4, r, rnd() * 3, 0, Math.PI * 2);
     ctx.fill();

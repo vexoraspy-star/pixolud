@@ -52,6 +52,8 @@ export interface BiomeLook {
   soil: RGB;
   /** Couleur du fond de la mini-carte (0 a 255). */
   mini: RGB;
+  /** Boue, sable ou neige colles au bas des chars (0 a 1). */
+  grime: RGB;
 }
 
 export const BIOME_LOOK: Record<Biome, BiomeLook> = {
@@ -68,6 +70,7 @@ export const BIOME_LOOK: Record<Biome, BiomeLook> = {
     dust: [0.66, 0.58, 0.45],
     soil: [0.42, 0.34, 0.24],
     mini: [96, 118, 72],
+    grime: [0.46, 0.39, 0.29],
   },
   hiver: {
     fog: 0xd3dae2,
@@ -82,6 +85,7 @@ export const BIOME_LOOK: Record<Biome, BiomeLook> = {
     dust: [0.9, 0.92, 0.95],
     soil: [0.78, 0.8, 0.84],
     mini: [192, 198, 208],
+    grime: [0.86, 0.89, 0.93],
   },
   desert: {
     fog: 0xdccbb0,
@@ -96,6 +100,7 @@ export const BIOME_LOOK: Record<Biome, BiomeLook> = {
     dust: [0.8, 0.68, 0.5],
     soil: [0.66, 0.52, 0.34],
     mini: [186, 154, 108],
+    grime: [0.74, 0.62, 0.45],
   },
   bocage: {
     fog: 0xc6d4de,
@@ -110,6 +115,7 @@ export const BIOME_LOOK: Record<Biome, BiomeLook> = {
     dust: [0.58, 0.52, 0.4],
     soil: [0.36, 0.3, 0.22],
     mini: [80, 118, 56],
+    grime: [0.29, 0.24, 0.16],
   },
 };
 

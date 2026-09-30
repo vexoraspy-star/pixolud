@@ -134,7 +134,8 @@ export default function TankGaragePreview({ tankId, camo = null }: { tankId: str
         holder.remove(model.root);
         model.dispose();
       }
-      model = buildTankModel(tankById(id), { camo: camoChoice(camoId), number: "101" });
+      // Au garage : un char propre, juste un peu de poussiere sur le train de roulement.
+      model = buildTankModel(tankById(id), { camo: camoChoice(camoId), number: "101", dirt: { color: [0.42, 0.38, 0.3], amount: 0.35 } });
       model.root.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
       });

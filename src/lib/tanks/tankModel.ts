@@ -2,15 +2,19 @@ import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CamoChoice, TankDef } from "./tankDefs";
-import { makeCamoTexture, makeNumberTexture, makeReliefTexture, makeTrackTexture, type CamoPaint } from "./tankTextures";
+import { makeCamoTexture, makeGrimeTexture, makeNumberTexture, makeReliefTexture, makeTrackTexture, type CamoPaint } from "./tankTextures";
 
 // Les chars dessines en code : caisse a plaques inclinees, chenilles
 // epaisses qui defilent, roues a pneus et jantes boulonnees, tourelle (fonte
 // arrondie, soudee anguleuse, casemate de chasseur, ou moderne en coin ou
 // plate), canon avec frein de bouche ou manchon thermique, mitrailleuses,
-// lance-fumigenes, capteurs, cables, numeros peints. Quelques maillages par
-// char : caisse camouflee, pieces sombres, deux chenilles, tourelle, canon,
-// numeros.
+// lance-fumigenes, capteurs, cables, numeros peints, paquetage (baches,
+// bidons, caisses, filets). Quelques maillages par char : caisse camouflee,
+// pieces sombres, equipement, deux chenilles, tourelle, canon, numeros.
+//
+// Le Lambert des chars est enrichi (voir `enhance`) : boue, poussiere ou
+// neige de la carte sur le bas de caisse, reflet du soleil sur l'acier peint,
+// lisere de ciel sur les aretes, acier brule des epaves.
 //
 // Repere du char : origine au sol sous le centre, x a droite, y en haut,
 // z vers l'avant.
@@ -31,6 +35,8 @@ export interface TankModel {
   turretHalf: THREE.Vector3;
   /** Casemate : la « tourelle » ne tourne pas avec le canon. */
   fixedTurret: boolean;
+  /** Sorties d'echappement, dans le repere du char. */
+  exhausts: THREE.Vector3[];
   /** Fait defiler chaque chenille (metres parcourus par cote). */
   roll: (left: number, right: number) => void;
   /** Char detruit : acier noirci. */
@@ -43,6 +49,8 @@ export interface TankModelOptions {
   camo?: CamoChoice | null;
   /** Numero tactique peint sur la tourelle. */
   number?: string;
+  /** Boue, poussiere ou neige collee au char : couleur (0 a 1) et quantite (0 a 1). */
+  dirt?: { color: [number, number, number]; amount: number };
 }
 
 // ------------------------------------------------------------- utilitaires
@@ -87,7 +95,8 @@ function part(geo: THREE.BufferGeometry, tint = 1, dirtBelow = -1): THREE.Buffer
   for (const name of Object.keys(g.attributes)) {
     if (name !== "position" && name !== "normal") g.deleteAttribute(name);
   }
-  g = boxUV(g, 0.45);
+  // Un carreau de texture (512 px) pour 4 m.
+  g = boxUV(g, 0.25);
   const pos = g.getAttribute("position");
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -99,6 +108,46 @@ function part(geo: THREE.BufferGeometry, tint = 1, dirtBelow = -1): THREE.Buffer
   }
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
   return g;
+}
+
+/** Hachage stable (0 a 1), pour varier les details sans tirage. */
+function hash01(n: number): number {
+  const s = Math.sin(n * 12.9898) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Une piece d'equipement de sa propre couleur (toile, bois, bidon, feu arriere...). */
+function gear(geo: THREE.BufferGeometry, hex: number, shade = 1): THREE.BufferGeometry {
+  const g = part(geo, 1);
+  const c = new THREE.Color(hex);
+  const col = g.getAttribute("color") as THREE.BufferAttribute;
+  for (let i = 0; i < col.count; i++) col.setXYZ(i, c.r * shade, c.g * shade, c.b * shade);
+  return g;
+}
+
+/** Couleur par triangle tiree d'une palette (filet de camouflage, feuillage). */
+function mottle(g: THREE.BufferGeometry, palette: number[], seed: number): THREE.BufferGeometry {
+  const col = g.getAttribute("color") as THREE.BufferAttribute;
+  const cols = palette.map((h) => new THREE.Color(h));
+  for (let i = 0; i + 2 < col.count; i += 3) {
+    const c = cols[Math.floor(hash01(i * 0.37 + seed) * cols.length)];
+    for (let v = 0; v < 3; v++) col.setXYZ(i + v, c.r, c.g, c.b);
+  }
+  return g;
+}
+
+/** Deforme une forme centree sur l'origine : toile froissee, sac bourre, filet. */
+function lumpy(geo: THREE.BufferGeometry, amount: number, seed: number): THREE.BufferGeometry {
+  const p = geo.getAttribute("position");
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    const f = (hash01(x * 7.13 + y * 13.7 + z * 3.91 + seed) - 0.5) * amount;
+    p.setXYZ(i, x * (1 + f), y * (1 + f * 0.6), z * (1 + f));
+  }
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): THREE.BufferGeometry {
@@ -244,6 +293,75 @@ function reliefFor(def: TankDef): THREE.CanvasTexture {
   return t;
 }
 
+/** Reglages communs aux materiaux d'un char (un jeu par char). */
+interface TankShading {
+  uDirt: { value: THREE.Color };
+  uDirtAmount: { value: number };
+  uWreck: { value: number };
+  uNoise: { value: THREE.Texture };
+}
+
+let grimeTex: THREE.CanvasTexture | null = null;
+
+/**
+ * Le Lambert des chars, enrichi par quelques lignes de shader :
+ *  - boue, poussiere ou neige (couleur de la carte) sur le bas de caisse, le
+ *    train de roulement et les chenilles, un voile de poussiere sur ce qui
+ *    est a plat, decoupes en plaques par une texture de crasse ;
+ *  - un reflet du soleil discret sur l'acier peint (plus vif sur le metal
+ *    nu), qui s'eteint dans l'ombre et sous la boue ;
+ *  - un lisere de ciel sur les aretes, qui detache le char du decor ;
+ *  - l'acier brule, noirci et rouille, des epaves.
+ * `shine` : force du reflet (0 : toile mate, 0,45 : metal).
+ */
+function enhance(mat: THREE.MeshLambertMaterial, look: TankShading, shine: number) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDirt = look.uDirt;
+    shader.uniforms.uDirtAmount = look.uDirtAmount;
+    shader.uniforms.uWreck = look.uWreck;
+    shader.uniforms.uNoise = look.uNoise;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float dirt;\nvarying float vTkDirt;\nvarying vec3 vTkPos;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvTkDirt = dirt;\nvTkPos = position;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nuniform vec3 uDirt;\nuniform float uDirtAmount;\nuniform float uWreck;\nuniform sampler2D uNoise;\nvarying float vTkDirt;\nvarying vec3 vTkPos;",
+      )
+      .replace(
+        "#include <color_fragment>",
+        [
+          "#include <color_fragment>",
+          "float tkN = texture2D(uNoise, vTkPos.xz * 0.37 + vec2(vTkPos.y * 0.29, vTkPos.y * 0.11)).r;",
+          "float tkD = clamp((vTkDirt * 1.3 - 0.08) * (0.3 + tkN * 1.4) * uDirtAmount, 0.0, 0.93);",
+          "diffuseColor.rgb = mix(diffuseColor.rgb, uDirt * (0.78 + tkN * 0.44), tkD);",
+          "float tkBurn = uWreck * (0.74 + tkN * 0.26);",
+          "vec3 tkBurnt = mix(vec3(0.03, 0.027, 0.024), vec3(0.17, 0.075, 0.03), smoothstep(0.6, 0.85, tkN));",
+          "diffuseColor.rgb = mix(diffuseColor.rgb, tkBurnt, tkBurn);",
+        ].join("\n"),
+      )
+      .replace(
+        "#include <envmap_fragment>",
+        [
+          "#if NUM_DIR_LIGHTS > 0",
+          "{",
+          "  vec3 tkH = normalize(directionalLights[0].direction + geometryViewDir);",
+          "  float tkLit = clamp(dot(reflectedLight.directDiffuse, vec3(1.0)) / max(0.03, dot(diffuseColor.rgb, vec3(1.0))), 0.0, 2.0);",
+          `  float tkSpec = pow(max(dot(normal, tkH), 0.0), 34.0) * ${shine.toFixed(3)} * (1.0 - tkD) * (1.0 - uWreck) * (0.55 + tkN * 0.9);`,
+          "  outgoingLight += directionalLights[0].color * tkSpec * tkLit * 0.25;",
+          "}",
+          "#endif",
+          "#if NUM_HEMI_LIGHTS > 0",
+          "  outgoingLight += hemisphereLights[0].skyColor * pow(1.0 - saturate(dot(normal, geometryViewDir)), 3.0) * 0.035 * (1.0 - uWreck);",
+          "#endif",
+          "#include <envmap_fragment>",
+        ].join("\n"),
+      );
+  };
+  // Un programme par force de reflet : tous les chars le partagent.
+  mat.customProgramCacheKey = () => `char-${shine.toFixed(3)}`;
+}
+
 // ----------------------------------------------------------------- modele
 
 export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankModel {
@@ -262,6 +380,13 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
 
   const camoParts: THREE.BufferGeometry[] = [];
   const darkParts: THREE.BufferGeometry[] = [];
+  /** Equipement de sa propre couleur : toile, bois, bidons, feux. */
+  const gearParts: THREE.BufferGeometry[] = [];
+  const CANVAS = 0x857b5c;
+  const CANVAS_DARK = 0x5f5a45;
+  const WOOD = 0x7b5d3c;
+  const JERRY = 0x4d5338;
+  const NET = [0x4a5634, 0x5d5c3b, 0x3b452b, 0x6a6344, 0x2f3a24];
 
   // --- Caisse : une partie basse etroite entre les chenilles, une superstructure large ---
   const hl = W / 2 - tw + 0.04;
@@ -375,6 +500,8 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
         const a = (b / 6) * Math.PI * 2;
         darkParts.push(part(box(0.04, 0.04, 0.04, outer, y + Math.sin(a) * wr * 0.4, z + Math.cos(a) * wr * 0.4), 1.4));
       }
+      // Bras de suspension : du moyeu vers son pivot sur la caisse.
+      darkParts.push(part(rod(0.05, x - side * tw * 0.4, y, z, side * (hl - 0.03), y + 0.18, z + 0.4, 6), 0.5));
     }
     // Rouleaux porteurs sous le brin superieur.
     for (let k = 0; k < 3; k++) {
@@ -406,6 +533,7 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     // Phare et sa grille de protection.
     darkParts.push(part(tubeZ(0.09, 0.1, 0.16, side * (W / 2 - tw * 0.8), deckY - 0.08, len / 2 - glacis * 0.5), 1.4));
     darkParts.push(part(box(0.24, 0.02, 0.03, side * (W / 2 - tw * 0.8), deckY + 0.05, len / 2 - glacis * 0.5 + 0.18), 0.5));
+    gearParts.push(gear(tubeZ(0.075, 0.075, 0.02, side * (W / 2 - tw * 0.8), deckY - 0.08, len / 2 - glacis * 0.5 + 0.16, 12), 0xd9d6c4));
     // Crochets de remorquage.
     darkParts.push(part(box(0.12, 0.14, 0.2, side * 0.6, c + 0.1, len / 2 - 0.35), 0.7));
     darkParts.push(part(box(0.12, 0.14, 0.2, side * 0.6, c + 0.1, -len / 2 + 0.3), 0.7));
@@ -414,6 +542,12 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       darkParts.push(part(box(0.5, 0.22, 0.2, side * 0.55, c + H * 0.62, -len / 2 - 0.12), 0.5));
       darkParts.push(part(tubeZ(0.07, 0.07, 0.25, side * 0.55 + side * 0.18, c + H * 0.62, -len / 2 - 0.35, 10), 0.3));
     }
+    // Paquetage du garde-boue : un bidon de plus a l'arriere, une caisse de munitions a l'avant.
+    gearParts.push(gear(box(0.18, 0.44, 0.34, x, fenderY + 0.24, -len / 2 + 1.0), JERRY));
+    gearParts.push(gear(box(0.05, 0.05, 0.16, x, fenderY + 0.48, -len / 2 + 1.0), 0x2a2c22));
+    if (side === 1 && !modern) gearParts.push(gear(box(tw * 0.8, 0.26, 0.62, x, fenderY + 0.15, len / 2 - 1.05), WOOD));
+    // Feux arriere.
+    gearParts.push(gear(box(0.13, 0.09, 0.05, side * (W / 2 - 0.3), c + H * 0.78, -len / 2 + 0.07), 0x9e2016));
   }
 
   // --- Details de la caisse ---
@@ -447,12 +581,49 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     }
   }
 
+  // --- Paquetage du pont arriere ---
+  if (!modern) {
+    // Bache roulee en travers du pont arriere, tenue par deux sangles.
+    const tarpZ = -len / 2 + 0.62;
+    const tarp = lumpy(new THREE.CylinderGeometry(0.17, 0.17, W * 0.52, 12, 3), 0.08, 3);
+    tarp.rotateZ(Math.PI / 2);
+    tarp.translate(0, rearDeck + 0.17, tarpZ);
+    gearParts.push(gear(tarp, CANVAS));
+    for (const sx of [-0.3, 0.3]) {
+      const strap = new THREE.TorusGeometry(0.176, 0.022, 5, 14);
+      strap.rotateY(Math.PI / 2);
+      strap.translate(W * sx * 0.52, rearDeck + 0.17, tarpZ);
+      gearParts.push(gear(strap, 0x2a2620));
+    }
+  } else {
+    // Filet de camouflage roule sur le pont arriere.
+    const net = lumpy(new THREE.CylinderGeometry(0.21, 0.21, W * 0.6, 10, 4), 0.16, 7);
+    net.rotateZ(Math.PI / 2);
+    net.translate(0, rearDeck + 0.21, -len / 2 + 0.6);
+    gearParts.push(mottle(gear(net, NET[0]), NET, 7));
+  }
+  if (casemate) {
+    // Chasseur : un filet jete sur l'arriere de la casemate, des branchages plantes dedans.
+    const net = lumpy(new THREE.IcosahedronGeometry(1, 2), 0.4, 11);
+    net.scale(tWid * 0.36, 0.17, tLen * 0.24);
+    net.translate(tWid * 0.1, deckY + tHei + 0.05, cmRear + 0.35);
+    gearParts.push(mottle(gear(net, NET[0]), NET, 11));
+    for (let b = 0; b < 6; b++) {
+      const branch = new THREE.ConeGeometry(0.1, 0.8 + hash01(b + 3) * 0.4, 5);
+      branch.rotateZ((hash01(b * 5.1) - 0.5) * 1.2);
+      branch.rotateX((hash01(b * 2.3) - 0.5) * 0.8);
+      branch.translate(tWid * (hash01(b * 1.7) - 0.4) * 0.6, deckY + tHei + 0.4, cmRear + 0.1 + hash01(b * 3.3) * tLen * 0.45);
+      gearParts.push(gear(branch, b % 2 ? 0x3f5a2c : 0x55642f));
+    }
+  }
+
   // --- Tourelle ---
   const turret = new THREE.Group();
   const turretY = deckY - 0.02;
   const turretZ = L.turretOffset;
   const turretParts: THREE.BufferGeometry[] = [];
   const turretDark: THREE.BufferGeometry[] = [];
+  const turretGear: THREE.BufferGeometry[] = [];
   let gunY: number;
   let gunZ: number;
   let roofY = tHei;
@@ -594,7 +765,14 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       turretDark.push(part(new THREE.TorusGeometry(0.06, 0.018, 5, 10).translate(side * tWid * 0.3, roofY + 0.05, tLen * 0.1), 0.5));
     }
     // Coffre de rangement a l'arriere de la tourelle.
-    if (!modern) turretParts.push(part(box(tWid * 0.55, tHei * 0.45, 0.35, 0, tHei * 0.42, -tLen / 2 - 0.16), 0.9));
+    if (!modern) {
+      turretParts.push(part(box(tWid * 0.55, tHei * 0.45, 0.35, 0, tHei * 0.42, -tLen / 2 - 0.16), 0.9));
+      // Une couverture roulee, sanglee sur le coffre.
+      const roll = lumpy(new THREE.CylinderGeometry(0.13, 0.13, tWid * 0.5, 10, 2), 0.1, 5);
+      roll.rotateZ(Math.PI / 2);
+      roll.translate(0, tHei * 0.645 + 0.12, -tLen / 2 - 0.16);
+      turretGear.push(gear(roll, CANVAS_DARK));
+    }
     // Mitrailleuse du chef sur son affut.
     if (L.aaMG) {
       turretDark.push(part(rod(0.02, cx, roofY + 0.3, cz, cx, roofY + 0.62, cz), 0.5));
@@ -614,6 +792,12 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       const basketZ = -tLen / 2 - 0.35;
       turretDark.push(part(box(tWid * 0.86, tHei * 0.55, 0.6, 0, tHei * 0.5, basketZ), 0.28));
       turretParts.push(part(box(tWid * 0.88, 0.04, 0.64, 0, tHei * 0.78, basketZ), 0.8));
+      // Sacs et paquetage entasses dans le panier.
+      for (let b = 0; b < 3; b++) {
+        const bag = lumpy(new THREE.BoxGeometry(0.5, 0.36, 0.44, 2, 2, 2), 0.14, b * 3 + 1);
+        bag.translate((b - 1) * tWid * 0.27, tHei * 0.62, basketZ + (b % 2) * 0.06);
+        turretGear.push(gear(bag, b === 1 ? CANVAS_DARK : CANVAS, 0.9 + b * 0.06));
+      }
       // Deux grappes de quatre lance-fumigenes, tournees vers l'avant.
       for (const side of [-1, 1]) {
         for (let k = 0; k < 4; k++) {
@@ -683,6 +867,14 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       turretDark.push(part(box(0.3, 0.05, 0.56, tWid * 0.16, roofY + 0.32, tLen * 0.18), 0.6));
     }
   }
+  // Housse de toile au pied du canon (chars anciens a tourelle).
+  const gunGear: THREE.BufferGeometry[] = [];
+  if (!modern && !casemate && !L.twinMG && !L.autocannon) {
+    const cover = lumpy(new THREE.CylinderGeometry(gr * 1.75, gr * 2.6, 0.44, 12, 3), 0.1, 5);
+    cover.rotateX(Math.PI / 2);
+    cover.translate(0, 0, 0.2);
+    gunGear.push(gear(cover, CANVAS_DARK));
+  }
   const muzzle = new THREE.Object3D();
   muzzle.position.set(0, 0, tip + 0.05);
   gun.add(muzzle);
@@ -692,6 +884,7 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   const relief = reliefFor(def);
   const camoMat = new THREE.MeshLambertMaterial({ map: camoTex, vertexColors: true, bumpMap: relief, bumpScale: 2.2 });
   const darkMat = new THREE.MeshLambertMaterial({ color: 0x3c3a36, vertexColors: true, bumpMap: relief, bumpScale: 1.2 });
+  const gearMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, bumpMap: relief, bumpScale: 0.8 });
   if (!trackTex) trackTex = makeTrackTexture();
   const trackTexL = trackTex.clone();
   const trackTexR = trackTex.clone();
@@ -699,33 +892,68 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   trackTexR.needsUpdate = true;
   const trackMatL = new THREE.MeshLambertMaterial({ map: trackTexL, side: THREE.DoubleSide });
   const trackMatR = new THREE.MeshLambertMaterial({ map: trackTexR, side: THREE.DoubleSide });
+  // Boue de la carte, crasse, epave : des reglages partages par tous les materiaux du char.
+  if (!grimeTex) grimeTex = makeGrimeTexture();
+  const dirt = opts.dirt ?? { color: [0.42, 0.37, 0.29] as [number, number, number], amount: 0.45 };
+  const shading: TankShading = {
+    uDirt: { value: new THREE.Color().setRGB(dirt.color[0], dirt.color[1], dirt.color[2], THREE.SRGBColorSpace) },
+    uDirtAmount: { value: dirt.amount },
+    uWreck: { value: 0 },
+    uNoise: { value: grimeTex },
+  };
+  enhance(camoMat, shading, 0.22);
+  enhance(darkMat, shading, 0.42);
+  enhance(gearMat, shading, 0.06);
+  enhance(trackMatL, shading, 0.14);
+  enhance(trackMatR, shading, 0.14);
 
   const root = new THREE.Group();
   const geos: THREE.BufferGeometry[] = [];
-  const addMesh = (parent: THREE.Object3D, list: THREE.BufferGeometry[], mat: THREE.Material) => {
+  // Boue : pleine au ras du sol, plus rien au-dessus du milieu de la caisse ;
+  // un voile de poussiere sur tout ce qui est a plat.
+  const dirtTop = c + H * 0.85;
+  const addMesh = (parent: THREE.Object3D, list: THREE.BufferGeometry[], mat: THREE.Material, yOffset: number) => {
     if (list.length === 0) return;
     const g = mergeGeometries(list, false)!;
     for (const p of list) p.dispose();
+    const pos = g.getAttribute("position");
+    const nor = g.getAttribute("normal");
+    const grime = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) {
+      let d = Math.pow(Math.max(0, 1 - (pos.getY(i) + yOffset) / dirtTop), 1.5);
+      if (nor.getY(i) > 0.8) d = Math.max(d, 0.3);
+      grime[i] = d;
+    }
+    g.setAttribute("dirt", new THREE.BufferAttribute(grime, 1));
     geos.push(g);
     const m = new THREE.Mesh(g, mat);
     m.castShadow = true;
     m.receiveShadow = true;
     parent.add(m);
   };
-  addMesh(root, camoParts, camoMat);
-  addMesh(root, darkParts, darkMat);
+  addMesh(root, camoParts, camoMat, 0);
+  addMesh(root, darkParts, darkMat, 0);
+  addMesh(root, gearParts, gearMat, 0);
   for (const [k, tg] of tracks.entries()) {
+    // Les chenilles sont crottees par plaques.
+    tg.setAttribute("dirt", new THREE.BufferAttribute(new Float32Array(tg.getAttribute("position").count).fill(0.48), 1));
     geos.push(tg);
     const m = new THREE.Mesh(tg, k === 0 ? trackMatL : trackMatR);
     m.castShadow = true;
     root.add(m);
   }
-  addMesh(turret, turretParts, camoMat);
-  addMesh(turret, turretDark, darkMat);
-  addMesh(gun, gunParts, camoMat);
-  addMesh(gun, gunDark, darkMat);
+  const turretLift = turret.position.y;
+  addMesh(turret, turretParts, camoMat, turretLift);
+  addMesh(turret, turretDark, darkMat, turretLift);
+  addMesh(turret, turretGear, gearMat, turretLift);
+  addMesh(gun, gunParts, camoMat, turretLift + gun.position.y);
+  addMesh(gun, gunDark, darkMat, turretLift + gun.position.y);
+  addMesh(gun, gunGear, gearMat, turretLift + gun.position.y);
   turret.add(gun);
-  root.add(turret);
+  // La tourelle repose sur un support : l'explosion d'une epave peut la deloger.
+  const mount = new THREE.Group();
+  mount.add(turret);
+  root.add(mount);
 
   // Numeros tactiques peints sur les flancs de la tourelle (ou de la casemate).
   const number = opts.number ?? String(100 + ((def.id.charCodeAt(0) * 37 + def.tier * 11) % 800));
@@ -762,6 +990,11 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     : new THREE.Vector3(0, tHei / 2 + 0.05, 0);
   const turretHalf = new THREE.Vector3(tWid / 2, tHei / 2 + 0.05, tLen / 2);
 
+  // Echappement : le bout des pots (anciens) ou la grille du pont arriere (modernes).
+  const exhausts = modern
+    ? [new THREE.Vector3(-W * 0.18, rearDeck + 0.12, -len * 0.46), new THREE.Vector3(W * 0.18, rearDeck + 0.12, -len * 0.46)]
+    : [-1, 1].map((side) => new THREE.Vector3(side * 0.73, c + H * 0.62, -len / 2 - 0.38));
+
   let offL = 0;
   let offR = 0;
   return {
@@ -774,6 +1007,7 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     turretCenter,
     turretHalf,
     fixedTurret: casemate,
+    exhausts,
     roll: (left, right) => {
       offL = (offL + left / 0.16) % 1000;
       offR = (offR + right / 0.16) % 1000;
@@ -781,16 +1015,29 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       trackTexR.offset.y = -offR;
     },
     setWrecked: () => {
-      camoMat.color.setHex(0x2c2824);
-      darkMat.color.setHex(0x1e1c1a);
-      trackMatL.color.setHex(0x4a4642);
-      trackMatR.color.setHex(0x4a4642);
+      shading.uWreck.value = 1;
+      trackMatL.color.setHex(0x5a5650);
+      trackMatR.color.setHex(0x5a5650);
       numberMat.color.setHex(0x3a3632);
+      // Une fois sur trois, l'explosion des munitions deloge la tourelle.
+      if (casemate) return;
+      const roll = Math.random();
+      if (roll < 0.17) {
+        // Projetee a cote du char, couchee de travers au sol.
+        const side = Math.random() < 0.5 ? -1 : 1;
+        mount.rotation.set((Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.6, side * (0.4 + Math.random() * 0.25));
+        mount.position.set(side * (W / 2 + tWid * 0.9), -turret.position.y * 0.9 + 0.2, (Math.random() - 0.5) * len * 0.4);
+      } else if (roll < 0.34) {
+        // Soulevee et de travers sur son anneau.
+        mount.rotation.set((Math.random() - 0.5) * 0.3, 0, (Math.random() - 0.5) * 0.4);
+        mount.position.set((Math.random() - 0.5) * 0.4, 0.3 + Math.random() * 0.2, (Math.random() - 0.5) * 0.4);
+      }
     },
     dispose: () => {
       for (const g of geos) g.dispose();
       camoMat.dispose();
       darkMat.dispose();
+      gearMat.dispose();
       trackMatL.dispose();
       trackMatR.dispose();
       trackTexL.dispose();

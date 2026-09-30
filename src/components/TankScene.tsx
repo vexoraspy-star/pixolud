@@ -260,6 +260,7 @@ export default function TankScene({
 
     // --- La bataille ---
     const center = new THREE.Vector3();
+    const exhaustPos = new THREE.Vector3();
     const battle = createBattle(
       map,
       def,
@@ -269,6 +270,8 @@ export default function TankScene({
         const m = buildTankModel(d, {
           camo: isPlayer ? camoChoice(camo) : null,
           number: isPlayer ? "101" : String(200 + Math.floor(Math.random() * 700)),
+          // La boue (ou le sable, ou la neige) de la carte sur le bas des chars.
+          dirt: { color: ambiance.grime, amount: 1 },
         });
         scene.add(m.root);
         return m;
@@ -647,7 +650,16 @@ export default function TankScene({
         if (tracksDust > 0.05) {
           tracksDust = 0;
           for (const t of battle.tanks) {
-            if (!t.alive || Math.abs(t.speed) < 2) continue;
+            if (!t.alive) continue;
+            // Fumee d'echappement des chars proches : legere au ralenti, epaisse en pleine charge.
+            if (Math.hypot(t.x - camera.position.x, t.z - camera.position.z) < 110) {
+              const load = Math.min(1, Math.abs(t.speed) / 6 + (t.isPlayer ? Math.abs(input.throttle) * 0.5 : 0));
+              for (const e of t.model.exhausts) {
+                exhaustPos.copy(e).applyMatrix4(t.model.root.matrixWorld);
+                effects.exhaust(exhaustPos, load);
+              }
+            }
+            if (Math.abs(t.speed) < 2) continue;
             const back = -t.def.look.length * 0.45;
             const fx = Math.sin(t.yaw);
             const fz = Math.cos(t.yaw);
