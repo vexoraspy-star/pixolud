@@ -471,7 +471,9 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                   ? win
                     ? "Tous les chars ennemis ont été détruits."
                     : "Toute ton équipe a été détruite."
-                  : "Le temps est écoulé."}
+                  : result.reason === "hote"
+                    ? "L'hôte a quitté la bataille."
+                    : "Le temps est écoulé."}
             </p>
           </div>
           <div className="flex overflow-hidden rounded border border-white/15">

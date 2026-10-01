@@ -16,6 +16,7 @@ import {
   type BattleMode,
   type Difficulty,
   type TankClass,
+  type TankDef,
 } from "@/lib/tanks/tankDefs";
 import { artyCharge, effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
@@ -35,7 +36,10 @@ import { withBonus, type TankBonus } from "@/lib/tanks/tankCareer";
 import { buildTankModel } from "@/lib/tanks/tankModel";
 import { BIOME_LOOK, buildTankWorld } from "@/lib/tanks/tankWorld";
 import { createTankEffects } from "@/lib/tanks/tankEffects";
-import { createBattle, type BattleEnd, type SimTank } from "@/lib/tanks/tankSim";
+import { createBattle, type Battle, type BattleEnd, type BattleEvents, type PlayerInput, type SimTank } from "@/lib/tanks/tankSim";
+import { NET_HZ, decodeInput, encodeInput, encodeSnapshot, recordEvents, resolveLineup, type NetEvent, type RoomStart } from "@/lib/tanks/tankNet";
+import { createPuppetBattle, orientMapFor, type PuppetBattle } from "@/lib/tanks/tankPuppet";
+import type { TankRoom } from "@/lib/tanks/tankRoom";
 import {
   createTankAudio,
   playBlocked,
@@ -159,10 +163,13 @@ export default function TankScene({
   mode = "normale",
   bonus = null,
   difficulty,
+  online = null,
   onEnd,
   onQuit,
 }: {
   tankId: string;
+  /** Partie en ligne : le salon et le signal de depart de l'hote. */
+  online?: { room: TankRoom; start: RoomStart } | null;
   /** Champ de bataille choisi au garage. */
   mapId: MapId;
   /** Modules ameliores et competences du commandant (char du joueur). */
@@ -209,6 +216,8 @@ export default function TankScene({
   const [sniper, setSniper] = useState(false);
   const [artyView, setArtyView] = useState(false);
   const [ended, setEnded] = useState<BattleEnd | null>(null);
+  /** En ligne : on attend des joueurs, ou l'hote ne repond plus. */
+  const [netWait, setNetWait] = useState<string | null>(null);
   const [plates, setPlates] = useState<{ id: number; team: number; name: string; tank: string }[]>([]);
 
   useEffect(() => {
@@ -259,8 +268,12 @@ export default function TankScene({
     applyBrightness();
 
     // --- Carte, decor, effets, son ---
-    const seed = Math.floor(Math.random() * 1e9);
+    // En ligne, tout le monde construit la meme carte (la graine vient de l'hote).
+    const seed = online ? online.start.seed : Math.floor(Math.random() * 1e9);
     const map: TankMap = buildTankMap(seed, mapId);
+    // Un invite de l'equipe d'en face voit la carte depuis son camp.
+    const mySlot = online?.start.lineup.find((s) => s.human === online.room.me);
+    if (online && !online.room.isHost && mySlot) orientMapFor(map, mySlot.team);
     const world = buildTankWorld(map, detail);
     scene.add(world.group);
     const effects = createTankEffects({ dust: ambiance.dust, soil: ambiance.soil });
@@ -309,96 +322,142 @@ export default function TankScene({
     // --- La bataille ---
     const center = new THREE.Vector3();
     const exhaustPos = new THREE.Vector3();
-    const battle = createBattle(
-      map,
-      def,
-      difficulty,
-      (d, isPlayer) => {
-        // Le joueur roule avec son camouflage ; chaque char a son numero.
-        const m = buildTankModel(d, {
-          camo: isPlayer ? camoChoice(camo) : null,
-          number: isPlayer ? "101" : String(200 + Math.floor(Math.random() * 700)),
-          // La boue (ou le sable, ou la neige) de la carte sur le bas des chars.
-          dirt: { color: ambiance.grime, amount: 1 },
-        });
-        scene.add(m.root);
-        return m;
+    const makeModel = (d: TankDef, isPlayer: boolean, slotCamo?: string | null) => {
+      // Chaque joueur roule avec son camouflage ; chaque char a son numero.
+      const m = buildTankModel(d, {
+        camo: camoChoice(isPlayer ? camo : (slotCamo ?? null)),
+        number: isPlayer ? "101" : String(200 + Math.floor(Math.random() * 700)),
+        // La boue (ou le sable, ou la neige) de la carte sur le bas des chars.
+        dirt: { color: ambiance.grime, amount: 1 },
+      });
+      scene.add(m.root);
+      return m;
+    };
+    const sceneEvents: BattleEvents = {
+      shot: (t, muzzle, dir) => {
+        const kind = projectileOf(t.def, t.ammo);
+        const spec = t.def.ammo[t.ammo];
+        // Le minigun claque comme une petite arme ; une roquette part en sifflant.
+        const caliber = spec.reload !== undefined && spec.reload < 0.2 ? 20 : t.def.caliber;
+        const sp = t.isPlayer ? undefined : spatial(muzzle.x, muzzle.z);
+        if (kind === "obus") {
+          effects.muzzle(muzzle, dir, caliber, groundHeight(map, muzzle.x, muzzle.z));
+          playCannon(audio, caliber, sp);
+        } else {
+          effects.launch(muzzle, dir);
+          playRocket(audio, sp, kind === "missile");
+        }
+        if (t.isPlayer) shake = Math.max(shake, kind !== "obus" ? 0.2 : caliber < 40 ? 0.15 : 0.6);
       },
-      {
-        shot: (t, muzzle, dir) => {
-          const kind = projectileOf(t.def, t.ammo);
-          const spec = t.def.ammo[t.ammo];
-          // Le minigun claque comme une petite arme ; une roquette part en sifflant.
-          const caliber = spec.reload !== undefined && spec.reload < 0.2 ? 20 : t.def.caliber;
-          const sp = t.isPlayer ? undefined : spatial(muzzle.x, muzzle.z);
-          if (kind === "obus") {
-            effects.muzzle(muzzle, dir, caliber, groundHeight(map, muzzle.x, muzzle.z));
-            playCannon(audio, caliber, sp);
-          } else {
-            effects.launch(muzzle, dir);
-            playRocket(audio, sp, kind === "missile");
-          }
-          if (t.isPlayer) shake = Math.max(shake, kind !== "obus" ? 0.2 : caliber < 40 ? 0.15 : 0.6);
-        },
-        hit: (shooter, target, res, point) => {
-          const kind = res.outcome === "penetration" ? "perce" : res.outcome === "ricochet" ? "ricochet" : "acier";
-          effects.impact(point, kind);
-          const sp = target.isPlayer ? undefined : spatial(point.x, point.z);
-          if (res.outcome === "penetration" || res.outcome === "eclats") playPenetration(audio, sp);
-          else if (res.outcome === "ricochet") playRicochet(audio, sp);
-          else playBlocked(audio, sp);
-          if (shooter.isPlayer && target.team !== shooter.team) {
-            // Le coup fatal arrive avant que le char passe a l'etat d'epave.
-            if (!target.alive) pushMsg("Épave", "#a1a1aa");
-            else if (res.outcome === "penetration") pushMsg(`Pénétration !  −${res.damage}`, "#4ade80");
-            else if (res.outcome === "eclats") pushMsg(`Dégâts d'éclats  −${res.damage}`, "#facc15");
-            else if (res.outcome === "ricochet") pushMsg("Ricochet !", "#d4d4d8");
-            else pushMsg(`Non pénétré (${Math.round(res.effective)} mm)`, "#d4d4d8");
-          }
-          if (target.isPlayer && shooter.team !== target.team) {
-            playHitTaken(audio, res.damage > 0);
-            lastHitAt = clock;
-            lastHitAngle = Math.atan2(shooter.x - target.x, shooter.z - target.z);
-            shake = Math.max(shake, res.damage > 0 ? 0.9 : 0.4);
-            if (res.damage > 0) pushMsg(`Touché !  −${res.damage}`, "#f87171");
-            else if (res.outcome === "ricochet") pushMsg("Ricochet sur ton blindage", "#93c5fd");
-            else pushMsg("Ton blindage a tenu", "#93c5fd");
-          }
-        },
-        missed: (_shooter, point, kind) => {
-          effects.impact(point, kind);
-          const sp = spatial(point.x, point.z);
-          if (sp.dist < 320) playGroundHit(audio, sp);
-        },
-        destroyed: (target, by) => {
-          center.set(target.x, target.y + 1.6, target.z);
-          effects.explosion(center);
-          effects.burn(center, 70);
-          playTankExplosion(audio, target.isPlayer ? undefined : spatial(target.x, target.z));
-          pushFeed(by, target);
-          if (by?.isPlayer && target.team !== 0) pushMsg(`${target.def.name} détruit !`, "#fbbf24");
-          if (target.isPlayer) {
-            shake = 1.2;
-            pushMsg("Ton char est détruit", "#f87171");
-          }
-        },
-        treeFell: (index, dx, dz) => {
-          world.fellTree(index, dx, dz);
-          const t = map.trees[index];
-          const sp = spatial(t.x, t.z);
-          if (sp.dist < 120) playGroundHit(audio, { ...sp, gain: sp.gain * 0.4 });
-        },
-        reloaded: () => playReloaded(audio),
-        blast: (point) => {
-          effects.explosion(point);
-          const sp = spatial(point.x, point.z);
-          playTankExplosion(audio, sp);
-          if (sp.dist < 40) shake = Math.max(shake, 0.8 * (1 - sp.dist / 40));
-        },
+      hit: (shooter, target, res, point) => {
+        const kind = res.outcome === "penetration" ? "perce" : res.outcome === "ricochet" ? "ricochet" : "acier";
+        effects.impact(point, kind);
+        const sp = target.isPlayer ? undefined : spatial(point.x, point.z);
+        if (res.outcome === "penetration" || res.outcome === "eclats") playPenetration(audio, sp);
+        else if (res.outcome === "ricochet") playRicochet(audio, sp);
+        else playBlocked(audio, sp);
+        if (shooter.isPlayer && target.team !== shooter.team) {
+          // Le coup fatal arrive avant que le char passe a l'etat d'epave.
+          if (!target.alive) pushMsg("Épave", "#a1a1aa");
+          else if (res.outcome === "penetration") pushMsg(`Pénétration !  −${res.damage}`, "#4ade80");
+          else if (res.outcome === "eclats") pushMsg(`Dégâts d'éclats  −${res.damage}`, "#facc15");
+          else if (res.outcome === "ricochet") pushMsg("Ricochet !", "#d4d4d8");
+          else pushMsg(`Non pénétré (${Math.round(res.effective)} mm)`, "#d4d4d8");
+        }
+        if (target.isPlayer && shooter.team !== target.team) {
+          playHitTaken(audio, res.damage > 0);
+          lastHitAt = clock;
+          lastHitAngle = Math.atan2(shooter.x - target.x, shooter.z - target.z);
+          shake = Math.max(shake, res.damage > 0 ? 0.9 : 0.4);
+          if (res.damage > 0) pushMsg(`Touché !  −${res.damage}`, "#f87171");
+          else if (res.outcome === "ricochet") pushMsg("Ricochet sur ton blindage", "#93c5fd");
+          else pushMsg("Ton blindage a tenu", "#93c5fd");
+        }
       },
-      mode,
-    );
+      missed: (_shooter, point, kind) => {
+        effects.impact(point, kind);
+        const sp = spatial(point.x, point.z);
+        if (sp.dist < 320) playGroundHit(audio, sp);
+      },
+      destroyed: (target, by) => {
+        center.set(target.x, target.y + 1.6, target.z);
+        effects.explosion(center);
+        effects.burn(center, 70);
+        playTankExplosion(audio, target.isPlayer ? undefined : spatial(target.x, target.z));
+        pushFeed(by, target);
+        if (by?.isPlayer && target.team !== 0) pushMsg(`${target.def.name} détruit !`, "#fbbf24");
+        if (target.isPlayer) {
+          shake = 1.2;
+          pushMsg("Ton char est détruit", "#f87171");
+        }
+      },
+      treeFell: (index, dx, dz) => {
+        world.fellTree(index, dx, dz);
+        const t = map.trees[index];
+        const sp = spatial(t.x, t.z);
+        if (sp.dist < 120) playGroundHit(audio, { ...sp, gain: sp.gain * 0.4 });
+      },
+      reloaded: (t) => {
+        if (t.isPlayer) playReloaded(audio);
+      },
+      blast: (point) => {
+        effects.explosion(point);
+        const sp = spatial(point.x, point.z);
+        playTankExplosion(audio, sp);
+        if (sp.dist < 40) shake = Math.max(shake, 0.8 * (1 - sp.dist / 40));
+      },
+    };
+    // En ligne : l'hote fait tourner la bataille et en diffuse l'etat ;
+    // un invite rejoue l'etat recu (et envoie ses commandes).
+    const room = online?.room ?? null;
+    const outbox: NetEvent[] = [];
+    let puppet: PuppetBattle | null = null;
+    let battle: Battle;
+    if (online && room && !room.isHost) {
+      puppet = createPuppetBattle(map, resolveLineup(online.start.lineup), room.me, makeModel, sceneEvents, mode);
+      battle = puppet;
+    } else if (online && room) {
+      const events = recordEvents(sceneEvents, outbox, () => battle.time());
+      battle = createBattle(map, def, difficulty, makeModel, events, mode, { lineup: resolveLineup(online.start.lineup), me: room.me });
+    } else {
+      battle = createBattle(map, def, difficulty, makeModel, sceneEvents, mode);
+    }
     const player = battle.player;
+    // L'hote attend que chaque invite ait prepare la carte (12 s au plus) avant de lancer le combat.
+    const notLoaded = new Set(online ? online.start.lineup.filter((s) => s.human && s.human !== room?.me).map((s) => s.human!) : []);
+    let hostWait = online && room?.isHost ? 12 : 0;
+    let netAcc = 0;
+    let fireLatch = false;
+    let loadedSentAt = -10;
+    let netNotice: string | null = null;
+    let stopListening: (() => void) | null = null;
+    if (room) {
+      if (room.isHost) {
+        const cmd = { throttle: 0, steer: 0, aim: null, fire: false, ammo: "perforant" } as PlayerInput;
+        const cmdAims = new Map<string, THREE.Vector3>();
+        stopListening = room.listenBattle({
+          input: (msg) => {
+            if (!notLoaded.has(msg.k) && !battle.tanks.some((t) => t.remote === msg.k)) return;
+            notLoaded.delete(msg.k);
+            let aim = cmdAims.get(msg.k);
+            if (!aim) cmdAims.set(msg.k, (aim = new THREE.Vector3()));
+            battle.setRemoteInput?.(msg.k, decodeInput(msg, cmd, aim));
+          },
+          loaded: (key) => {
+            notLoaded.delete(key);
+          },
+          // Un joueur parti : un bot reprend son char.
+          leave: (key) => {
+            notLoaded.delete(key);
+            const t = battle.tanks.find((x) => x.remote === key);
+            if (t) pushMsg(`${t.name} a quitté la bataille`, "#a1a1aa");
+            battle.dropHuman?.(key);
+          },
+        });
+      } else {
+        stopListening = room.listenBattle({ snapshot: (snap) => puppet?.applySnapshot(snap) });
+      }
+    }
     const plateList = battle.tanks.filter((t) => !t.isPlayer).map((t) => ({ id: t.id, team: t.team, name: t.name, tank: t.def.name }));
 
     // --- Mini-carte : le fond est dessine une fois ---
@@ -762,9 +821,14 @@ export default function TankScene({
       camera.updateMatrixWorld();
       input.aim = !player.alive ? null : artyMode ? artyTarget : freeLook ? null : findAim();
 
-      // --- Simulation ---
-      if (!pausedNow) {
-        battle.update(dt, input);
+      // --- Simulation (en ligne, elle continue meme menu ouvert) ---
+      if (!pausedNow || room) {
+        if (room?.isHost && hostWait > 0) {
+          // L'hote attend que les invites aient prepare la carte : rien ne bouge encore.
+          hostWait = notLoaded.size === 0 ? 0 : hostWait - dt;
+        } else {
+          battle.update(dt, input);
+        }
         world.update(dt, clock, camera.position);
         // Le faisceau des canons Gatling (et du minigun du char d'admin) tourne pendant la rafale.
         const now = battle.time();
@@ -802,11 +866,45 @@ export default function TankScene({
         }
       }
 
+      // --- En ligne : l'hote diffuse l'etat, l'invite envoie ses commandes ---
+      if (room) {
+        fireLatch = fireLatch || input.fire;
+        netAcc += dt;
+        if (netAcc >= 1 / NET_HZ) {
+          netAcc = Math.min(netAcc - 1 / NET_HZ, 1 / NET_HZ);
+          if (room.isHost) {
+            room.sendSnapshot(encodeSnapshot(battle, outbox, hostWait > 0));
+          } else {
+            // Un clic entre deux envois compte quand meme.
+            room.sendInput(encodeInput(room.me, { ...input, fire: fireLatch }));
+            fireLatch = false;
+          }
+        }
+        // L'invite dit qu'il est pret tant que la bataille n'a pas commence.
+        if (puppet && puppet.waiting() && clock - loadedSentAt > 1.5) {
+          loadedSentAt = clock;
+          room.sendLoaded();
+        }
+        const notice = room.isHost
+          ? hostWait > 0
+            ? `En attente des autres joueurs (${notLoaded.size})…`
+            : null
+          : puppet && puppet.silence() > 3 && !battle.ended
+            ? "Connexion à l'hôte perdue…"
+            : puppet?.waiting()
+              ? "L'hôte attend les autres joueurs…"
+              : null;
+        if (notice !== netNotice) {
+          netNotice = notice;
+          setNetWait(notice);
+        }
+      }
+
       // Tracantes des obus en vol ; flamme et fumee derriere les roquettes et les missiles.
       effects.beginTracers();
       for (const s of battle.shells) {
         if (s.kind === "obus") effects.addTracer(s.pos, s.vel);
-        else if (!pausedNow) effects.trail(s.pos, s.vel, s.kind === "missile");
+        else if (!pausedNow || room) effects.trail(s.pos, s.vel, s.kind === "missile");
       }
       effects.endTracers();
 
@@ -1131,6 +1229,7 @@ export default function TankScene({
       document.removeEventListener("pointerlockchange", onLockChange);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock?.();
       apiRef.current = null;
+      stopListening?.();
       for (const t of battle.tanks) t.model.dispose();
       world.dispose();
       effects.dispose();
@@ -1138,7 +1237,7 @@ export default function TankScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [tankId, camo, mapId, mode, bonus, difficulty, touch]);
+  }, [tankId, camo, mapId, mode, bonus, difficulty, touch, online]);
 
   const def = withBonus(tankById(tankId), bonus);
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -1451,9 +1550,18 @@ export default function TankScene({
                 ? ended.winner === 0
                   ? "Tous les chars ennemis sont détruits."
                   : "Toute l'équipe est détruite."
-                : "Le temps est écoulé."}
+                : ended.reason === "hote"
+                  ? "L'hôte a quitté la bataille."
+                  : "Le temps est écoulé."}
           </p>
         </div>
+      )}
+
+      {/* En ligne : attente des joueurs, ou connexion perdue */}
+      {netWait && !loading && !ended && (
+        <p className="pointer-events-none absolute left-1/2 top-24 z-30 -translate-x-1/2 rounded bg-black/75 px-4 py-2 text-sm font-bold text-amber-300">
+          {netWait}
+        </p>
       )}
 
       {/* Clic pour jouer / pause */}

@@ -121,7 +121,12 @@ export interface SimTank {
   team: 0 | 1;
   def: TankDef;
   name: string;
+  /** Le char du joueur de cette machine. */
   isPlayer: boolean;
+  /** Cle du joueur humain qui le conduit (null : un bot). */
+  human: string | null;
+  /** Chez l'hote d'une partie en ligne : cle du joueur distant qui le conduit. */
+  remote: string | null;
   model: TankModel;
   x: number;
   y: number;
@@ -191,6 +196,8 @@ export interface SimTank {
 }
 
 export interface Shell {
+  /** Numero du projectile dans la bataille. */
+  id: number;
   owner: SimTank;
   ammo: AmmoId;
   pos: THREE.Vector3;
@@ -222,13 +229,13 @@ export interface PlayerInput {
 
 export interface BattleEvents {
   shot: (t: SimTank, muzzle: THREE.Vector3, dir: THREE.Vector3) => void;
-  hit: (shooter: SimTank, target: SimTank, res: ShotResult, point: THREE.Vector3, zone: Zone) => void;
-  missed: (shooter: SimTank, point: THREE.Vector3, kind: "sol" | "mur") => void;
+  hit: (shooter: SimTank, target: SimTank, res: ShotResult, point: THREE.Vector3, zone: Zone, shell?: number) => void;
+  missed: (shooter: SimTank, point: THREE.Vector3, kind: "sol" | "mur", shell?: number) => void;
   destroyed: (target: SimTank, by: SimTank | null) => void;
   treeFell: (index: number, dx: number, dz: number) => void;
   reloaded: (t: SimTank) => void;
   /** Un obus d'artillerie eclate (grande explosion, degats autour). */
-  blast?: (point: THREE.Vector3, radius: number) => void;
+  blast?: (point: THREE.Vector3, radius: number, shell?: number) => void;
 }
 
 export interface CaptureState {
@@ -238,7 +245,7 @@ export interface CaptureState {
   cappers: [number, number];
 }
 
-export type BattleEnd = { winner: 0 | 1 | -1; reason: "destruction" | "capture" | "temps" };
+export type BattleEnd = { winner: 0 | 1 | -1; reason: "destruction" | "capture" | "temps" | "hote" };
 
 export interface Battle {
   tanks: SimTank[];
@@ -250,10 +257,161 @@ export interface Battle {
   /** Fait avancer la bataille de `dt` secondes. */
   update: (dt: number, input: PlayerInput) => void;
   /** Visee du joueur : ou tomberait l'obus tire maintenant, sans dispersion. */
-  gunMarker: (out: THREE.Vector3) => { tank: SimTank | null; hit: ObbHit | null; turret: boolean; dist: number };
+  gunMarker: (out: THREE.Vector3) => GunMarker;
   /** Le tank adverse est-il visible pour l'equipe `team` ? */
   visibleTo: (t: SimTank, team: 0 | 1) => boolean;
   time: () => number;
+  /** En ligne (hote) : dernieres commandes recues d'un joueur distant. */
+  setRemoteInput?: (key: string, input: PlayerInput) => void;
+  /** En ligne (hote) : un joueur quitte la partie, un bot reprend son char. */
+  dropHuman?: (key: string) => void;
+}
+
+// ------------------------------------------- outils partages (hote et invite)
+
+/** Pesanteur du projectile tire avec la munition en place. */
+export function shellGravityOf(t: SimTank): number {
+  const kind = projectileOf(t.def, t.ammo);
+  // Les roquettes poussent tout le long : une trajectoire plus tendue. Le missile vole droit.
+  if (kind === "roquette") return 3;
+  if (kind === "missile") return 0.01;
+  return t.def.shellGravity ?? SHELL_GRAVITY;
+}
+
+/** Charge d'artillerie pour une portee, bornee par la portee maximale du canon. */
+export function artyShellSpeed(t: SimTank, range: number, dy: number, elev: number): number {
+  const g = t.def.shellGravity ?? SHELL_GRAVITY;
+  const angle = (elev * 180) / Math.PI;
+  const vmax = artyCharge(t.def.artyRange ?? 600, 0, t.def.artyAngle ?? 45, g) ?? 200;
+  const v = artyCharge(Math.min(range, t.def.artyRange ?? 600), dy, Math.max(5, angle), g);
+  return Math.min(vmax * 1.05, v ?? vmax);
+}
+
+const convPivot = new THREE.Vector3();
+
+/**
+ * Position et direction de tir d'une bouche. Une bouche hors de l'axe du canon
+ * (rampe, paniers, minigun) vise le point de l'axe a la distance du but, comme
+ * des armes reglees ensemble : sinon la salve passerait a cote.
+ */
+export function mouthAim(t: SimTank, mouth: THREE.Object3D, pos: THREE.Vector3, dir: THREE.Vector3) {
+  mouth.getWorldPosition(pos);
+  dir.set(0, 0, 1).transformDirection(mouth.matrixWorld);
+  if (mouth === t.model.muzzle) return;
+  t.model.gun.getWorldPosition(convPivot);
+  const dist = Math.max(25, convPivot.distanceTo(t.aimPoint));
+  convPivot.addScaledVector(dir, dist);
+  dir.copy(convPivot).sub(pos).normalize();
+}
+
+const placeM = new THREE.Matrix4();
+
+/** Pose le modele d'un char sur le terrain (assiette, tourelle, canon, recul) et met a jour ses boites d'impact. */
+export function placeTank(map: TankMap, t: SimTank, dt: number) {
+  const L = t.def.look.length * 0.45;
+  const W = t.def.look.width * 0.45;
+  const fx = Math.sin(t.yaw);
+  const fz = Math.cos(t.yaw);
+  const hF = groundHeight(map, t.x + fx * L, t.z + fz * L);
+  const hB = groundHeight(map, t.x - fx * L, t.z - fz * L);
+  const hR = groundHeight(map, t.x + fz * W, t.z - fx * W);
+  const hL = groundHeight(map, t.x - fz * W, t.z + fx * W);
+  const targetPitch = Math.atan2(hF - hB, L * 2);
+  const targetRoll = Math.atan2(hR - hL, W * 2);
+  const k = Math.min(1, dt * 8);
+  t.pitch += (targetPitch - t.pitch) * k;
+  t.roll += (targetRoll - t.roll) * k;
+  const center = groundHeight(map, t.x, t.z);
+  t.y = Math.max(center, (hF + hB + hL + hR) / 4);
+  const m = t.model;
+  m.root.position.set(t.x, t.y, t.z);
+  m.root.rotation.order = "YXZ";
+  // Le recul du tir cabre un peu la caisse.
+  m.root.rotation.set(-t.pitch - t.recoil * 0.035, t.yaw, t.roll);
+  m.turret.rotation.y = t.turretYaw;
+  m.gun.rotation.x = -t.gunPitch;
+  // Le tube recule au tir puis revient.
+  m.gun.position.z = t.gunBaseZ - t.recoil * 0.45;
+  m.root.updateMatrixWorld(true);
+  // Boites des obus.
+  t.hullMatrix.copy(m.root.matrixWorld).multiply(placeM.makeTranslation(m.hullCenter.x, m.hullCenter.y, m.hullCenter.z));
+  t.hullInverse.copy(t.hullMatrix).invert();
+  const turretBase = m.fixedTurret ? m.root.matrixWorld : m.turret.matrixWorld;
+  t.turretMatrix.copy(turretBase).multiply(placeM.makeTranslation(m.turretCenter.x, m.turretCenter.y, m.turretCenter.z));
+  t.turretInverse.copy(t.turretMatrix).invert();
+}
+
+export type GunMarker = { tank: SimTank | null; hit: ObbHit | null; turret: boolean; dist: number };
+
+const gmP0 = new THREE.Vector3();
+const gmP1 = new THREE.Vector3();
+const gmDir = new THREE.Vector3();
+const gmVel = new THREE.Vector3();
+const gmTip = new THREE.Vector3();
+const gmNormal = new THREE.Vector3();
+const gmHit: ObbHit = { t: 0, zone: "avant", normal: new THREE.Vector3() };
+
+/** Visee d'un char : ou tomberait le projectile tire maintenant, sans dispersion. */
+export function gunMarkerFor(map: TankMap, tanks: SimTank[], t: SimTank, out: THREE.Vector3): GunMarker {
+  const m = t.model;
+  const mouths = m.muzzles[t.ammo];
+  const mouth = mouths && mouths.length > 0 ? mouths[0] : m.muzzle;
+  mouthAim(t, mouth, gmP0, gmDir);
+  const arty = t.def.artyAngle !== undefined;
+  const slow = projectileOf(t.def, t.ammo) !== "obus";
+  const g = shellGravityOf(t);
+  const v = arty
+    ? artyShellSpeed(t, Math.hypot(t.aimPoint.x - gmP0.x, t.aimPoint.z - gmP0.z), t.aimPoint.y - gmP0.y, Math.asin(THREE.MathUtils.clamp(gmDir.y, -1, 1)))
+    : t.def.ammo[t.ammo].speed;
+  const vel = gmVel.copy(gmDir).multiplyScalar(v);
+  // On suit la trajectoire par pas de 0,05 s (40 m environ) ; plus longtemps pour l'artillerie,
+  // les roquettes et les missiles, plus lents.
+  const dt = arty || slow ? 0.08 : 0.05;
+  const steps = arty ? 160 : slow ? 60 : 40;
+  for (let k = 0; k < steps; k++) {
+    gmP1.copy(gmP0).addScaledVector(vel, dt);
+    vel.y -= g * dt;
+    let bestT = 2;
+    let bestTank: SimTank | null = null;
+    let turret = false;
+    let hit: ObbHit | null = null;
+    for (const o of tanks) {
+      if (o === t) continue;
+      if (segmentObb(gmP0, gmP1, o.turretMatrix, o.turretInverse, o.model.turretHalf, o.def.turret, gmHit) && gmHit.t < bestT) {
+        bestT = gmHit.t;
+        bestTank = o;
+        turret = true;
+        hit = { t: gmHit.t, zone: gmHit.zone, normal: gmNormal.copy(gmHit.normal) };
+      }
+      if (segmentObb(gmP0, gmP1, o.hullMatrix, o.hullInverse, o.model.hullHalf, o.def.hull, gmHit) && gmHit.t < bestT) {
+        bestT = gmHit.t;
+        bestTank = o;
+        turret = false;
+        hit = { t: gmHit.t, zone: gmHit.zone, normal: gmNormal.copy(gmHit.normal) };
+      }
+    }
+    const th = segmentHouse(map, gmP0.x, gmP0.y, gmP0.z, gmP1.x, gmP1.y, gmP1.z);
+    if (th >= 0 && th < bestT) {
+      bestT = th;
+      bestTank = null;
+      hit = null;
+    }
+    const tg = segmentGround(map, gmP0.x, gmP0.y, gmP0.z, gmP1.x, gmP1.y, gmP1.z);
+    if (tg >= 0 && tg < bestT) {
+      bestT = tg;
+      bestTank = null;
+      hit = null;
+    }
+    if (bestT <= 1) {
+      out.copy(gmP0).lerp(gmP1, bestT);
+      m.muzzle.getWorldPosition(gmTip);
+      return { tank: bestTank, hit, turret, dist: out.distanceTo(gmTip) };
+    }
+    gmP0.copy(gmP1);
+  }
+  out.copy(gmP0);
+  m.muzzle.getWorldPosition(gmTip);
+  return { tank: null, hit: null, turret: false, dist: out.distanceTo(gmTip) };
 }
 
 // --------------------------------------------------------------- creation
@@ -285,97 +443,150 @@ function roleFor(def: TankDef, rnd: () => number): Role {
   return rnd() < 0.5 ? "assaut" : "soutien";
 }
 
-export function createBattle(
-  map: TankMap,
-  playerDef: TankDef,
-  difficulty: Difficulty,
-  /** Construit le modele d'un char (le joueur peut avoir son camouflage). */
-  makeModel: (def: TankDef, isPlayer: boolean) => TankModel,
-  events: BattleEvents,
-  mode: BattleMode = "normale",
-): Battle {
-  const modeInfo = MODES[mode];
-  const teamSize = modeInfo.teamSize;
-  const battleSeconds = modeInfo.seconds;
-  let seed = (map.seed * 7919) >>> 0;
-  const rnd = () => {
-    seed = (seed + 0x6d2b79f5) >>> 0;
-    let t = seed;
+/** Generateur pseudo-aleatoire a graine : meme graine, meme suite. */
+function seeded(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** Une place de la bataille : un char, son equipe, son nom, et le joueur humain qui le conduit. */
+export interface LineupSlot {
+  def: TankDef;
+  team: 0 | 1;
+  name: string;
+  /** Cle du joueur humain (multijoueur), ou null pour un bot. */
+  human: string | null;
+  /** Camouflage choisi par ce joueur (null : celui d'origine). */
+  camo?: string | null;
+}
+
+/** Un joueur humain a placer dans la bataille. */
+export interface HumanSeat {
+  key: string;
+  name: string;
+  def: TankDef;
+  team: 0 | 1;
+  camo?: string | null;
+}
+
+/**
+ * Compose les deux equipes : les joueurs humains d'abord, puis des bots du rang
+ * du meilleur char humain pour completer (une seule artillerie par equipe).
+ */
+export function planLineup(seed: number, mode: BattleMode, humans: HumanSeat[]): LineupSlot[] {
+  const rnd = seeded(seed * 7919 + 13);
+  const size = MODES[mode].teamSize;
+  // Le char d'admin compte pour le plus haut rang du mode.
+  const rank = (d: TankDef) => (d.adminOnly ? MODES[mode].tiers[1] : d.tier);
+  const ref = humans.reduce((best, h) => (rank(h.def) > rank(best) ? h.def : best), humans[0].def);
+  const names = [...BOT_NAMES].sort(() => rnd() - 0.5);
+  let nameIndex = 0;
+  const slots: LineupSlot[] = [];
+  for (const team of [0, 1] as const) {
+    const mine = humans.filter((h) => h.team === team).slice(0, size);
+    for (const h of mine) slots.push({ def: h.def, team, name: h.name, human: h.key, camo: h.camo ?? null });
+    let bots = pickDefs(ref, rnd, mode, size);
+    // Un joueur en artillerie : les bots de son equipe n'en prennent pas.
+    if (mine.some((h) => h.def.cls === "artillerie")) {
+      const others = tanksForMode(mode).filter((d) => d.cls !== "artillerie" && Math.abs(d.tier - rank(ref)) <= 1);
+      bots = bots.map((d) => (d.cls === "artillerie" && others.length ? others[Math.floor(rnd() * others.length)] : d));
+    }
+    for (const d of bots.slice(0, size - mine.length)) slots.push({ def: d, team, name: names[nameIndex++ % names.length], human: null });
+  }
+  return slots;
+}
+
+export interface BattleOptions {
+  /** Les places de la bataille (multijoueur) ; sans elles : le joueur et des bots. */
+  lineup?: LineupSlot[];
+  /** Cle du joueur de cette machine dans `lineup`. */
+  me?: string;
+}
+
+export function createBattle(
+  map: TankMap,
+  playerDef: TankDef,
+  difficulty: Difficulty,
+  /** Construit le modele d'un char (un joueur humain peut avoir son camouflage). */
+  makeModel: (def: TankDef, isPlayer: boolean, camo?: string | null) => TankModel,
+  events: BattleEvents,
+  mode: BattleMode = "normale",
+  opts: BattleOptions = {},
+): Battle {
+  const modeInfo = MODES[mode];
+  const battleSeconds = modeInfo.seconds;
+  const rnd = seeded(map.seed * 7919);
   // Guerre de 100 : des bots plus vifs et plus precis, qui visent les points faibles.
   const baseDiff = DIFFICULTIES[difficulty];
   const diff = modeInfo.hard ? { ...baseDiff, reaction: baseDiff.reaction * 0.72, aimFactor: baseDiff.aimFactor * 0.85, weakspots: true } : baseDiff;
   /** Les bots choisissent leur obus et contournent (tout sauf la recrue du mode normal). */
   const skilled = difficulty !== "recrue" || modeInfo.hard;
   const tanks: SimTank[] = [];
-  const names = [...BOT_NAMES].sort(() => rnd() - 0.5);
-  let nameIndex = 0;
+  let time = 0;
+  // Solo : le joueur (« moi ») et des bots. En multijoueur, les places viennent du salon.
+  const me = opts.lineup ? (opts.me ?? null) : "moi";
+  const lineup = opts.lineup ?? planLineup(map.seed, mode, [{ key: "moi", name: "Toi", def: playerDef, team: 0 }]);
 
-  const teamDefs: TankDef[][] = [pickDefs(playerDef, rnd, mode, teamSize), pickDefs(playerDef, rnd, mode, teamSize)];
-  // Le joueur prend la premiere place de son equipe avec son char (et reste
-  // la seule artillerie de son equipe s'il en conduit une).
-  teamDefs[0][0] = playerDef;
-  if (playerDef.cls === "artillerie") {
-    const others = tanksForMode(mode).filter((d) => d.cls !== "artillerie" && Math.abs(d.tier - Math.min(playerDef.tier, MODES[mode].tiers[1])) <= 1);
-    for (let k = 1; k < teamDefs[0].length; k++) {
-      if (teamDefs[0][k].cls === "artillerie" && others.length) teamDefs[0][k] = others[Math.floor(rnd() * others.length)];
-    }
+  /** Cerveau d'un bot (aussi quand un joueur quitte la partie : un bot reprend son char). */
+  function makeBrain(def: TankDef, x: number, z: number): Brain {
+    return {
+      role: roleFor(def, rnd),
+      lane: Math.floor(rnd() * map.lanes.length),
+      laneIndex: 0,
+      path: null,
+      pathIndex: 0,
+      goalX: x,
+      goalZ: z,
+      repathAt: time + rnd() * 2,
+      nextThink: time + rnd() * 0.5,
+      target: null,
+      readyAt: 0,
+      aimLocal: new THREE.Vector3(),
+      holdUntil: 0,
+      stuckCheckAt: time + 3,
+      stuckX: x,
+      stuckZ: z,
+      reverseUntil: 0,
+      reverseSteer: 0,
+      lastTargetAt: 0,
+      pen: 1,
+      angleSide: rnd() < 0.5 ? -1 : 1,
+      retreatUntil: 0,
+      flankUntil: 0,
+      flankDir: rnd() < 0.5 ? -1 : 1,
+      artyX: NaN,
+      artyZ: NaN,
+      artyAt: 0,
+    };
   }
-  for (let team = 0 as 0 | 1; team < 2; team = (team + 1) as 0 | 1) {
+
+  for (const team of [0, 1] as const) {
+    const slots = lineup.filter((s) => s.team === team);
     const spawns = [...map.spawns[team]].sort(() => rnd() - 0.5);
-    // Le joueur part au premier rang, au milieu.
-    if (team === 0) {
-      const center = map.spawns[0][1];
-      spawns.splice(spawns.indexOf(center), 1);
-      spawns.unshift(center);
-    }
-    for (let k = 0; k < teamSize; k++) {
-      const def = teamDefs[team][k];
-      const s = spawns[k];
-      const isPlayer = team === 0 && k === 0;
-      const model = makeModel(def, isPlayer);
+    // Les joueurs humains (en tete de liste) partent au premier rang, le premier au milieu.
+    const center = map.spawns[team][1];
+    spawns.splice(spawns.indexOf(center), 1);
+    spawns.unshift(center);
+    slots.forEach((slot, k) => {
+      const def = slot.def;
+      const s = spawns[k % spawns.length];
+      const isPlayer = me !== null && slot.human === me;
+      const model = makeModel(def, isPlayer, slot.camo ?? null);
       const ammoLeft = { perforant: def.ammo.perforant.count, sousCalibre: def.ammo.sousCalibre.count, explosif: def.ammo.explosif.count };
-      const lane = Math.floor(rnd() * map.lanes.length);
-      const brain: Brain | null = isPlayer
-        ? null
-        : {
-            role: roleFor(def, rnd),
-            lane,
-            laneIndex: 0,
-            path: null,
-            pathIndex: 0,
-            goalX: s.x,
-            goalZ: s.z,
-            repathAt: rnd() * 2,
-            nextThink: rnd() * 0.5,
-            target: null,
-            readyAt: 0,
-            aimLocal: new THREE.Vector3(),
-            holdUntil: 0,
-            stuckCheckAt: 3,
-            stuckX: s.x,
-            stuckZ: s.z,
-            reverseUntil: 0,
-            reverseSteer: 0,
-            lastTargetAt: 0,
-            pen: 1,
-            angleSide: rnd() < 0.5 ? -1 : 1,
-            retreatUntil: 0,
-            flankUntil: 0,
-            flankDir: rnd() < 0.5 ? -1 : 1,
-            artyX: NaN,
-            artyZ: NaN,
-            artyAt: 0,
-          };
       tanks.push({
         id: tanks.length,
         team,
         def,
-        name: isPlayer ? "Toi" : names[nameIndex++ % names.length],
+        name: slot.name,
         isPlayer,
+        human: slot.human,
+        remote: slot.human !== null && !isPlayer ? slot.human : null,
         model,
         x: s.x,
         y: groundHeight(map, s.x, s.z),
@@ -397,7 +608,7 @@ export function createBattle(
         fullReload: true,
         clipLeft: def.clip?.size ?? 1,
         // L'artillerie des bots tire des obus explosifs.
-        ammo: def.cls === "artillerie" && !isPlayer ? "explosif" : "perforant",
+        ammo: def.cls === "artillerie" && slot.human === null ? "explosif" : "perforant",
         ammoLeft,
         bloom: 3,
         spottedUntil: 0,
@@ -416,7 +627,7 @@ export function createBattle(
         lastShotAt: -100,
         gunBaseZ: model.gun.position.z,
         radius: Math.hypot(def.look.length, def.look.width) * 0.31,
-        brain,
+        brain: slot.human === null ? makeBrain(def, s.x, s.z) : null,
         hullMatrix: new THREE.Matrix4(),
         hullInverse: new THREE.Matrix4(),
         turretMatrix: new THREE.Matrix4(),
@@ -425,21 +636,49 @@ export function createBattle(
         trackR: 0,
         destroyedAt: -1,
       });
-    }
+    });
   }
-  const player = tanks[0];
+  const player = tanks.find((t) => t.isPlayer) ?? tanks[0];
   const shells: Shell[] = [];
+  let shellSerial = 0;
   const capture: CaptureState = { points: [0, 0], cappers: [0, 0] };
-  let time = 0;
   let timeLeft = battleSeconds;
   let ended: BattleEnd | null = null;
   let spotAt = 0;
   /** Un calcul de chemin par image au plus : pas d'a-coup. */
   let pathBudget = 1;
+  /** En ligne (hote) : dernieres commandes de chaque joueur distant. */
+  const remoteInputs = new Map<string, PlayerInput>();
+
+  function setRemoteInput(key: string, input: PlayerInput) {
+    const prev = remoteInputs.get(key);
+    // Le point vise est copie : l'appelant peut reutiliser son vecteur.
+    const aim = input.aim ? (prev?.aim ?? new THREE.Vector3()).copy(input.aim) : null;
+    remoteInputs.set(key, { ...input, aim });
+  }
+
+  function dropHuman(key: string) {
+    const t = tanks.find((x) => x.remote === key);
+    if (!t) return;
+    t.remote = null;
+    remoteInputs.delete(key);
+    const b = makeBrain(t.def, t.x, t.z);
+    t.brain = b;
+    // Le bot reprend le couloir la ou se trouve le char.
+    let best = Infinity;
+    const lane = map.lanes[b.lane];
+    for (let i = 0; i < lane.length; i++) {
+      const [lx, lz] = lanePoint(t, i);
+      const d = Math.hypot(lx - t.x, lz - t.z);
+      if (d < best) {
+        best = d;
+        b.laneIndex = i;
+      }
+    }
+  }
 
   // --- objets temporaires (aucune allocation par image) ---
   const tmpV = new THREE.Vector3();
-  const tmpV2 = new THREE.Vector3();
   const tmpDir = new THREE.Vector3();
   const tmpRight = new THREE.Vector3();
   const tmpUp = new THREE.Vector3();
@@ -455,7 +694,6 @@ export function createBattle(
   const botAim = new THREE.Vector3();
   const botGunPos = new THREE.Vector3();
   const botDir = new THREE.Vector3();
-  const convPivot = new THREE.Vector3();
 
   const deg = Math.PI / 180;
   const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -463,37 +701,7 @@ export function createBattle(
   // ----------------------------------------------------------- transformations
 
   function place(t: SimTank, dt: number) {
-    const L = t.def.look.length * 0.45;
-    const W = t.def.look.width * 0.45;
-    const fx = Math.sin(t.yaw);
-    const fz = Math.cos(t.yaw);
-    const hF = groundHeight(map, t.x + fx * L, t.z + fz * L);
-    const hB = groundHeight(map, t.x - fx * L, t.z - fz * L);
-    const hR = groundHeight(map, t.x + fz * W, t.z - fx * W);
-    const hL = groundHeight(map, t.x - fz * W, t.z + fx * W);
-    const targetPitch = Math.atan2(hF - hB, L * 2);
-    const targetRoll = Math.atan2(hR - hL, W * 2);
-    const k = Math.min(1, dt * 8);
-    t.pitch += (targetPitch - t.pitch) * k;
-    t.roll += (targetRoll - t.roll) * k;
-    const center = groundHeight(map, t.x, t.z);
-    t.y = Math.max(center, (hF + hB + hL + hR) / 4);
-    const m = t.model;
-    m.root.position.set(t.x, t.y, t.z);
-    m.root.rotation.order = "YXZ";
-    // Le recul du tir cabre un peu la caisse.
-    m.root.rotation.set(-t.pitch - t.recoil * 0.035, t.yaw, t.roll);
-    m.turret.rotation.y = t.turretYaw;
-    m.gun.rotation.x = -t.gunPitch;
-    // Le tube recule au tir puis revient.
-    m.gun.position.z = t.gunBaseZ - t.recoil * 0.45;
-    m.root.updateMatrixWorld(true);
-    // Boites des obus.
-    t.hullMatrix.copy(m.root.matrixWorld).multiply(tmpM.makeTranslation(m.hullCenter.x, m.hullCenter.y, m.hullCenter.z));
-    t.hullInverse.copy(t.hullMatrix).invert();
-    const turretBase = m.fixedTurret ? m.root.matrixWorld : m.turret.matrixWorld;
-    t.turretMatrix.copy(turretBase).multiply(tmpM.makeTranslation(m.turretCenter.x, m.turretCenter.y, m.turretCenter.z));
-    t.turretInverse.copy(t.turretMatrix).invert();
+    placeTank(map, t, dt);
   }
 
   // --------------------------------------------------------------- conduite
@@ -750,21 +958,6 @@ export function createBattle(
     t.clipLeft = t.def.clip?.size ?? 1;
   }
 
-  /**
-   * Position et direction de tir d'une bouche. Une bouche hors de l'axe du canon
-   * (rampe, paniers, minigun) vise le point de l'axe a la distance du but, comme
-   * des armes reglees ensemble : sinon la salve passerait a cote.
-   */
-  function mouthAim(t: SimTank, mouth: THREE.Object3D, pos: THREE.Vector3, dir: THREE.Vector3) {
-    mouth.getWorldPosition(pos);
-    dir.set(0, 0, 1).transformDirection(mouth.matrixWorld);
-    if (mouth === t.model.muzzle) return;
-    t.model.gun.getWorldPosition(convPivot);
-    const dist = Math.max(25, convPivot.distanceTo(t.aimPoint));
-    convPivot.addScaledVector(dir, dist);
-    dir.copy(convPivot).sub(pos).normalize();
-  }
-
   function fire(t: SimTank, aimFactor: number) {
     if (t.reloadLeft > 0 || !t.alive) return;
     if (t.ammoLeft[t.ammo] <= 0) {
@@ -801,6 +994,7 @@ export function createBattle(
       tmpDir.addScaledVector(tmpRight, off.dx / 100).addScaledVector(tmpUp, off.dy / 100).normalize();
     }
     shells.push({
+      id: ++shellSerial,
       owner: t,
       ammo: t.ammo,
       pos: p0.clone(),
@@ -850,27 +1044,9 @@ export function createBattle(
     events.shot(t, p0, tmpDir);
   }
 
-  /** Pesanteur du projectile tire avec la munition en place. */
-  function shellGravityOf(t: SimTank): number {
-    const kind = projectileOf(t.def, t.ammo);
-    // Les roquettes poussent tout le long : une trajectoire plus tendue. Le missile vole droit.
-    if (kind === "roquette") return 3;
-    if (kind === "missile") return 0.01;
-    return t.def.shellGravity ?? SHELL_GRAVITY;
-  }
-
-  /** Charge d'artillerie pour une portee, bornee par la portee maximale du canon. */
-  function artyShellSpeed(t: SimTank, range: number, dy: number, elev: number): number {
-    const g = t.def.shellGravity ?? SHELL_GRAVITY;
-    const angle = (elev * 180) / Math.PI;
-    const vmax = artyCharge(t.def.artyRange ?? 600, 0, t.def.artyAngle ?? 45, g) ?? 200;
-    const v = artyCharge(Math.min(range, t.def.artyRange ?? 600), dy, Math.max(5, angle), g);
-    return Math.min(vmax * 1.05, v ?? vmax);
-  }
-
   /** Eclats d'un obus d'artillerie : des degats autour du point d'impact, moins le blindage du toit. */
   function splashDamage(s: Shell, point: THREE.Vector3, direct: SimTank | null) {
-    events.blast?.(point, s.splash);
+    events.blast?.(point, s.splash, s.id);
     for (const t of tanks) {
       if (t === direct || !t.alive) continue;
       const d = Math.hypot(t.x - point.x, t.z - point.z, (t.y + 1.2 - point.y) * 0.6);
@@ -965,9 +1141,9 @@ export function createBattle(
           tmpDir.copy(s.vel).normalize();
           const res = resolveHit(tmpDir, bestNormal, thick, s.caliber, s.ammo, { penetration: penAt(s), damage: s.damage, speed: 0, count: 0 }, rnd);
           if ((res.outcome === "ricochet" || res.outcome === "bloque") && bestTank.alive && bestTank.team !== s.owner.team) bestTank.damageBlocked += s.damage;
-          applyHit(s.owner, bestTank, res, tmpV, bestZone);
+          applyHit(s.owner, bestTank, res, tmpV, bestZone, s.id);
         } else {
-          events.missed(s.owner, tmpV, wall ? "mur" : "sol");
+          events.missed(s.owner, tmpV, wall ? "mur" : "sol", s.id);
         }
         if (s.splash > 0) splashDamage(s, tmpV, bestTank);
         shells.splice(i, 1);
@@ -979,10 +1155,10 @@ export function createBattle(
     }
   }
 
-  function applyHit(shooter: SimTank, target: SimTank, res: ShotResult, point: THREE.Vector3, zone: Zone) {
+  function applyHit(shooter: SimTank, target: SimTank, res: ShotResult, point: THREE.Vector3, zone: Zone, shell = -1) {
     if (!target.alive) {
       // Une epave arrete l'obus, sans plus.
-      events.hit(shooter, target, { ...res, damage: 0 }, point, zone);
+      events.hit(shooter, target, { ...res, damage: 0 }, point, zone, shell);
       return;
     }
     const friendly = shooter.team === target.team;
@@ -1011,7 +1187,7 @@ export function createBattle(
         capture.points[1 - target.team] = Math.max(0, capture.points[1 - target.team] - 25);
       }
     }
-    events.hit(shooter, target, { ...res, damage: dmg }, point, zone);
+    events.hit(shooter, target, { ...res, damage: dmg }, point, zone, shell);
     if (target.hp <= 0) {
       target.hp = 0;
       target.alive = false;
@@ -1493,33 +1669,41 @@ export function createBattle(
     timeLeft = Math.max(0, battleSeconds - time);
     pathBudget = 1;
 
-    const playerWasLoading = player.reloadLeft > 0;
     for (const t of tanks) {
+      const wasLoading = t.reloadLeft > 0;
       t.reloadLeft = Math.max(0, t.reloadLeft - dt);
       t.recoil = Math.max(0, t.recoil - dt * 3);
+      // Le « clac » de la culasse d'un joueur : seulement a la fin d'un rechargement complet.
+      if (wasLoading && t.reloadLeft === 0 && t.fullReload && t.alive && (t.isPlayer || t.remote)) {
+        t.fullReload = false;
+        events.reloaded(t);
+      }
     }
 
-    // Joueur.
-    if (player.alive) {
-      // Le « clac » de la culasse : seulement a la fin d'un rechargement complet.
-      if (playerWasLoading && player.reloadLeft === 0 && player.fullReload) {
-        player.fullReload = false;
-        events.reloaded(player);
+    // Joueurs : celui de cette machine, et (chez l'hote) les commandes recues des autres.
+    for (const t of tanks) {
+      if (!t.alive || !(t.isPlayer || t.remote)) continue;
+      const cmd = t.isPlayer ? input : (remoteInputs.get(t.remote!) ?? null);
+      if (!cmd) {
+        // Rien recu encore : le char attend, tourelle immobile.
+        drive(t, 0, 0, dt);
+        t.turretRate = 0;
+        continue;
       }
-      if (input.ammo !== player.ammo && player.ammoLeft[input.ammo] > 0) {
+      if (cmd.ammo !== t.ammo && t.ammoLeft[cmd.ammo] > 0) {
         // Changer d'obus : il faut recharger (tout le chargeur pour un canon automatique).
-        player.ammo = input.ammo;
-        startFullReload(player);
+        t.ammo = cmd.ammo;
+        startFullReload(t);
       }
-      drive(player, input.throttle, input.steer, dt);
-      if (input.aim) aimAt(player, input.aim, dt);
-      else player.turretRate = 0;
-      if (input.fire) fire(player, 1);
+      drive(t, cmd.throttle, cmd.steer, dt);
+      if (cmd.aim) aimAt(t, cmd.aim, dt);
+      else t.turretRate = 0;
+      if (cmd.fire) fire(t, 1);
     }
 
     // Bots.
     for (const t of tanks) {
-      if (t.isPlayer || !t.alive) continue;
+      if (t.isPlayer || t.remote || !t.alive) continue;
       if (time >= t.brain!.nextThink) think(t);
       botDrive(t, dt);
       botGun(t, dt);
@@ -1556,67 +1740,8 @@ export function createBattle(
 
   // --------------------------------------------------------- marqueur de visee
 
-  function gunMarker(out: THREE.Vector3): { tank: SimTank | null; hit: ObbHit | null; turret: boolean; dist: number } {
-    const t = player;
-    const m = t.model;
-    const mouths = m.muzzles[t.ammo];
-    const mouth = mouths && mouths.length > 0 ? mouths[0] : m.muzzle;
-    mouthAim(t, mouth, p0, tmpDir);
-    const arty = t.def.artyAngle !== undefined;
-    const slow = projectileOf(t.def, t.ammo) !== "obus";
-    const g = shellGravityOf(t);
-    const v = arty
-      ? artyShellSpeed(t, Math.hypot(t.aimPoint.x - p0.x, t.aimPoint.z - p0.z), t.aimPoint.y - p0.y, Math.asin(THREE.MathUtils.clamp(tmpDir.y, -1, 1)))
-      : t.def.ammo[t.ammo].speed;
-    const vel = tmpV2.copy(tmpDir).multiplyScalar(v);
-    // On suit la trajectoire par pas de 0,05 s (40 m environ) ; plus longtemps pour l'artillerie,
-    // les roquettes et les missiles, plus lents.
-    const dt = arty || slow ? 0.08 : 0.05;
-    const steps = arty ? 160 : slow ? 60 : 40;
-    for (let k = 0; k < steps; k++) {
-      p1.copy(p0).addScaledVector(vel, dt);
-      vel.y -= g * dt;
-      let bestT = 2;
-      let bestTank: SimTank | null = null;
-      let turret = false;
-      let hit: ObbHit | null = null;
-      for (const o of tanks) {
-        if (o === t) continue;
-        if (segmentObb(p0, p1, o.turretMatrix, o.turretInverse, o.model.turretHalf, o.def.turret, tmpHit) && tmpHit.t < bestT) {
-          bestT = tmpHit.t;
-          bestTank = o;
-          turret = true;
-          hit = { t: tmpHit.t, zone: tmpHit.zone, normal: bestNormal.copy(tmpHit.normal) };
-        }
-        if (segmentObb(p0, p1, o.hullMatrix, o.hullInverse, o.model.hullHalf, o.def.hull, tmpHit) && tmpHit.t < bestT) {
-          bestT = tmpHit.t;
-          bestTank = o;
-          turret = false;
-          hit = { t: tmpHit.t, zone: tmpHit.zone, normal: bestNormal.copy(tmpHit.normal) };
-        }
-      }
-      const th = segmentHouse(map, p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
-      if (th >= 0 && th < bestT) {
-        bestT = th;
-        bestTank = null;
-        hit = null;
-      }
-      const tg = segmentGround(map, p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
-      if (tg >= 0 && tg < bestT) {
-        bestT = tg;
-        bestTank = null;
-        hit = null;
-      }
-      if (bestT <= 1) {
-        out.copy(p0).lerp(p1, bestT);
-        m.muzzle.getWorldPosition(tmpV);
-        return { tank: bestTank, hit, turret, dist: out.distanceTo(tmpV) };
-      }
-      p0.copy(p1);
-    }
-    out.copy(p0);
-    m.muzzle.getWorldPosition(tmpV);
-    return { tank: null, hit: null, turret: false, dist: out.distanceTo(tmpV) };
+  function gunMarker(out: THREE.Vector3): GunMarker {
+    return gunMarkerFor(map, tanks, player, out);
   }
 
   for (const t of tanks) place(t, 1);
@@ -1636,5 +1761,7 @@ export function createBattle(
     gunMarker,
     visibleTo,
     time: () => time,
+    setRemoteInput,
+    dropHuman,
   } as Battle;
 }
