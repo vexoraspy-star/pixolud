@@ -29,6 +29,7 @@ import { MAP_LIST, mapInfo, type MapId } from "@/lib/tanks/tankTerrain";
 import {
   BOOSTERS,
   EMPTY_CAREER,
+  adminCareer,
   MEDALS,
   MODULES,
   SKILLS,
@@ -273,8 +274,8 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
 
   // Les barres de la fiche se comparent aux chars du jeu (pas au char d'admin, hors normes).
   const maxOf = (f: (d: TankDef) => number) => Math.max(...TANKS.filter((d) => !d.adminOnly).map(f));
-  // Un admin possede tous les chars (sans rien changer a la carriere enregistree).
-  const garage: Career = admin ? { ...career, owned: TANKS.map((t) => t.id) } : career;
+  // Un admin a deja tout : chars, credits, XP, modules, commandant (sans rien changer a la carriere enregistree).
+  const garage: Career = useMemo(() => (admin ? adminCareer(career) : career), [admin, career]);
   const modeTanks = tanksForMode(mode, admin);
   // Un char d'un autre mode (memorise) : on montre le premier du mode.
   const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : modeTanks[0].id;
@@ -282,9 +283,9 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const camo = camos[shownId] ?? null;
   const state = unlockState(garage, def);
   const mast = mastery(career.bestByTank[def.id] ?? 0, def);
-  const mods = modulesOf(career, shownId);
+  const mods = modulesOf(garage, shownId);
   // Le char du joueur en bataille : ses modules ameliores et les competences du commandant.
-  const bonus = useMemo(() => bonusFor(mods, career.commander.skills), [mods, career.commander.skills]);
+  const bonus = useMemo(() => bonusFor(mods, garage.commander.skills), [mods, garage.commander.skills]);
 
   /** Applique un achat (module, competence, booster) s'il est possible. */
   function apply(next: Career | null, message: string) {
@@ -527,8 +528,8 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                       <span className="font-mono text-lg font-black text-sky-300">+{fmt(gains?.xp ?? result.xp)}</span>
                     </div>
                     <p className="text-[11px] text-zinc-400">
-                      Total : {fmt(career.credits)} crédits · {fmt(career.xpFree)} XP libre · commandant {career.commander.name}, niveau{" "}
-                      {commanderLevel(career.commander).level}
+                      Total : {fmt(garage.credits)} crédits · {fmt(garage.xpFree)} XP libre · commandant {garage.commander.name}, niveau{" "}
+                      {commanderLevel(garage.commander).level}
                     </p>
                   </div>
                 </Panel>
@@ -659,10 +660,10 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
         </nav>
         <div className="flex gap-3 font-mono text-[11px] text-zinc-300 sm:ml-auto">
           <span title="Crédits : ils servent à acheter les chars">
-            <b className="text-amber-300">{fmt(career.credits)}</b> cr.
+            <b className="text-amber-300">{fmt(garage.credits)}</b> cr.
           </span>
           <span title="Expérience libre : elle sert à débloquer les chars">
-            <b className="text-sky-300">{fmt(career.xpFree)}</b> XP
+            <b className="text-sky-300">{fmt(garage.xpFree)}</b> XP
           </span>
           <span className="hidden sm:inline">
             {career.battles} batailles · {winRate} % victoires
@@ -746,8 +747,9 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
               <Panel title="Boosters">
                 <div className="space-y-1.5">
                   {BOOSTERS.map((b) => {
-                    const left = career.boosters[b.id as keyof Boosters];
-                    const affordable = b.currency === "credits" ? career.credits >= b.price : career.xpFree >= b.price;
+                    const left = garage.boosters[b.id as keyof Boosters];
+                    // L'admin a deja ses boosters : rien a acheter.
+                    const affordable = !admin && (b.currency === "credits" ? career.credits >= b.price : career.xpFree >= b.price);
                     return (
                       <div key={b.id} className="rounded border border-white/10 bg-white/5 p-1.5" title={b.description}>
                         <div className="flex items-center justify-between gap-1">
@@ -912,7 +914,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                               </span>
                               <button
                                 type="button"
-                                disabled={career.credits < cost}
+                                disabled={garage.credits < cost}
                                 onClick={() => apply(upgradeModule(career, def, m.id as ModuleId), `${m.name} du ${def.name} amélioré !`)}
                                 className="shrink-0 rounded bg-green-700 px-1.5 py-0.5 text-[9px] font-black uppercase enabled:hover:bg-green-600 disabled:bg-zinc-700 disabled:text-zinc-400"
                               >
@@ -974,7 +976,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
 
       {tab === "commandant" && (
         <CommanderView
-          career={career}
+          career={garage}
           onLearn={(id) => apply(learnSkill(career, id), `${SKILLS.find((s) => s.id === id)!.name} : un rang de plus !`)}
           onRename={() => apply({ ...career, commander: { ...career.commander, name: newCommander().name } }, "Nouveau nom pour ton commandant")}
         />

@@ -277,7 +277,29 @@ export function commanderRank(levelNumber: number): string {
 /** Un point de competence par niveau ; on retire ceux deja places. */
 export function skillPointsLeft(cmd: Commander): number {
   const spent = SKILLS.reduce((n, s) => n + cmd.skills[s.id], 0);
-  return commanderLevel(cmd).level - spent;
+  return Math.max(0, commanderLevel(cmd).level - spent);
+}
+
+/**
+ * Le garage d'un compte admin : tout y est deja (chars, credits, XP libre,
+ * modules d'elite sur chaque char, commandant au niveau maximal avec toutes
+ * ses competences, boosters actifs). Une vue calculee : la carriere
+ * enregistree, elle, ne change pas.
+ */
+export function adminCareer(c: Career): Career {
+  const elite = Object.fromEntries(MODULES.map((m) => [m.id, 2])) as ModuleLevels;
+  const modules: Record<string, ModuleLevels> = {};
+  for (const t of TANKS) modules[t.id] = elite;
+  const skills = Object.fromEntries(SKILLS.map((s) => [s.id, s.max])) as Record<SkillId, number>;
+  return {
+    ...c,
+    owned: TANKS.map((t) => t.id),
+    credits: Math.max(c.credits, 99_999_999),
+    xpFree: Math.max(c.xpFree, 9_999_999),
+    modules,
+    commander: { ...c.commander, xp: Math.max(c.commander.xp, LEVEL_XP[LEVEL_XP.length - 1]), skills },
+    boosters: { xp: Math.max(c.boosters.xp, 999), credits: Math.max(c.boosters.credits, 999) },
+  };
 }
 
 export function learnSkill(c: Career, id: SkillId): Career | null {
