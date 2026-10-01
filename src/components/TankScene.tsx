@@ -19,6 +19,7 @@ import {
   type MapId,
   type TankMap,
 } from "@/lib/tanks/tankTerrain";
+import { withBonus, type TankBonus } from "@/lib/tanks/tankCareer";
 import { buildTankModel } from "@/lib/tanks/tankModel";
 import { BIOME_LOOK, buildTankWorld } from "@/lib/tanks/tankWorld";
 import { createTankEffects } from "@/lib/tanks/tankEffects";
@@ -106,6 +107,8 @@ interface Hud {
   turretAngle: number;
   /** Case de la carte ou se trouve le char (« H8 »). */
   cell: string;
+  /** Le joueur est repere par l'ennemi (lampe du sixieme sens). */
+  spotted: boolean;
 }
 
 interface Msg {
@@ -141,6 +144,7 @@ export default function TankScene({
   camo = null,
   mapId,
   mode = "normale",
+  bonus = null,
   difficulty,
   onEnd,
   onQuit,
@@ -148,6 +152,8 @@ export default function TankScene({
   tankId: string;
   /** Champ de bataille choisi au garage. */
   mapId: MapId;
+  /** Modules ameliores et competences du commandant (char du joueur). */
+  bonus?: TankBonus | null;
   /** Guerre normale ou Guerre de 100. */
   mode?: BattleMode;
   /** Camouflage choisi au garage pour le char du joueur (null : celui d'origine). */
@@ -196,7 +202,8 @@ export default function TankScene({
     const container = mountRef.current;
     if (!container) return;
     let disposed = false;
-    const def = tankById(tankId);
+    // Le char du joueur avec ses modules ameliores et les competences de son commandant.
+    const def = withBonus(tankById(tankId), bonus);
     const quality = loadQuality3D();
     const detail = quality !== "performance";
     let brightness = loadBrightness3D();
@@ -911,6 +918,7 @@ export default function TankScene({
           hullAngle: player.yaw - camYaw,
           turretAngle: player.yaw + (player.model.fixedTurret ? 0 : player.turretYaw) - camYaw,
           cell: mapCell(player.x, player.z),
+          spotted: player.alive && player.spottedUntil > battle.time(),
         });
         setMessages((list) => (list.some((m) => m.until < clock) ? list.filter((m) => m.until >= clock) : list));
         setFeed((list) => (list.some((f) => f.until < clock) ? list.filter((f) => f.until >= clock) : list));
@@ -1102,9 +1110,9 @@ export default function TankScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [tankId, camo, mapId, mode, difficulty, touch]);
+  }, [tankId, camo, mapId, mode, bonus, difficulty, touch]);
 
-  const def = tankById(tankId);
+  const def = withBonus(tankById(tankId), bonus);
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const alive = hud ? [hud.teams[0].filter((t) => t.alive).length, hud.teams[1].filter((t) => t.alive).length] : [7, 7];
 
@@ -1289,6 +1297,13 @@ export default function TankScene({
           </p>
         ))}
       </div>
+
+      {/* Sixieme sens : une lampe quand l'ennemi te voit */}
+      {bonus?.sixthSense && hud?.spotted && !hud.dead && (
+        <div className="pointer-events-none absolute left-1/2 top-[38%] z-20 -translate-x-1/2 rounded-full bg-orange-500/90 px-3 py-1 text-xs font-black uppercase tracking-widest text-black shadow-lg shadow-orange-900/60">
+          💡 Tu es repéré !
+        </div>
+      )}
 
       {/* Bas gauche : mon char */}
       {hud && (

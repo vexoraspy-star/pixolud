@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import Game3DSettings from "./Game3DSettings";
@@ -26,24 +26,41 @@ import {
 } from "@/lib/tanks/tankDefs";
 import { MAP_LIST, mapInfo, type MapId } from "@/lib/tanks/tankTerrain";
 import {
+  BOOSTERS,
   EMPTY_CAREER,
   MEDALS,
+  MODULES,
+  SKILLS,
+  bonusFor,
+  buyBooster,
+  commanderLevel,
+  commanderRank,
+  learnSkill,
   mastery,
   medalsFor,
+  moduleCost,
+  modulesOf,
+  newCommander,
   readCareer,
   saveCareer,
+  skillPointsLeft,
   starterTanks,
   unlock,
   unlockCost,
   unlockState,
+  upgradeModule,
+  type Boosters,
   type Career,
   type Medal,
+  type ModuleId,
+  type SkillId,
 } from "@/lib/tanks/tankCareer";
 
 // « Tonnerre d'Acier » hors bataille : le garage (mode de jeu, carte,
-// difficulte, char et sa fiche, camouflage), l'arbre des chars a debloquer,
-// le profil (statistiques, medailles, maitrise, journal) et l'ecran de fin de
-// bataille (gains, performance, tableau des scores).
+// difficulte, boosters, char et sa fiche, modules, camouflage), l'arbre des
+// chars a debloquer, le commandant et ses competences, le profil
+// (statistiques, medailles, maitrise, journal) et l'ecran de fin de bataille
+// (gains, performance, tableau des scores).
 
 const TankScene = dynamic(() => import("./TankScene"), {
   ssr: false,
@@ -66,7 +83,7 @@ const MAP_KEY = "pixolud-tanks-carte";
 const MODE_KEY = "pixolud-tanks-mode";
 
 type MapChoice = MapId | "hasard";
-type Tab = "garage" | "chars" | "profil";
+type Tab = "garage" | "chars" | "commandant" | "profil";
 
 function readCamos(): Record<string, string> {
   try {
@@ -199,6 +216,8 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const [battleMap, setBattleMap] = useState<MapId | null>(null);
   const [resultTab, setResultTab] = useState<"perso" | "scores">("perso");
   const [flash, setFlash] = useState<string | null>(null);
+  /** Gains de la derniere bataille, boosters compris. */
+  const [gains, setGains] = useState<{ xp: number; credits: number; xpBoost: boolean; creditBoost: boolean } | null>(null);
 
   // Choix memorises (lus apres le premier rendu : le serveur ne les connait pas).
   useEffect(() => {
@@ -215,7 +234,10 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
       } catch {
         // stockage indisponible
       }
-      setCareer(readCareer());
+      // On enregistre tout de suite : un nouveau commandant garde son nom.
+      const saved = readCareer();
+      setCareer(saved);
+      saveCareer(saved);
       setCamos(readCamos());
     }, 0);
     return () => clearTimeout(t);
@@ -237,6 +259,17 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const camo = camos[shownId] ?? null;
   const state = unlockState(garage, def);
   const mast = mastery(career.bestByTank[def.id] ?? 0, def);
+  const mods = modulesOf(career, shownId);
+  // Le char du joueur en bataille : ses modules ameliores et les competences du commandant.
+  const bonus = useMemo(() => bonusFor(mods, career.commander.skills), [mods, career.commander.skills]);
+
+  /** Applique un achat (module, competence, booster) s'il est possible. */
+  function apply(next: Career | null, message: string) {
+    if (!next) return;
+    setCareer(next);
+    saveCareer(next);
+    setFlash(message);
+  }
 
   function pickTank(id: string) {
     setTankId(id);
@@ -321,13 +354,21 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
     );
     const nextMedals = { ...career.medals };
     for (const m of medals) nextMedals[m] = (nextMedals[m] ?? 0) + 1;
+    // Boosters : gains doubles tant qu'il reste des batailles.
+    const xpBoost = career.boosters.xp > 0;
+    const creditBoost = career.boosters.credits > 0;
+    const xpGain = r.xp * (xpBoost ? 2 : 1);
+    const creditGain = r.credits * (creditBoost ? 2 : 1);
     const next: Career = {
       ...career,
       battles: career.battles + 1,
       wins: career.wins + (r.winner === 0 ? 1 : 0),
-      xp: career.xp + r.xp,
-      xpFree: career.xpFree + r.xp,
-      credits: career.credits + r.credits,
+      xp: career.xp + xpGain,
+      xpFree: career.xpFree + xpGain,
+      credits: career.credits + creditGain,
+      // Le commandant gagne autant d'XP que le char.
+      commander: { ...career.commander, xp: career.commander.xp + xpGain },
+      boosters: { xp: Math.max(0, career.boosters.xp - 1), credits: Math.max(0, career.boosters.credits - 1) },
       bestDamage: Math.max(career.bestDamage, r.damage),
       damageTotal: career.damageTotal + r.damage,
       kills: career.kills + r.kills,
@@ -343,13 +384,14 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
           outcome: r.winner === 0 ? 1 : r.winner === -1 ? 0 : -1,
           damage: r.damage,
           kills: r.kills,
-          xp: r.xp,
+          xp: xpGain,
         } as const,
         ...career.log,
       ].slice(0, 12),
     };
     setCareer(next);
     saveCareer(next);
+    setGains({ xp: xpGain, credits: creditGain, xpBoost, creditBoost });
     setEarned(medals);
     setResult(r);
     setResultTab("perso");
@@ -366,6 +408,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
         camo={camos[shownId] ?? null}
         mapId={battleMap}
         mode={mode}
+        bonus={bonus}
         difficulty={difficulty}
         onEnd={endBattle}
         onQuit={() => setScreen("garage")}
@@ -447,15 +490,20 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                 <Panel title="Gains">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between rounded bg-white/5 px-3 py-2">
-                      <span className="text-xs uppercase tracking-wider text-zinc-400">Crédits</span>
-                      <span className="font-mono text-lg font-black text-amber-300">+{fmt(result.credits)}</span>
+                      <span className="text-xs uppercase tracking-wider text-zinc-400">
+                        Crédits {gains?.creditBoost && <span className="ml-1 rounded bg-amber-500 px-1 text-[9px] font-black text-black">×2</span>}
+                      </span>
+                      <span className="font-mono text-lg font-black text-amber-300">+{fmt(gains?.credits ?? result.credits)}</span>
                     </div>
                     <div className="flex items-center justify-between rounded bg-white/5 px-3 py-2">
-                      <span className="text-xs uppercase tracking-wider text-zinc-400">Expérience</span>
-                      <span className="font-mono text-lg font-black text-sky-300">+{fmt(result.xp)}</span>
+                      <span className="text-xs uppercase tracking-wider text-zinc-400">
+                        Expérience {gains?.xpBoost && <span className="ml-1 rounded bg-sky-500 px-1 text-[9px] font-black text-black">×2</span>}
+                      </span>
+                      <span className="font-mono text-lg font-black text-sky-300">+{fmt(gains?.xp ?? result.xp)}</span>
                     </div>
                     <p className="text-[11px] text-zinc-400">
-                      Total : {fmt(career.credits)} crédits · {fmt(career.xpFree)} XP libre
+                      Total : {fmt(career.credits)} crédits · {fmt(career.xpFree)} XP libre · commandant {career.commander.name}, niveau{" "}
+                      {commanderLevel(career.commander).level}
                     </p>
                   </div>
                 </Panel>
@@ -559,8 +607,10 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const tabs: [Tab, string][] = [
     ["garage", "Garage"],
     ["chars", "Chars"],
+    ["commandant", "Commandant"],
     ["profil", "Profil"],
   ];
+  const owned = garage.owned.includes(def.id);
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0d0e0c] text-white">
@@ -666,6 +716,35 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                       {DIFFICULTIES[dd].name}
                     </button>
                   ))}
+                </div>
+              </Panel>
+              <Panel title="Boosters">
+                <div className="space-y-1.5">
+                  {BOOSTERS.map((b) => {
+                    const left = career.boosters[b.id as keyof Boosters];
+                    const affordable = b.currency === "credits" ? career.credits >= b.price : career.xpFree >= b.price;
+                    return (
+                      <div key={b.id} className="rounded border border-white/10 bg-white/5 p-1.5" title={b.description}>
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-[11px] font-black text-white">{b.name}</p>
+                          {left > 0 && <span className="rounded bg-green-600 px-1 text-[9px] font-black text-white">{left} bat.</span>}
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-1">
+                          <span className="font-mono text-[10px] text-zinc-400">
+                            {fmt(b.price)} {b.currency === "credits" ? "cr." : "XP"} · {b.battles} batailles
+                          </span>
+                          <button
+                            type="button"
+                            disabled={!affordable}
+                            onClick={() => apply(buyBooster(career, b.id), `${b.name} activé pour ${b.battles} batailles`)}
+                            className="rounded bg-green-700 px-1.5 py-0.5 text-[9px] font-black uppercase enabled:hover:bg-green-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+                          >
+                            Acheter
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </Panel>
             </div>
@@ -778,6 +857,46 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                 <Stat label="Rotation de la caisse" value={def.hullTraverse} unit="°/s" ratio={def.hullTraverse / maxOf((d) => d.hullTraverse)} />
                 <p className="mt-2 text-[11px] leading-snug text-zinc-400">{def.description}</p>
               </Panel>
+              <Panel title="Modules" className="mt-2">
+                {!owned ? (
+                  <p className="text-[11px] text-zinc-400">Débloque ce char pour améliorer ses modules.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {MODULES.map((m) => {
+                      const lv = mods[m.id as ModuleId];
+                      const cost = lv < 2 ? moduleCost(def, lv + 1) : 0;
+                      return (
+                        <div key={m.id} className="rounded border border-white/10 bg-white/5 p-1.5">
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="text-[11px] font-black text-white">{m.name}</p>
+                            <span className="flex gap-0.5" aria-label={`niveau ${lv} sur 2`}>
+                              {[1, 2].map((k) => (
+                                <span key={k} className={`h-2 w-4 rounded-sm ${lv >= k ? "bg-amber-400" : "bg-white/15"}`} />
+                              ))}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[10px] text-zinc-400">{lv > 0 ? m.effects[lv - 1] : "D'origine"}</p>
+                          {lv < 2 && (
+                            <div className="mt-1 flex items-center justify-between gap-1">
+                              <span className="text-[10px] text-zinc-300">
+                                {lv === 0 ? "Amélioré" : "Élite"} : {m.effects[lv]}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={career.credits < cost}
+                                onClick={() => apply(upgradeModule(career, def, m.id as ModuleId), `${m.name} du ${def.name} amélioré !`)}
+                                className="shrink-0 rounded bg-green-700 px-1.5 py-0.5 text-[9px] font-black uppercase enabled:hover:bg-green-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+                              >
+                                {fmt(cost)} cr.
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Panel>
             </div>
           </div>
 
@@ -824,6 +943,14 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
       )}
 
       {tab === "chars" && <TechTree career={garage} onOpen={openTank} onBuy={buy} />}
+
+      {tab === "commandant" && (
+        <CommanderView
+          career={career}
+          onLearn={(id) => apply(learnSkill(career, id), `${SKILLS.find((s) => s.id === id)!.name} : un rang de plus !`)}
+          onRename={() => apply({ ...career, commander: { ...career.commander, name: newCommander().name } }, "Nouveau nom pour ton commandant")}
+        />
+      )}
 
       {tab === "profil" && <Profile career={garage} />}
 
@@ -900,6 +1027,124 @@ function TechTree({ career, onOpen, onBuy }: { career: Career; onOpen: (d: TankD
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ le commandant
+
+/** Portrait dessine du commandant : beret, col d'uniforme et galons de son grade. */
+function CommanderPortrait({ name, stripes }: { name: string; stripes: number }) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const skins = ["#f1c9a5", "#d9a77c", "#b97f55", "#8d5a3b", "#f3d6bd"];
+  const hairs = ["#2b1d14", "#5a3b22", "#a06a32", "#1b1b1b", "#c9c2b5"];
+  const skin = skins[h % skins.length];
+  const hair = hairs[(h >> 3) % hairs.length];
+  return (
+    <svg viewBox="0 0 120 140" className="h-36 w-32" aria-label={`Portrait de ${name}`}>
+      <defs>
+        <linearGradient id="cmd-bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3a1414" />
+          <stop offset="100%" stopColor="#0c0b0a" />
+        </linearGradient>
+      </defs>
+      <rect width="120" height="140" rx="6" fill="url(#cmd-bg)" />
+      {/* Epaules et veste */}
+      <path d="M14 140 Q18 104 60 98 Q102 104 106 140Z" fill="#4b5536" />
+      <path d="M48 100 L60 118 L72 100" fill="#e9e4d6" />
+      <path d="M54 104 L60 126 L66 104Z" fill="#7a1f1f" />
+      {/* Galons sur les epaules */}
+      {Array.from({ length: stripes }, (_, i) => (
+        <g key={i}>
+          <rect x={22} y={110 + i * 5} width="16" height="2.5" fill="#e3b341" />
+          <rect x={82} y={110 + i * 5} width="16" height="2.5" fill="#e3b341" />
+        </g>
+      ))}
+      {/* Cou, tete, cheveux */}
+      <rect x="51" y="82" width="18" height="20" fill={skin} />
+      <ellipse cx="60" cy="64" rx="22" ry="26" fill={skin} />
+      <path d="M38 62 Q40 44 60 42 Q80 44 82 62 Q78 52 60 52 Q42 52 38 62Z" fill={hair} />
+      {/* Beret rouge et insigne */}
+      <path d="M34 50 Q38 30 66 30 Q90 32 88 46 Q70 40 34 50Z" fill="#9f1d1d" />
+      <circle cx="76" cy="40" r="4" fill="#e3b341" />
+      {/* Visage */}
+      <circle cx="51" cy="64" r="2.4" fill="#1a1a1a" />
+      <circle cx="69" cy="64" r="2.4" fill="#1a1a1a" />
+      <path d="M46 58 L56 57 M64 57 L74 58" stroke={hair} strokeWidth="2" strokeLinecap="round" />
+      <path d="M60 66 L57 74 L62 74" fill="none" stroke="rgba(0,0,0,.35)" strokeWidth="1.5" />
+      <path d="M52 81 Q60 85 68 81" fill="none" stroke="#6b2b22" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Le commandant : grade, niveau, XP, et les competences a apprendre avec ses points. */
+function CommanderView({ career, onLearn, onRename }: { career: Career; onLearn: (id: SkillId) => void; onRename: () => void }) {
+  const cmd = career.commander;
+  const lv = commanderLevel(cmd);
+  const rank = commanderRank(lv.level);
+  const points = skillPointsLeft(cmd);
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="mx-auto grid max-w-5xl gap-3 md:grid-cols-[18rem_1fr]">
+        <Panel title="Commandant">
+          <div className="flex flex-col items-center text-center">
+            <CommanderPortrait name={cmd.name} stripes={Math.min(5, Math.ceil(lv.level / 2))} />
+            <p className="mt-2 text-xs font-bold uppercase tracking-widest text-amber-300">{rank}</p>
+            <p className="text-lg font-black text-white">{cmd.name}</p>
+            <button type="button" onClick={onRename} className="mt-0.5 text-[10px] text-zinc-400 underline hover:text-zinc-200">
+              Changer de nom
+            </button>
+            <p className="mt-2 text-sm font-black text-white">Niveau {lv.level}</p>
+            {lv.span > 0 ? (
+              <>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-white/10">
+                  <div className="h-full bg-gradient-to-r from-sky-500 to-sky-300" style={{ width: `${Math.min(100, (lv.into / lv.span) * 100)}%` }} />
+                </div>
+                <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
+                  {fmt(lv.into)} / {fmt(lv.span)} XP jusqu&apos;au niveau {lv.level + 1}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-[11px] text-amber-300">Niveau maximal atteint</p>
+            )}
+            <p className="mt-3 text-[11px] text-zinc-300">
+              Il gagne autant d&apos;XP que ton char à chaque bataille. Un point de compétence par niveau.
+            </p>
+          </div>
+        </Panel>
+        <Panel title="Compétences" right={<span className="rounded bg-black/40 px-2 text-[10px] font-black text-amber-300">{points} point{points > 1 ? "s" : ""} libre{points > 1 ? "s" : ""}</span>}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {SKILLS.map((s) => {
+              const r = cmd.skills[s.id];
+              return (
+                <div key={s.id} className={`rounded border p-2.5 ${r > 0 ? "border-amber-400/50 bg-amber-900/15" : "border-white/10 bg-white/5"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-black text-white">{s.name}</p>
+                    <span className="flex gap-0.5">
+                      {Array.from({ length: s.max }, (_, k) => (
+                        <span key={k} className={`h-2.5 w-2.5 rotate-45 ${r > k ? "bg-amber-400" : "bg-white/15"}`} />
+                      ))}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-zinc-400">{s.description}</p>
+                  <button
+                    type="button"
+                    disabled={points <= 0 || r >= s.max}
+                    onClick={() => onLearn(s.id)}
+                    className="mt-2 rounded bg-green-700 px-2 py-1 text-[10px] font-black uppercase enabled:hover:bg-green-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+                  >
+                    {r >= s.max ? "Maîtrisée" : r > 0 ? "Rang suivant" : "Apprendre"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-400">
+            Les compétences valent pour tous tes chars. Les modules, eux, s&apos;améliorent char par char, depuis le garage.
+          </p>
+        </Panel>
       </div>
     </div>
   );
