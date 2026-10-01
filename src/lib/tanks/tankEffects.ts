@@ -10,7 +10,7 @@ import { makeParticleTexture } from "./tankTextures";
 // poussiere) : quelques centaines de particules, deux appels de rendu.
 // Aucune allocation par image.
 
-const CAPACITY = 900;
+const CAPACITY = 1400;
 
 interface Pool {
   mesh: THREE.Mesh;
@@ -236,6 +236,10 @@ export interface TankEffects {
   group: THREE.Group;
   /** Tir : eclair, fumee vers l'avant, poussiere soulevee autour. */
   muzzle: (pos: THREE.Vector3, dir: THREE.Vector3, caliber: number, groundY: number) => void;
+  /** Depart d'une roquette ou d'un missile : eclair bref, souffle blanc vers l'arriere. */
+  launch: (pos: THREE.Vector3, dir: THREE.Vector3) => void;
+  /** Roquette ou missile en vol (a appeler a chaque image) : flamme et fumee qui reste. */
+  trail: (pos: THREE.Vector3, vel: THREE.Vector3, dense: boolean) => void;
   /** Impact : dans le sol, sur l'acier (perce ou non), ricochet, sur un mur. */
   impact: (pos: THREE.Vector3, kind: "sol" | "acier" | "ricochet" | "mur" | "perce") => void;
   /** Char detruit : boule de feu, colonne de fumee, eclats. */
@@ -331,6 +335,44 @@ export function createTankEffects(ground: GroundColors = { dust: [0.66, 0.58, 0.
           const a = (i / 10) * Math.PI * 2;
           spawn(smoke, pos.x + Math.cos(a) * 1.5, groundY + 0.4, pos.z + Math.sin(a) * 1.5, Math.cos(a) * 7, 0.6, Math.sin(a) * 7, 1.4, 1, 3.5, dr * 0.94, dg * 0.94, db * 0.94, 0.4, -0.1, 2.5);
         }
+      }
+    },
+    launch: (pos, dir) => {
+      spawn(fire, pos.x, pos.y, pos.z, dir.x * 4, dir.y * 4, dir.z * 4, 0.08, 0.9, 1.4, 1, 0.8, 0.5, 1);
+      for (let i = 0; i < 3; i++) {
+        const sp = -(2 + Math.random() * 5);
+        spawn(smoke, pos.x, pos.y, pos.z, dir.x * sp + rnd(2), dir.y * sp + rnd(1.5) + 0.5, dir.z * sp + rnd(2), 1.4 + Math.random(), 0.6, 2.8, 0.85, 0.84, 0.8, 0.5, -0.15, 1.8);
+      }
+    },
+    trail: (pos, vel, dense) => {
+      const sp = Math.hypot(vel.x, vel.y, vel.z) || 1;
+      const ux = vel.x / sp;
+      const uy = vel.y / sp;
+      const uz = vel.z / sp;
+      // Flamme du propulseur, juste derriere.
+      spawn(fire, pos.x - ux * 0.5, pos.y - uy * 0.5, pos.z - uz * 0.5, ux * 2, uy * 2, uz * 2, 0.07, 0.7, 0.25, 1, 0.78, 0.45, 1);
+      // Fumee blanche laissee en l'air, plus serree derriere un missile.
+      const puffs = dense ? 2 : Math.random() < 0.45 ? 1 : 0;
+      for (let i = 0; i < puffs; i++) {
+        const back = 1 + Math.random() * 2.5;
+        spawn(
+          smoke,
+          pos.x - ux * back + rnd(0.2),
+          pos.y - uy * back + rnd(0.2),
+          pos.z - uz * back + rnd(0.2),
+          rnd(0.5),
+          0.25 + Math.random() * 0.3,
+          rnd(0.5),
+          dense ? 1.8 : 1.2,
+          0.5,
+          dense ? 2.4 : 2,
+          0.84,
+          0.83,
+          0.8,
+          dense ? 0.5 : 0.42,
+          -0.08,
+          0.9,
+        );
       }
     },
     impact: (pos, kind) => {

@@ -4,7 +4,19 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import Game3DSettings from "./Game3DSettings";
 import { ShellIcon, TankClassIcon } from "./TankIcons";
-import { AMMO, AMMO_ORDER, MODES, camoChoice, tankById, type AmmoId, type BattleMode, type Difficulty, type TankClass } from "@/lib/tanks/tankDefs";
+import {
+  AMMO,
+  AMMO_ORDER,
+  MODES,
+  ammoName,
+  camoChoice,
+  projectileOf,
+  tankById,
+  type AmmoId,
+  type BattleMode,
+  type Difficulty,
+  type TankClass,
+} from "@/lib/tanks/tankDefs";
 import { artyCharge, effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
   BASE_RADIUS,
@@ -34,6 +46,7 @@ import {
   playPenetration,
   playReloaded,
   playRicochet,
+  playRocket,
   playTankExplosion,
   type Spatial,
 } from "@/lib/tanks/tankAudio";
@@ -313,13 +326,19 @@ export default function TankScene({
       },
       {
         shot: (t, muzzle, dir) => {
-          effects.muzzle(muzzle, dir, t.def.caliber, groundHeight(map, muzzle.x, muzzle.z));
-          if (t.isPlayer) {
-            playCannon(audio, t.def.caliber);
-            shake = Math.max(shake, 0.6);
+          const kind = projectileOf(t.def, t.ammo);
+          const spec = t.def.ammo[t.ammo];
+          // Le minigun claque comme une petite arme ; une roquette part en sifflant.
+          const caliber = spec.reload !== undefined && spec.reload < 0.2 ? 20 : t.def.caliber;
+          const sp = t.isPlayer ? undefined : spatial(muzzle.x, muzzle.z);
+          if (kind === "obus") {
+            effects.muzzle(muzzle, dir, caliber, groundHeight(map, muzzle.x, muzzle.z));
+            playCannon(audio, caliber, sp);
           } else {
-            playCannon(audio, t.def.caliber, spatial(muzzle.x, muzzle.z));
+            effects.launch(muzzle, dir);
+            playRocket(audio, sp, kind === "missile");
           }
+          if (t.isPlayer) shake = Math.max(shake, kind !== "obus" ? 0.2 : caliber < 40 ? 0.15 : 0.6);
         },
         hit: (shooter, target, res, point) => {
           const kind = res.outcome === "penetration" ? "perce" : res.outcome === "ricochet" ? "ricochet" : "acier";
@@ -692,7 +711,9 @@ export default function TankScene({
       const active = !pausedNow && player.alive && !battle.ended;
       input.throttle = active ? throttle : 0;
       input.steer = active ? steer : 0;
-      input.fire = active && (firePressed || (fireHeld && player.def.clip !== undefined));
+      // Bouton maintenu : la rafale continue (chargeur, ou arme a cadence propre du char d'admin).
+      const autoFire = player.def.clip !== undefined || player.def.ammo[ammo].reload !== undefined;
+      input.fire = active && (firePressed || (fireHeld && autoFire));
       input.ammo = ammo;
       firePressed = false;
 
@@ -745,9 +766,13 @@ export default function TankScene({
       if (!pausedNow) {
         battle.update(dt, input);
         world.update(dt, clock, camera.position);
-        // Le faisceau des canons Gatling tourne pendant la rafale.
+        // Le faisceau des canons Gatling (et du minigun du char d'admin) tourne pendant la rafale.
         const now = battle.time();
-        for (const t of battle.tanks) if (t.def.look.gatling) t.model.spin(dt, t.alive && now - t.lastShotAt < 0.25);
+        for (const t of battle.tanks) {
+          if (!t.def.look.gatling && !t.def.look.adminArsenal) continue;
+          const minigun = !t.def.look.adminArsenal || t.ammo === "perforant";
+          t.model.spin(dt, t.alive && minigun && now - t.lastShotAt < 0.25);
+        }
         effects.update(dt);
         // Poussiere derriere les chenilles quand on roule.
         tracksDust += dt;
@@ -777,9 +802,12 @@ export default function TankScene({
         }
       }
 
-      // Tracantes des obus en vol.
+      // Tracantes des obus en vol ; flamme et fumee derriere les roquettes et les missiles.
       effects.beginTracers();
-      for (const s of battle.shells) effects.addTracer(s.pos, s.vel);
+      for (const s of battle.shells) {
+        if (s.kind === "obus") effects.addTracer(s.pos, s.vel);
+        else if (!pausedNow) effects.trail(s.pos, s.vel, s.kind === "missile");
+      }
       effects.endTracers();
 
       // Ombres : la zone couverte suit le char regarde.
@@ -1349,6 +1377,7 @@ export default function TankScene({
             <button
               key={a}
               type="button"
+              title={ammoName(def, a)}
               onClick={() => apiRef.current?.setAmmo(a)}
               className={`w-14 rounded-md border px-1.5 py-1 text-left sm:w-20 sm:px-2 ${
                 hud.ammo === a ? "border-amber-300 bg-amber-300/20" : "border-white/15 bg-black/65"
@@ -1359,11 +1388,11 @@ export default function TankScene({
                   <ShellIcon ammo={a} className="h-4 w-2" />
                   {i + 1}
                 </span>
-                <span className="font-mono text-zinc-100">{hud.ammoLeft[a]}</span>
+                <span className="font-mono text-zinc-100">{def.infiniteAmmo ? "∞" : hud.ammoLeft[a]}</span>
               </p>
               <p className="text-xs font-bold">
-                <span className="sm:hidden">{AMMO[a].short}</span>
-                <span className="hidden sm:inline">{AMMO[a].name}</span>
+                <span className="sm:hidden">{def.ammoNames?.[a]?.split(" ")[0] ?? AMMO[a].short}</span>
+                <span className="hidden sm:inline">{def.ammoNames?.[a] ?? AMMO[a].name}</span>
               </p>
               <p className="hidden font-mono text-[10px] text-zinc-400 sm:block">{def.ammo[a].penetration} mm</p>
             </button>

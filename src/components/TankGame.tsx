@@ -14,6 +14,7 @@ import {
   MODES,
   TANKS,
   TANK_CLASS_NAMES,
+  ammoName,
   damagePerMinute,
   rateOfFire,
   tankById,
@@ -113,11 +114,32 @@ const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
 /** Le type d'arme d'un char, pour la fiche. */
 function weaponKind(def: TankDef): string {
   if (def.artyAngle !== undefined) return "Obusier";
+  if (def.weapon === "missile") return "Lance-missiles";
+  if (def.look.rocketRack) return "Rampe de roquettes";
+  if (def.weapon === "roquettes") return "Paniers de roquettes";
   if (def.look.gatling) return "Canon Gatling";
   if (def.look.twinMG) return "Mitrailleuses jumelées";
+  if (def.look.twinGun) return "Canons jumelés";
   if (def.look.autocannon) return "Canon automatique";
   if (def.clip) return "Canon à barillet";
   return "Canon";
+}
+
+/** L'armement en une ligne : « Canon de 105 mm », ou tout l'arsenal du char d'admin. */
+function weaponLine(def: TankDef): string {
+  if (def.look.adminArsenal) return `Canon de ${def.caliber} mm, minigun et missiles`;
+  return `${weaponKind(def)} de ${def.caliber} mm`;
+}
+
+/** Petite etiquette du char dans les listes (arme speciale, rafale, roues). */
+function tankBadge(d: TankDef): { text: string; color: string } | null {
+  if (d.adminOnly) return { text: "Admin", color: "bg-fuchsia-600/90" };
+  if (d.weapon === "missile") return { text: "Missile", color: "bg-sky-600/85" };
+  if (d.weapon === "roquettes") return { text: "Roquettes", color: "bg-red-700/85" };
+  if (d.look.gatling) return { text: "Gatling", color: "bg-red-600/85" };
+  if (d.look.wheeled) return { text: "Roues", color: "bg-emerald-600/85" };
+  if (d.clip) return { text: "Rafale", color: "bg-orange-500/80" };
+  return null;
 }
 
 // ------------------------------------------------------------ petits blocs
@@ -249,10 +271,11 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
     return () => clearTimeout(t);
   }, [flash]);
 
-  const maxOf = (f: (d: TankDef) => number) => Math.max(...TANKS.map(f));
+  // Les barres de la fiche se comparent aux chars du jeu (pas au char d'admin, hors normes).
+  const maxOf = (f: (d: TankDef) => number) => Math.max(...TANKS.filter((d) => !d.adminOnly).map(f));
   // Un admin possede tous les chars (sans rien changer a la carriere enregistree).
   const garage: Career = admin ? { ...career, owned: TANKS.map((t) => t.id) } : career;
-  const modeTanks = tanksForMode(mode);
+  const modeTanks = tanksForMode(mode, admin);
   // Un char d'un autre mode (memorise) : on montre le premier du mode.
   const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : modeTanks[0].id;
   const def = tankById(shownId);
@@ -298,7 +321,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   function pickMode(m: BattleMode) {
     setMode(m);
     save(MODE_KEY, m);
-    const list = tanksForMode(m);
+    const list = tanksForMode(m, admin);
     if (!list.some((d) => d.id === tankId)) {
       const owned = list.filter((d) => garage.owned.includes(d.id)).sort((a, b) => b.tier - a.tier);
       pickTank((owned[0] ?? list[0]).id);
@@ -307,7 +330,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
 
   /** Depuis l'arbre des chars : on choisit le char (et son mode) et on revient au garage. */
   function openTank(d: TankDef) {
-    if (!tanksForMode(mode).some((x) => x.id === d.id)) {
+    if (!tanksForMode(mode, admin).some((x) => x.id === d.id)) {
       const m: BattleMode = d.tier >= MODES.cent.tiers[0] && d.tier > MODES.normale.tiers[1] ? "cent" : "normale";
       setMode(m);
       save(MODE_KEY, m);
@@ -663,7 +686,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                 <div className="flex gap-2 md:flex-col">
                   {(["cent", "normale"] as const).map((m) => {
                     const info = MODES[m];
-                    const hasTank = tanksForMode(m).some((d) => garage.owned.includes(d.id));
+                    const hasTank = tanksForMode(m, admin).some((d) => garage.owned.includes(d.id));
                     return (
                       <button
                         key={m}
@@ -760,7 +783,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                   {mast && <MasteryBadge rank={mast.rank} label={mast.label} />}
                 </p>
                 <p className="text-xs uppercase tracking-wider text-zinc-400">
-                  {TANK_CLASS_NAMES[def.cls]} · {weaponKind(def)} de {def.caliber} mm
+                  {TANK_CLASS_NAMES[def.cls]} · {weaponLine(def)}
                 </p>
               </div>
               {/* Camouflages */}
@@ -828,11 +851,15 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                 <Stat label="Portée de vue" value={def.viewRange} unit="m" ratio={def.viewRange / maxOf((d) => d.viewRange)} />
               </Panel>
               <Panel title="Armement" className="mt-2">
-                <p className="mb-1 text-xs font-bold text-zinc-100">
-                  {weaponKind(def)} de {def.caliber} mm
-                </p>
+                <p className="mb-1 text-xs font-bold text-zinc-100">{weaponLine(def)}</p>
                 <Stat label="Cadence de tir" value={rateOfFire(def).toFixed(1)} unit="coups/min" ratio={rateOfFire(def) / maxOf(rateOfFire)} />
-                {def.clip && <Stat label="Chargeur" value={`${def.clip.size} obus, ${def.clip.interval.toFixed(2).replace(".", ",")} s`} />}
+                {def.clip && (
+                  <Stat
+                    label={def.weapon === "roquettes" ? "Salve" : "Chargeur"}
+                    value={`${def.clip.size} ${def.weapon === "roquettes" ? "roquettes" : "obus"}, ${def.clip.interval.toFixed(2).replace(".", ",")} s`}
+                  />
+                )}
+                {def.infiniteAmmo && <Stat label="Munitions" value="Illimitées" />}
                 <Stat label="Dégâts par minute" value={Math.round(damagePerMinute(def))} ratio={damagePerMinute(def) / maxOf(damagePerMinute)} />
                 <Stat label="Temps de visée" value={def.aimTime.toFixed(1)} unit="s" ratio={1 - def.aimTime / 5.5} />
                 <Stat label="Dispersion à 100 m" value={def.dispersion.toFixed(2)} unit="m" ratio={1 - def.dispersion / 1} />
@@ -840,13 +867,13 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                 {def.splash && <Stat label="Rayon d'explosion" value={def.splash} unit="m" />}
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
                   {AMMO_ORDER.map((a) => (
-                    <div key={a} className="rounded border border-white/10 bg-white/5 p-1.5 text-center" title={AMMO[a].description}>
+                    <div key={a} className="rounded border border-white/10 bg-white/5 p-1.5 text-center" title={`${ammoName(def, a)} : ${AMMO[a].description}`}>
                       <ShellIcon ammo={a} className="mx-auto h-7 w-3" />
-                      <p className="mt-0.5 text-[9px] font-black uppercase text-zinc-200">{AMMO[a].short}</p>
+                      <p className="mt-0.5 text-[9px] font-black uppercase text-zinc-200">{def.ammoNames?.[a] ?? AMMO[a].short}</p>
                       <p className="font-mono text-[9px] text-zinc-400">
                         {def.ammo[a].penetration} mm · {def.ammo[a].damage}
                       </p>
-                      <p className="font-mono text-[9px] text-zinc-500">×{def.ammo[a].count}</p>
+                      <p className="font-mono text-[9px] text-zinc-500">{def.infiniteAmmo ? "∞" : `×${def.ammo[a].count}`}</p>
                     </div>
                   ))}
                 </div>
@@ -921,11 +948,10 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                   </p>
                   <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black">
                     {d.name}
-                    {d.look.gatling ? (
-                      <span className="rounded bg-red-600/85 px-1 text-[9px] font-bold uppercase tracking-wide text-white">Gatling</span>
-                    ) : d.clip ? (
-                      <span className="rounded bg-orange-500/80 px-1 text-[9px] font-bold uppercase tracking-wide text-white">Rafale</span>
-                    ) : null}
+                    {(() => {
+                      const b = tankBadge(d);
+                      return b && <span className={`rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white ${b.color}`}>{b.text}</span>;
+                    })()}
                   </p>
                   <p className="font-mono text-[10px] text-zinc-400">
                     {st === "possede" ? `${d.hp} PS · ${d.ammo.perforant.damage} dég.` : st === "verrouille" ? "🔒 Verrouillé" : <Cost def={d} />}
@@ -942,7 +968,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
         </>
       )}
 
-      {tab === "chars" && <TechTree career={garage} onOpen={openTank} onBuy={buy} />}
+      {tab === "chars" && <TechTree career={garage} admin={admin} onOpen={openTank} onBuy={buy} />}
 
       {tab === "commandant" && (
         <CommanderView
@@ -964,7 +990,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
 const CLASS_ORDER: TankClass[] = ["leger", "moyen", "lourd", "chasseur", "artillerie"];
 
 /** Les chars rang par rang, de IV a X : ce qu'on possede, ce qu'on peut debloquer. */
-function TechTree({ career, onOpen, onBuy }: { career: Career; onOpen: (d: TankDef) => void; onBuy: (d: TankDef) => void }) {
+function TechTree({ career, admin, onOpen, onBuy }: { career: Career; admin: boolean; onOpen: (d: TankDef) => void; onBuy: (d: TankDef) => void }) {
   const tiers = [4, 5, 6, 7, 8, 9, 10];
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -974,7 +1000,7 @@ function TechTree({ career, onOpen, onBuy }: { career: Career; onOpen: (d: TankD
       </p>
       <div className="flex min-w-max gap-2">
         {tiers.map((tier) => {
-          const list = TANKS.filter((t) => t.tier === tier).sort((a, b) => CLASS_ORDER.indexOf(a.cls) - CLASS_ORDER.indexOf(b.cls));
+          const list = TANKS.filter((t) => t.tier === tier && (!t.adminOnly || admin)).sort((a, b) => CLASS_ORDER.indexOf(a.cls) - CLASS_ORDER.indexOf(b.cls));
           return (
             <div key={tier} className="w-44 shrink-0">
               <p className={`mb-1.5 rounded px-2 py-1 text-center text-xs font-black uppercase tracking-widest ${tier >= 9 ? "bg-red-800" : tier === 8 ? "bg-red-900/70" : "bg-white/10"}`}>
@@ -996,8 +1022,12 @@ function TechTree({ career, onOpen, onBuy }: { career: Career; onOpen: (d: TankD
                           <TankClassIcon cls={d.cls} className="h-3 w-3 text-zinc-300" />
                           {TANK_CLASS_NAMES[d.cls]}
                         </p>
-                        <p className="flex items-center gap-1 text-sm font-black text-white">
+                        <p className="flex flex-wrap items-center gap-1 text-sm font-black text-white">
                           {d.name}
+                          {(() => {
+                            const b = tankBadge(d);
+                            return b && <span className={`rounded px-1 text-[8px] font-bold uppercase tracking-wide text-white ${b.color}`}>{b.text}</span>;
+                          })()}
                           {m && <MasteryBadge rank={m.rank} label={m.label} />}
                         </p>
                       </button>
@@ -1162,7 +1192,7 @@ function Profile({ career }: { career: Career }) {
     ["Survie", `${career.battles ? Math.round((career.survived / b) * 100) : 0} %`],
     ["Meilleurs dégâts", fmt(career.bestDamage)],
     ["XP gagnée", fmt(career.xp)],
-    ["Chars possédés", `${career.owned.length} / ${TANKS.length}`],
+    ["Chars possédés", `${TANKS.filter((t) => !t.adminOnly && career.owned.includes(t.id)).length} / ${TANKS.filter((t) => !t.adminOnly).length}`],
   ];
   const masteries = TANKS.map((d) => ({ d, m: mastery(career.bestByTank[d.id] ?? 0, d) })).filter((x) => x.m);
   return (

@@ -111,14 +111,14 @@ export const GAMES_3D: Game3D[] = [
     slug: "tonnerre-acier",
     title: "Tonnerre d'Acier",
     description:
-      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling et de l'artillerie. Vise les points faibles, fais ricocher les obus et capture la base ennemie.",
+      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling, des chars à roquettes, des missiles guidés et de l'artillerie. Vise les points faibles, fais ricocher les obus et capture la base ennemie.",
     emoji: "💥",
     gradient: "from-lime-800 to-stone-950",
     cover: "/covers/tanks.svg",
     genre: "Combat de chars",
     players: "Solo contre des bots",
     duration: "5 à 8 min",
-    highlights: ["23 chars, des années trente à la guerre froide", "Deux modes : Guerre normale et Guerre de 100", "Artillerie avec vue du dessus, canons Gatling", "4 cartes, blindage, ricochets, capture"],
+    highlights: ["41 chars, des années trente à aujourd'hui", "Deux modes : Guerre normale et Guerre de 100", "Roquettes, missiles guidés, Gatling, artillerie", "4 cartes, blindage, ricochets, capture"],
   },
   {
     slug: "manoir-maudit",

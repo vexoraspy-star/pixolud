@@ -4,10 +4,12 @@ import {
   AMMO_ORDER,
   DIFFICULTIES,
   MODES,
+  projectileOf,
   tanksForMode,
   type BattleMode,
   type AmmoId,
   type Difficulty,
+  type ProjectileKind,
   type TankDef,
 } from "./tankDefs";
 import {
@@ -202,7 +204,12 @@ export interface Shell {
   gravity: number;
   /** Rayon d'eclatement (0 : pas d'eclats autour de l'impact). */
   splash: number;
+  /** Obus, roquette ou missile guide (il suit le point vise par son tireur). */
+  kind: ProjectileKind;
 }
+
+/** Virage maximal d'un missile filoguide, en radians par seconde. */
+const MISSILE_TURN = 0.9;
 
 export interface PlayerInput {
   throttle: number;
@@ -254,7 +261,9 @@ export interface Battle {
 function pickDefs(playerDef: TankDef, rnd: () => number, mode: BattleMode, size: number): TankDef[] {
   // Des chars du mode, proches du rang du joueur, au moins un de chaque classe
   // (une seule artillerie par equipe).
-  let pool = tanksForMode(mode).filter((d) => Math.abs(d.tier - playerDef.tier) <= 1);
+  // Le char d'admin se mesure aux chars du plus haut rang du mode.
+  const tier = playerDef.adminOnly ? MODES[mode].tiers[1] : playerDef.tier;
+  let pool = tanksForMode(mode).filter((d) => Math.abs(d.tier - tier) <= 1);
   if (pool.length === 0) pool = [playerDef];
   const list: TankDef[] = [];
   const classes = ["leger", "moyen", "lourd", "chasseur", "artillerie"] as const;
@@ -310,7 +319,7 @@ export function createBattle(
   // la seule artillerie de son equipe s'il en conduit une).
   teamDefs[0][0] = playerDef;
   if (playerDef.cls === "artillerie") {
-    const others = tanksForMode(mode).filter((d) => d.cls !== "artillerie" && Math.abs(d.tier - playerDef.tier) <= 1);
+    const others = tanksForMode(mode).filter((d) => d.cls !== "artillerie" && Math.abs(d.tier - Math.min(playerDef.tier, MODES[mode].tiers[1])) <= 1);
     for (let k = 1; k < teamDefs[0].length; k++) {
       if (teamDefs[0][k].cls === "artillerie" && others.length) teamDefs[0][k] = others[Math.floor(rnd() * others.length)];
     }
@@ -446,6 +455,7 @@ export function createBattle(
   const botAim = new THREE.Vector3();
   const botGunPos = new THREE.Vector3();
   const botDir = new THREE.Vector3();
+  const convPivot = new THREE.Vector3();
 
   const deg = Math.PI / 180;
   const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -716,7 +726,7 @@ export function createBattle(
     const v = t.def.ammo[t.ammo].speed;
     t.aimPoint.copy(point);
     // L'artillerie tire toujours a la meme hausse : c'est la charge qui regle la portee.
-    const ballistic = t.def.artyAngle !== undefined ? t.def.artyAngle * deg : (launchAngle(horiz, dy, v) ?? t.def.elevation * deg);
+    const ballistic = t.def.artyAngle !== undefined ? t.def.artyAngle * deg : (launchAngle(horiz, dy, v, shellGravityOf(t)) ?? t.def.elevation * deg);
     const geometric = Math.atan2(dy, horiz);
     // Le canon est incline avec la caisse : on corrige de l'inclinaison locale.
     localPt.copy(point).applyMatrix4(tmpM.copy(m.turret.matrixWorld).invert());
@@ -740,6 +750,21 @@ export function createBattle(
     t.clipLeft = t.def.clip?.size ?? 1;
   }
 
+  /**
+   * Position et direction de tir d'une bouche. Une bouche hors de l'axe du canon
+   * (rampe, paniers, minigun) vise le point de l'axe a la distance du but, comme
+   * des armes reglees ensemble : sinon la salve passerait a cote.
+   */
+  function mouthAim(t: SimTank, mouth: THREE.Object3D, pos: THREE.Vector3, dir: THREE.Vector3) {
+    mouth.getWorldPosition(pos);
+    dir.set(0, 0, 1).transformDirection(mouth.matrixWorld);
+    if (mouth === t.model.muzzle) return;
+    t.model.gun.getWorldPosition(convPivot);
+    const dist = Math.max(25, convPivot.distanceTo(t.aimPoint));
+    convPivot.addScaledVector(dir, dist);
+    dir.copy(convPivot).sub(pos).normalize();
+  }
+
   function fire(t: SimTank, aimFactor: number) {
     if (t.reloadLeft > 0 || !t.alive) return;
     if (t.ammoLeft[t.ammo] <= 0) {
@@ -750,9 +775,12 @@ export function createBattle(
       return;
     }
     const m = t.model;
-    m.muzzle.getWorldPosition(p0);
-    tmpDir.set(0, 0, 1).transformDirection(m.gun.matrixWorld);
+    // Plusieurs bouches (tubes d'une rampe, deux canons, armes du char d'admin) : chacune son tour.
+    const mouths = m.muzzles[t.ammo];
+    const mouth = mouths && mouths.length > 0 ? mouths[t.shots % mouths.length] : m.muzzle;
+    mouthAim(t, mouth, p0, tmpDir);
     const spec = t.def.ammo[t.ammo];
+    const kind = projectileOf(t.def, t.ammo);
     let speed = spec.speed;
     if (t.def.artyAngle !== undefined) {
       // Artillerie : l'obus tombe dans un cercle autour du point vise (plus
@@ -782,25 +810,34 @@ export function createBattle(
       caliber: t.def.caliber,
       age: 0,
       traveled: 0,
-      gravity: t.def.shellGravity ?? SHELL_GRAVITY,
-      splash: AMMO[t.ammo].explosive ? (t.def.splash ?? 0) : 0,
+      gravity: shellGravityOf(t),
+      splash: spec.splash ?? (AMMO[t.ammo].explosive ? (t.def.splash ?? 0) : 0),
+      kind,
     });
-    t.ammoLeft[t.ammo]--;
+    if (!t.def.infiniteAmmo) t.ammoLeft[t.ammo]--;
     t.lastShotAt = time;
     const clip = t.def.clip;
-    if (clip) {
+    if (spec.reload !== undefined) {
+      // Arme a cadence propre (char d'admin) : pas de chargeur, juste son delai.
+      t.reloadLeft = spec.reload;
+      t.fullReload = spec.reload > 1;
+      t.bloom += kind === "missile" ? 0.6 : spec.reload < 0.2 ? 0.25 : 1.2;
+      t.recoil = kind === "missile" ? 0.1 : spec.reload < 0.2 ? 0.2 : 1;
+    } else if (clip) {
       // Rafale : l'obus suivant arrive vite, puis tout le chargeur a recharger.
       t.clipLeft--;
       if (t.clipLeft > 0) {
         t.reloadLeft = clip.interval;
         t.fullReload = false;
       } else startFullReload(t);
-      t.bloom += 0.45;
-      t.recoil = 0.5;
+      // Une roquette ne secoue presque pas le char : la salve garde sa gerbe.
+      t.bloom += kind === "obus" ? 0.45 : 0.2;
+      // Une roquette ne recule presque pas ; un obus secoue le canon.
+      t.recoil = kind === "obus" ? 0.5 : 0.08;
     } else {
       startFullReload(t);
       t.bloom += 2.2;
-      t.recoil = 1;
+      t.recoil = kind === "obus" ? 1 : 0.15;
     }
     t.shots++;
     // Un char qui tire se devoile a moins de 400 m de l'ennemi.
@@ -811,6 +848,15 @@ export function createBattle(
       }
     }
     events.shot(t, p0, tmpDir);
+  }
+
+  /** Pesanteur du projectile tire avec la munition en place. */
+  function shellGravityOf(t: SimTank): number {
+    const kind = projectileOf(t.def, t.ammo);
+    // Les roquettes poussent tout le long : une trajectoire plus tendue. Le missile vole droit.
+    if (kind === "roquette") return 3;
+    if (kind === "missile") return 0.01;
+    return t.def.shellGravity ?? SHELL_GRAVITY;
   }
 
   /** Charge d'artillerie pour une portee, bornee par la portee maximale du canon. */
@@ -838,6 +884,8 @@ export function createBattle(
     }
   }
   const splashPoint = new THREE.Vector3();
+  const steerDir = new THREE.Vector3();
+  const missileDir = new THREE.Vector3();
 
   /** Perte de penetration avec la distance (les sous-calibres perdent plus). */
   function penAt(s: Shell): number {
@@ -851,7 +899,17 @@ export function createBattle(
       const s = shells[i];
       s.age += dt;
       p0.copy(s.pos);
-      s.vel.y -= s.gravity * dt;
+      if (s.kind === "missile" && s.owner.alive && s.age > 0.15) {
+        // Missile filoguide : il tourne vers le point que vise son tireur, sans perdre de vitesse.
+        const speed = s.vel.length();
+        steerDir.copy(s.owner.aimPoint).sub(s.pos).normalize();
+        missileDir.copy(s.vel).divideScalar(speed || 1);
+        const angle = missileDir.angleTo(steerDir);
+        if (angle > 1e-4) missileDir.lerp(steerDir, Math.min(1, (MISSILE_TURN * dt) / angle)).normalize();
+        s.vel.copy(missileDir).multiplyScalar(speed);
+      } else {
+        s.vel.y -= s.gravity * dt;
+      }
       p1.copy(s.pos).addScaledVector(s.vel, dt);
       // Contact le plus proche : chars, maisons, rochers, sol.
       let bestT = 2;
@@ -1501,17 +1559,20 @@ export function createBattle(
   function gunMarker(out: THREE.Vector3): { tank: SimTank | null; hit: ObbHit | null; turret: boolean; dist: number } {
     const t = player;
     const m = t.model;
-    m.muzzle.getWorldPosition(p0);
-    tmpDir.set(0, 0, 1).transformDirection(m.gun.matrixWorld);
+    const mouths = m.muzzles[t.ammo];
+    const mouth = mouths && mouths.length > 0 ? mouths[0] : m.muzzle;
+    mouthAim(t, mouth, p0, tmpDir);
     const arty = t.def.artyAngle !== undefined;
-    const g = t.def.shellGravity ?? SHELL_GRAVITY;
+    const slow = projectileOf(t.def, t.ammo) !== "obus";
+    const g = shellGravityOf(t);
     const v = arty
       ? artyShellSpeed(t, Math.hypot(t.aimPoint.x - p0.x, t.aimPoint.z - p0.z), t.aimPoint.y - p0.y, Math.asin(THREE.MathUtils.clamp(tmpDir.y, -1, 1)))
       : t.def.ammo[t.ammo].speed;
     const vel = tmpV2.copy(tmpDir).multiplyScalar(v);
-    // On suit la trajectoire par pas de 0,05 s (40 m environ) ; plus longtemps pour l'artillerie.
-    const dt = arty ? 0.08 : 0.05;
-    const steps = arty ? 160 : 40;
+    // On suit la trajectoire par pas de 0,05 s (40 m environ) ; plus longtemps pour l'artillerie,
+    // les roquettes et les missiles, plus lents.
+    const dt = arty || slow ? 0.08 : 0.05;
+    const steps = arty ? 160 : slow ? 60 : 40;
     for (let k = 0; k < steps; k++) {
       p1.copy(p0).addScaledVector(vel, dt);
       vel.y -= g * dt;

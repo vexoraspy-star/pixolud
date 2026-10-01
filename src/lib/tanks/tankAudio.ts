@@ -250,6 +250,19 @@ export function playCannon(a: TankAudio, caliber: number, s?: Spatial) {
   burst(ctx, out, at + 0.12, 1.8 * big, 0.28, "lowpass", 600, 60, 0.5, 0.05);
 }
 
+/**
+ * Roquette ou missile au depart : allumage sec, puis le souffle du propulseur
+ * qui monte dans les aigus (plus long pour un missile).
+ */
+export function playRocket(a: TankAudio, s?: Spatial, missile = false) {
+  const { ctx } = a;
+  const out = spatialOut(ctx, a.master, s);
+  const at = ctx.currentTime + (s ? Math.min(1.2, s.dist / 340) : 0);
+  burst(ctx, out, at, 0.12, 0.5, "lowpass", 900, 120, 0.7, 0.002);
+  burst(ctx, out, at, missile ? 1.4 : 0.8, missile ? 0.5 : 0.38, "bandpass", 500, 2600, 1.6, 0.03);
+  burst(ctx, out, at + 0.05, missile ? 1.2 : 0.6, 0.22, "highpass", 3000, 5000, 0.5, 0.05);
+}
+
 /** Obus qui perce : choc metallique grave et fracas. */
 export function playPenetration(a: TankAudio, s?: Spatial) {
   const { ctx } = a;
