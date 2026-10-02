@@ -28,7 +28,6 @@ import {
 } from "./tankBallistics";
 import {
   BASE_RADIUS,
-  MAP_HALF,
   deepWater,
   distToSegment,
   findPath,
@@ -816,7 +815,7 @@ export function createBattle(
   function collide(t: SimTank) {
     const r = t.radius;
     // Bords de la carte.
-    const lim = MAP_HALF - 6;
+    const lim = map.half - 6;
     if (t.x < -lim || t.x > lim || t.z < -lim || t.z > lim) {
       t.x = THREE.MathUtils.clamp(t.x, -lim, lim);
       t.z = THREE.MathUtils.clamp(t.z, -lim, lim);
@@ -1151,7 +1150,7 @@ export function createBattle(
       }
       s.traveled += p0.distanceTo(p1);
       s.pos.copy(p1);
-      if (s.age > 14 || Math.abs(s.pos.x) > MAP_HALF + 200 || Math.abs(s.pos.z) > MAP_HALF + 200) shells.splice(i, 1);
+      if (s.age > 14 || Math.abs(s.pos.x) > map.half + 200 || Math.abs(s.pos.z) > map.half + 200) shells.splice(i, 1);
     }
   }
 
@@ -1347,8 +1346,8 @@ export function createBattle(
       const l = Math.hypot(dx, dz) || 1;
       const ahead = 45 + rnd() * 50;
       const side = (rnd() - 0.5) * 140;
-      b.artyX = THREE.MathUtils.clamp(ownBase.x + (dx / l) * ahead + (-dz / l) * side, -MAP_HALF + 20, MAP_HALF - 20);
-      b.artyZ = THREE.MathUtils.clamp(ownBase.z + (dz / l) * ahead + (dx / l) * side, -MAP_HALF + 20, MAP_HALF - 20);
+      b.artyX = THREE.MathUtils.clamp(ownBase.x + (dx / l) * ahead + (-dz / l) * side, -map.half + 20, map.half - 20);
+      b.artyZ = THREE.MathUtils.clamp(ownBase.z + (dz / l) * ahead + (dx / l) * side, -map.half + 20, map.half - 20);
       b.artyAt = time;
     }
     setGoal(t, b.artyX, b.artyZ);

@@ -248,8 +248,10 @@ export interface TankEffects {
   burn: (pos: THREE.Vector3, seconds: number) => void;
   /** Poussiere des chenilles. */
   dust: (x: number, y: number, z: number, amount: number) => void;
-  /** Fumee d'echappement du moteur (0 : ralenti, 1 : pleine charge). */
+  /** Fumee d'echappement du moteur (0 : ralenti, 1 : pleine charge, plus : il force en accelerant). */
   exhaust: (pos: THREE.Vector3, amount: number) => void;
+  /** Moteur touche : un filet de fumee grise (0) a noire (1) qui monte du pont arriere. */
+  engineSmoke: (pos: THREE.Vector3, damage: number) => void;
   /** Tracantes : a remplir a chaque image entre begin et end. */
   beginTracers: () => void;
   addTracer: (pos: THREE.Vector3, dir: THREE.Vector3) => void;
@@ -369,6 +371,12 @@ export function createTankEffects(ground: GroundColors = { dust: [0.66, 0.58, 0.
       if (Math.random() > 0.25 + amount * 0.6) return;
       const k = 0.5 + amount;
       spawn(smoke, pos.x + rnd(0.15), pos.y, pos.z + rnd(0.15), rnd(0.6), 0.7 + Math.random() * 0.7, rnd(0.6), 1 + Math.random() * 0.9, 0.25 * k, 1.5 * k, 0.15, 0.145, 0.14, 0.22 + amount * 0.25, -0.3, 1.2);
+    },
+    engineSmoke: (pos, damage) => {
+      // Peu de bouffees, de taille moderee : un filet qui reste leger a afficher.
+      if (Math.random() > 0.3 + damage * 0.4) return;
+      const c = 0.42 - damage * 0.3;
+      spawn(smoke, pos.x + rnd(0.6), pos.y, pos.z + rnd(0.6), rnd(0.5), 1.2 + Math.random() * 0.8, rnd(0.5), 2.2 + Math.random() * 0.8, 0.7, 3.2, c, c * 0.97, c * 0.94, 0.32 + damage * 0.25, -0.35, 0.6);
     },
     beginTracers: () => {
       tracers.count = 0;

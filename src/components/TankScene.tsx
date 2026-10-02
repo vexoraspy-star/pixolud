@@ -21,7 +21,6 @@ import {
 import { artyCharge, effectiveArmor, penetrationChance, segmentObb, zoneThickness, type ObbHit } from "@/lib/tanks/tankBallistics";
 import {
   BASE_RADIUS,
-  MAP_HALF,
   buildTankMap,
   deepWater,
   groundHeight,
@@ -150,9 +149,9 @@ const FEED_SECONDS = 7;
 const GRID_ROWS = "ABCDEFGHKL";
 
 /** La case de la carte (10 x 10) ou se trouve un point : « H8 ». */
-function mapCell(x: number, z: number): string {
-  const col = Math.max(0, Math.min(9, Math.floor(((x + MAP_HALF) / (MAP_HALF * 2)) * 10)));
-  const row = Math.max(0, Math.min(9, Math.floor(((z + MAP_HALF) / (MAP_HALF * 2)) * 10)));
+function mapCell(x: number, z: number, half: number): string {
+  const col = Math.max(0, Math.min(9, Math.floor(((x + half) / (half * 2)) * 10)));
+  const row = Math.max(0, Math.min(9, Math.floor(((z + half) / (half * 2)) * 10)));
   return `${GRID_ROWS[row]}${(col + 1) % 10}`;
 }
 
@@ -270,7 +269,8 @@ export default function TankScene({
     // --- Carte, decor, effets, son ---
     // En ligne, tout le monde construit la meme carte (la graine vient de l'hote).
     const seed = online ? online.start.seed : Math.floor(Math.random() * 1e9);
-    const map: TankMap = buildTankMap(seed, mapId);
+    // La grande bataille se joue sur une version agrandie de la carte.
+    const map: TankMap = buildTankMap(seed, mapId, MODES[mode].mapScale);
     // Un invite de l'equipe d'en face voit la carte depuis son camp.
     const mySlot = online?.start.lineup.find((s) => s.human === online.room.me);
     if (online && !online.room.isHost && mySlot) orientMapFor(map, mySlot.team);
@@ -469,8 +469,8 @@ export default function TankScene({
       const img = g.createImageData(256, 256);
       for (let y = 0; y < 256; y++) {
         for (let x = 0; x < 256; x++) {
-          const wx = -MAP_HALF + ((x + 0.5) / 256) * MAP_HALF * 2;
-          const wz = -MAP_HALF + ((y + 0.5) / 256) * MAP_HALF * 2;
+          const wx = -map.half + ((x + 0.5) / 256) * map.half * 2;
+          const wz = -map.half + ((y + 0.5) / 256) * map.half * 2;
           const h = groundHeight(map, wx, wz);
           const hx = groundHeight(map, wx + 3, wz) - groundHeight(map, wx - 3, wz);
           const shade = 0.82 + Math.max(-0.2, Math.min(0.2, -hx * 0.12)) + h * 0.004;
@@ -484,8 +484,8 @@ export default function TankScene({
         }
       }
       g.putImageData(img, 0, 0);
-      const k = 256 / (MAP_HALF * 2);
-      const px = (w: number) => (w + MAP_HALF) * k;
+      const k = 256 / (map.half * 2);
+      const px = (w: number) => (w + map.half) * k;
       g.strokeStyle = "rgba(200,176,130,0.8)";
       g.lineWidth = 2;
       for (const road of map.roads) {
@@ -582,8 +582,8 @@ export default function TankScene({
         const fx = Math.sin(camYaw);
         const fz = Math.cos(camYaw);
         // Vue du dessus, le haut de l'ecran vers l'avant : la droite de l'ecran est (-cos, sin).
-        artyTarget.x = THREE.MathUtils.clamp(artyTarget.x - Math.cos(camYaw) * dx * k - fx * dy * k, -MAP_HALF, MAP_HALF);
-        artyTarget.z = THREE.MathUtils.clamp(artyTarget.z + Math.sin(camYaw) * dx * k - fz * dy * k, -MAP_HALF, MAP_HALF);
+        artyTarget.x = THREE.MathUtils.clamp(artyTarget.x - Math.cos(camYaw) * dx * k - fx * dy * k, -map.half, map.half);
+        artyTarget.z = THREE.MathUtils.clamp(artyTarget.z + Math.sin(camYaw) * dx * k - fz * dy * k, -map.half, map.half);
         return;
       }
       const s = 0.0022 * (sensitivity / 1.5) * (sniperMode ? 1 / zoom : 1);
@@ -745,6 +745,11 @@ export default function TankScene({
     let captureWarned = false;
     let lastTime = performance.now();
     let tracksDust = 0;
+    /** Detail des chars (equipement, chef) : revu quelques fois par seconde selon la distance. */
+    let detailAt = 0;
+    /** Vitesse de chaque char au passage precedent : une acceleration fait forcer le moteur. */
+    const lastSpeed = new Map<number, number>();
+    const enginePos = new THREE.Vector3();
 
     const input = { throttle: 0, steer: 0, aim: null as THREE.Vector3 | null, fire: false, ammo: "perforant" as AmmoId };
 
@@ -838,19 +843,37 @@ export default function TankScene({
           t.model.spin(dt, t.alive && minigun && now - t.lastShotAt < 0.25);
         }
         effects.update(dt);
+        // Equipement et chef de char : seulement de pres (plus loin en visee de precision).
+        detailAt -= dt;
+        if (detailAt <= 0) {
+          detailAt = 0.3;
+          const range = sniperMode ? 160 * zoom : 160;
+          for (const t of battle.tanks) t.model.setDetail(Math.hypot(t.x - camera.position.x, t.z - camera.position.z) < range);
+        }
         // Poussiere derriere les chenilles quand on roule.
         tracksDust += dt;
         if (tracksDust > 0.05) {
           tracksDust = 0;
           for (const t of battle.tanks) {
             if (!t.alive) continue;
-            // Fumee d'echappement des chars proches : legere au ralenti, epaisse en pleine charge.
-            if (Math.hypot(t.x - camera.position.x, t.z - camera.position.z) < 110) {
-              const load = Math.min(1, Math.abs(t.speed) / 6 + (t.isPlayer ? Math.abs(input.throttle) * 0.5 : 0));
+            // Fumee d'echappement des chars proches : legere au ralenti, epaisse en pleine charge,
+            // plus noire quand le moteur force pour prendre de la vitesse.
+            const camD = Math.hypot(t.x - camera.position.x, t.z - camera.position.z);
+            const prev = lastSpeed.get(t.id) ?? t.speed;
+            lastSpeed.set(t.id, t.speed);
+            if (camD < 110) {
+              const accel = (Math.abs(t.speed) - Math.abs(prev)) / 0.05;
+              const load = Math.min(1, Math.abs(t.speed) / 6 + (t.isPlayer ? Math.abs(input.throttle) * 0.5 : 0)) + (accel > 1.2 ? 0.5 : 0);
               for (const e of t.model.exhausts) {
                 exhaustPos.copy(e).applyMatrix4(t.model.root.matrixWorld);
                 effects.exhaust(exhaustPos, load);
               }
+            }
+            // Un char tres abime fume du moteur : gris, puis noir quand il va lacher.
+            const hpFrac = t.hp / t.def.hp;
+            if (hpFrac < 0.35 && camD < 220) {
+              enginePos.copy(t.model.engine).applyMatrix4(t.model.root.matrixWorld);
+              effects.engineSmoke(enginePos, hpFrac < 0.15 ? 1 : 0.4);
             }
             if (Math.abs(t.speed) < 2) continue;
             const back = -t.def.look.length * 0.45;
@@ -1043,7 +1066,7 @@ export default function TankScene({
           artyFlight: artyMode ? artyFlightTime() : null,
           hullAngle: player.yaw - camYaw,
           turretAngle: player.yaw + (player.model.fixedTurret ? 0 : player.turretYaw) - camYaw,
-          cell: mapCell(player.x, player.z),
+          cell: mapCell(player.x, player.z, map.half),
           spotted: player.alive && player.spottedUntil > battle.time(),
         });
         setMessages((list) => (list.some((m) => m.until < clock) ? list.filter((m) => m.until >= clock) : list));
@@ -1064,8 +1087,8 @@ export default function TankScene({
         const g = mini.getContext("2d");
         if (g) {
           const S = mini.width;
-          const k = S / (MAP_HALF * 2);
-          const px = (v: number) => (v + MAP_HALF) * k;
+          const k = S / (map.half * 2);
+          const px = (v: number) => (v + map.half) * k;
           g.drawImage(miniBg, 0, 0, S, S);
           // Bases.
           map.bases.forEach((b, team) => {

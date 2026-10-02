@@ -111,14 +111,14 @@ export const GAMES_3D: Game3D[] = [
     slug: "tonnerre-acier",
     title: "Tonnerre d'Acier",
     description:
-      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling, des chars à roquettes, des missiles guidés et de l'artillerie. Vise les points faibles, fais ricocher les obus et capture la base ennemie, seul contre des bots ou en ligne avec tes amis.",
+      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling, des chars à roquettes, des missiles guidés et de l'artillerie ; en Grande bataille, quinze contre quinze sur des cartes agrandies. Vise les points faibles, fais ricocher les obus et capture la base ennemie, seul contre des bots ou en ligne avec tes amis.",
     emoji: "💥",
     gradient: "from-lime-800 to-stone-950",
     cover: "/covers/tanks.svg",
     genre: "Combat de chars",
     players: "Solo ou en ligne jusqu'à 8",
     duration: "5 à 8 min",
-    highlights: ["41 chars et 11 commandants", "En ligne avec tes amis (salon et code)", "Roquettes, missiles guidés, Gatling, artillerie", "Guerre normale et Guerre de 100, 4 cartes"],
+    highlights: ["41 chars et 11 commandants", "En ligne avec tes amis (salon et code)", "Roquettes, missiles guidés, Gatling, artillerie", "Trois modes, dont 15 contre 15 sur grande carte"],
   },
   {
     slug: "manoir-maudit",

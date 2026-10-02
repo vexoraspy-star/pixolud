@@ -238,7 +238,7 @@ export default function TankLobby({
             {room.isHost ? (
               <div className="mt-2 space-y-2">
                 <div className="flex overflow-hidden rounded border border-white/15">
-                  {(["normale", "cent"] as const).map((m) => (
+                  {(["normale", "cent", "grande"] as const).map((m) => (
                     <button
                       key={m}
                       type="button"

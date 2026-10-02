@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { HEIGHT_STEP, WORLD_HALF, BASE_RADIUS, type Biome, type House, type TankMap } from "./tankTerrain";
+import { HEIGHT_STEP, BASE_RADIUS, type Biome, type House, type TankMap } from "./tankTerrain";
 import {
   makeGroundDetailTexture,
   makeParticleTexture,
@@ -400,11 +400,11 @@ export function buildTankWorld(map: TankMap, detail: boolean): TankWorld {
   for (let k = 0; k < tp.count; k++) {
     const x = tp.getX(k);
     const z = tp.getZ(k);
-    const i = Math.round((x + WORLD_HALF) / HEIGHT_STEP);
-    const j = Math.round((z + WORLD_HALF) / HEIGHT_STEP);
+    const i = Math.round((x + map.world) / HEIGHT_STEP);
+    const j = Math.round((z + map.world) / HEIGHT_STEP);
     tp.setY(k, map.heights[Math.min(map.hn - 1, j) * map.hn + Math.min(map.hn - 1, i)]);
     // La texture couvre tout le monde : v vers le sud comme sur le canvas.
-    tuv.setXY(k, (x + WORLD_HALF) / (WORLD_HALF * 2), 1 - (z + WORLD_HALF) / (WORLD_HALF * 2));
+    tuv.setXY(k, (x + map.world) / (map.world * 2), 1 - (z + map.world) / (map.world * 2));
   }
   terrainGeo.computeVertexNormals();
   const terrainPaint = paintTerrainTexture(map, detail ? 2048 : 1536);
@@ -964,8 +964,8 @@ function makeMillBlades(): THREE.BufferGeometry {
 }
 
 function heightAtWorld(map: TankMap, x: number, z: number): number {
-  const fx = (x + WORLD_HALF) / HEIGHT_STEP;
-  const fz = (z + WORLD_HALF) / HEIGHT_STEP;
+  const fx = (x + map.world) / HEIGHT_STEP;
+  const fz = (z + map.world) / HEIGHT_STEP;
   const i = Math.max(0, Math.min(map.hn - 2, Math.floor(fx)));
   const j = Math.max(0, Math.min(map.hn - 2, Math.floor(fz)));
   const u = fx - i;

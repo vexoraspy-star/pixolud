@@ -109,6 +109,10 @@ export interface TankMap {
   name: string;
   biome: Biome;
   seed: number;
+  /** Demi-cote de la zone jouable (MAP_HALF, plus pour une carte agrandie). */
+  half: number;
+  /** Demi-cote du terrain dessine, montagnes de decor comprises. */
+  world: number;
   /** Hauteurs sur une grille reguliere couvrant tout le monde dessine. */
   heights: Float32Array;
   hn: number;
@@ -459,7 +463,12 @@ function heightAt(plan: Plan, x: number, z: number, seed: number, villageY: numb
 
 // --------------------------------------------------------- carte
 
-export function buildTankMap(seed: number, mapId: MapId = "castelroc"): TankMap {
+/**
+ * Construit une carte. `scale` (1,5 pour la grande bataille a quinze contre
+ * quinze) etire le meme paysage : relief, villages, routes et bases
+ * s'ecartent, les maisons, arbres et rochers gardent leur taille.
+ */
+export function buildTankMap(seed: number, mapId: MapId = "castelroc", scale = 1): TankMap {
   const plan = planFor(mapId);
   // Castelroc garde exactement son tirage d'origine.
   const rnd = mulberry32((seed || 1) + (mapId === "castelroc" ? 0 : mapId.length * 7919));
@@ -1094,90 +1103,34 @@ export function buildTankMap(seed: number, mapId: MapId = "castelroc"): TankMap 
     }
   }
 
-  // --- Departs : en eventail devant chaque base, tournes vers l'adversaire ---
-  const spawns: TankMap["spawns"] = [[], []];
-  for (let b = 0; b < 2; b++) {
-    const base = B[b];
-    const other = B[1 - b];
-    const toward = Math.atan2(other.x - base.x, other.z - base.z);
-    for (let k = 0; k < 9; k++) {
-      const row = Math.floor(k / 3);
-      const col = (k % 3) - 1;
-      const ax = Math.sin(toward);
-      const az = Math.cos(toward);
-      const x = base.x + ax * (row * 11 + 6) + az * col * 12;
-      const z = base.z + az * (row * 11 + 6) - ax * col * 12;
-      spawns[b].push({ x, z, yaw: toward });
-    }
+  // --- Departs : trois rangs de trois devant chaque base ---
+  const spawns = makeSpawns(B, 3);
+
+  if (scale > 1) {
+    return enlargeMap({ mapId, plan, seed, scale, villageY, baseY, rnd, houses, walls, rocks, trees, bushes, roads, fields, bridges, lanes, bases: B });
   }
 
-  // --- Navigation ---
-  const onBridge = (x: number, z: number, margin: number) =>
-    bridges.some((br) => distToSegment(x, z, br.x0, br.z0, br.x1, br.z1) < br.w / 2 + margin);
-  const navN = Math.round((MAP_HALF * 2) / NAV_STEP);
-  const nav = new Uint8Array(navN * navN);
-  for (let j = 0; j < navN; j++) {
-    for (let i = 0; i < navN; i++) {
-      const x = -MAP_HALF + (i + 0.5) * NAV_STEP;
-      const z = -MAP_HALF + (j + 0.5) * NAV_STEP;
-      let blocked = Math.abs(x) > MAP_HALF - 6 || Math.abs(z) > MAP_HALF - 6;
-      if (!blocked && inHouse(x, z, 3.5)) blocked = true;
-      // L'eau profonde bloque ; pas la glace, ni le gue, ni les ponts.
-      if (!blocked && plan.waterKind !== "glace" && inWater(x, z, 2) && !onBridge(x, z, 0) && sample(x, z) < plan.waterLevel - 0.7) {
-        blocked = true;
-      }
-      if (!blocked && rocks.some((r) => Math.hypot(x - r.x, z - r.z) < r.r + 2.5)) blocked = true;
-      if (!blocked) {
-        for (const w of walls) {
-          if (distToSegment(x, z, w.x0, w.z0, w.x1, w.z1) < 3) {
-            blocked = true;
-            break;
-          }
-        }
-      }
-      if (!blocked && !onBridge(x, z, 3)) {
-        // Pente trop raide : un char la gravit mal.
-        const s = Math.max(Math.abs(sample(x + 2.5, z) - sample(x - 2.5, z)), Math.abs(sample(x, z + 2.5) - sample(x, z - 2.5))) / 5;
-        if (s > 0.55) blocked = true;
-      }
-      nav[j * navN + i] = blocked ? 1 : 0;
-    }
-  }
-  // Les poches isolees (sommet d'une crete, cour fermee) comptent comme bloquees :
-  // un bot n'y cherche jamais un chemin qui n'existe pas.
-  {
-    const seen = new Uint8Array(navN * navN);
-    const bi = Math.floor((B[0].x + MAP_HALF) / NAV_STEP);
-    const bj = Math.floor((B[0].z + MAP_HALF) / NAV_STEP);
-    const queue = [bj * navN + bi];
-    seen[queue[0]] = 1;
-    for (let q = 0; q < queue.length; q++) {
-      const c = queue[q];
-      const ci = c % navN;
-      const cj = (c - ci) / navN;
-      for (const [di, dj] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ]) {
-        const i = ci + di;
-        const j = cj + dj;
-        if (i < 0 || j < 0 || i >= navN || j >= navN) continue;
-        const n = j * navN + i;
-        if (seen[n] || nav[n]) continue;
-        seen[n] = 1;
-        queue.push(n);
-      }
-    }
-    for (let c = 0; c < nav.length; c++) if (!seen[c]) nav[c] = 1;
-  }
+  const { nav, navN } = computeNav({
+    half: MAP_HALF,
+    houses,
+    walls,
+    rocks,
+    bridges,
+    waterKind: plan.waterKind,
+    waterLevel: plan.waterLevel,
+    lake: plan.lake,
+    river: plan.river,
+    base: B[0],
+    sample,
+  });
 
   return {
     id: mapId,
     name: plan.name,
     biome: plan.biome,
     seed,
+    half: MAP_HALF,
+    world: WORLD_HALF,
     heights,
     hn,
     houses,
@@ -1199,6 +1152,254 @@ export function buildTankMap(seed: number, mapId: MapId = "castelroc"): TankMap 
     navN,
     lanes,
     villages: plan.villages,
+    villageName: plan.villageName,
+  };
+}
+
+/** Ce qu'il faut pour calculer la grille de navigation d'une carte. */
+interface NavInput {
+  half: number;
+  houses: House[];
+  walls: Wall[];
+  rocks: Rock[];
+  bridges: Bridge[];
+  waterKind: WaterKind;
+  waterLevel: number;
+  lake: { x: number; z: number; r: number };
+  river: { pts: [number, number][]; width: number } | null;
+  base: { x: number; z: number };
+  sample: (x: number, z: number) => number;
+}
+
+/**
+ * Grille de navigation des bots (1 = infranchissable) : maisons, eau profonde,
+ * rochers, murets, pentes trop raides, et les poches isolees.
+ */
+function computeNav(o: NavInput): { nav: Uint8Array; navN: number } {
+  const { half, houses, walls, rocks, bridges, sample } = o;
+  const inHouse = (x: number, z: number, margin: number) =>
+    houses.some((h) => Math.abs(x - h.x) < h.w / 2 + margin && Math.abs(z - h.z) < h.d / 2 + margin);
+  const inWater = (x: number, z: number, margin: number) => {
+    if (o.lake.r > 0 && Math.hypot(x - o.lake.x, z - o.lake.z) < o.lake.r + margin) return true;
+    return o.river !== null && distToPolyline(x, z, o.river.pts) < o.river.width / 2 + margin;
+  };
+  const onBridge = (x: number, z: number, margin: number) =>
+    bridges.some((br) => distToSegment(x, z, br.x0, br.z0, br.x1, br.z1) < br.w / 2 + margin);
+  const navN = Math.round((half * 2) / NAV_STEP);
+  const nav = new Uint8Array(navN * navN);
+  for (let j = 0; j < navN; j++) {
+    for (let i = 0; i < navN; i++) {
+      const x = -half + (i + 0.5) * NAV_STEP;
+      const z = -half + (j + 0.5) * NAV_STEP;
+      let blocked = Math.abs(x) > half - 6 || Math.abs(z) > half - 6;
+      if (!blocked && inHouse(x, z, 3.5)) blocked = true;
+      // L'eau profonde bloque ; pas la glace, ni le gue, ni les ponts.
+      if (!blocked && o.waterKind !== "glace" && inWater(x, z, 2) && !onBridge(x, z, 0) && sample(x, z) < o.waterLevel - 0.7) {
+        blocked = true;
+      }
+      if (!blocked && rocks.some((r) => Math.hypot(x - r.x, z - r.z) < r.r + 2.5)) blocked = true;
+      if (!blocked) {
+        for (const w of walls) {
+          if (distToSegment(x, z, w.x0, w.z0, w.x1, w.z1) < 3) {
+            blocked = true;
+            break;
+          }
+        }
+      }
+      if (!blocked && !onBridge(x, z, 3)) {
+        // Pente trop raide : un char la gravit mal.
+        const s = Math.max(Math.abs(sample(x + 2.5, z) - sample(x - 2.5, z)), Math.abs(sample(x, z + 2.5) - sample(x, z - 2.5))) / 5;
+        if (s > 0.55) blocked = true;
+      }
+      nav[j * navN + i] = blocked ? 1 : 0;
+    }
+  }
+  // Les poches isolees (sommet d'une crete, cour fermee) comptent comme bloquees :
+  // un bot n'y cherche jamais un chemin qui n'existe pas.
+  const seen = new Uint8Array(navN * navN);
+  const bi = Math.floor((o.base.x + half) / NAV_STEP);
+  const bj = Math.floor((o.base.z + half) / NAV_STEP);
+  const queue = [bj * navN + bi];
+  seen[queue[0]] = 1;
+  for (let q = 0; q < queue.length; q++) {
+    const c = queue[q];
+    const ci = c % navN;
+    const cj = (c - ci) / navN;
+    for (const [di, dj] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const i = ci + di;
+      const j = cj + dj;
+      if (i < 0 || j < 0 || i >= navN || j >= navN) continue;
+      const n = j * navN + i;
+      if (seen[n] || nav[n]) continue;
+      seen[n] = 1;
+      queue.push(n);
+    }
+  }
+  for (let c = 0; c < nav.length; c++) if (!seen[c]) nav[c] = 1;
+  return { nav, navN };
+}
+
+/** Departs : en eventail devant chaque base, tournes vers l'adversaire, `rows` rangs de trois. */
+function makeSpawns(bases: TankMap["bases"], rows: number): TankMap["spawns"] {
+  const spawns: TankMap["spawns"] = [[], []];
+  for (let b = 0; b < 2; b++) {
+    const base = bases[b];
+    const other = bases[1 - b];
+    const toward = Math.atan2(other.x - base.x, other.z - base.z);
+    const ax = Math.sin(toward);
+    const az = Math.cos(toward);
+    for (let k = 0; k < rows * 3; k++) {
+      const row = Math.floor(k / 3);
+      const col = (k % 3) - 1;
+      spawns[b].push({ x: base.x + ax * (row * 11 + 6) + az * col * 12, z: base.z + az * (row * 11 + 6) - ax * col * 12, yaw: toward });
+    }
+  }
+  return spawns;
+}
+
+interface SmallMap {
+  mapId: MapId;
+  plan: Plan;
+  seed: number;
+  scale: number;
+  villageY: number[];
+  baseY: [number, number];
+  rnd: () => number;
+  houses: House[];
+  walls: Wall[];
+  rocks: Rock[];
+  trees: Tree[];
+  bushes: TankMap["bushes"];
+  roads: [number, number][][];
+  fields: TankMap["fields"];
+  bridges: Bridge[];
+  lanes: [number, number][][];
+  bases: TankMap["bases"];
+}
+
+/**
+ * Carte agrandie (grande bataille) : le meme paysage etire d'un facteur
+ * `scale`. Les positions s'ecartent, les objets gardent leur taille ; les
+ * bois et les buissons sont completes pour garder leur densite.
+ */
+function enlargeMap(m: SmallMap): TankMap {
+  const { plan, seed, villageY, baseY, rnd } = m;
+  const s = m.scale;
+  const half = MAP_HALF * s;
+  const world = half + (WORLD_HALF - MAP_HALF) * 1.1;
+  const hn = Math.round((world * 2) / HEIGHT_STEP) + 1;
+  const heights = new Float32Array(hn * hn);
+  for (let j = 0; j < hn; j++) {
+    const z = -world + j * HEIGHT_STEP;
+    for (let i = 0; i < hn; i++) {
+      const x = -world + i * HEIGHT_STEP;
+      heights[j * hn + i] = heightAt(plan, x / s, z / s, seed, villageY, baseY);
+    }
+  }
+  const at = (x: number, z: number) => heightFromGrid(heights, hn, x, z);
+  const P = (p: [number, number]): [number, number] => [p[0] * s, p[1] * s];
+
+  const houses = m.houses.map((h) => ({ ...h, x: h.x * s, z: h.z * s, y: at(h.x * s, h.z * s) }));
+  const walls = m.walls.map((w) => ({ ...w, x0: w.x0 * s, z0: w.z0 * s, x1: w.x1 * s, z1: w.z1 * s }));
+  const rocks = m.rocks.map((r) => ({ ...r, x: r.x * s, z: r.z * s, y: at(r.x * s, r.z * s) }));
+  const roads = m.roads.map((r) => r.map(P));
+  const bases: TankMap["bases"] = [
+    { x: m.bases[0].x * s, z: m.bases[0].z * s },
+    { x: m.bases[1].x * s, z: m.bases[1].z * s },
+  ];
+  const lake = { x: plan.lake.x * s, z: plan.lake.z * s, r: plan.lake.r * s };
+  const river = plan.river ? { pts: plan.river.pts.map(P), width: plan.river.width * s } : null;
+  const bridges = m.bridges.map((br) => {
+    const x0 = br.x0 * s;
+    const z0 = br.z0 * s;
+    const x1 = br.x1 * s;
+    const z1 = br.z1 * s;
+    return { ...br, x0, z0, x1, z1, y0: at(x0, z0) + 0.25, y1: at(x1, z1) + 0.25 };
+  });
+
+  // Ou poser un arbre ou un buisson de plus.
+  const free = (x: number, z: number, margin: number) => {
+    if (Math.abs(x) > half - 8 || Math.abs(z) > half - 8) return false;
+    if (houses.some((h) => Math.abs(x - h.x) < h.w / 2 + margin && Math.abs(z - h.z) < h.d / 2 + margin)) return false;
+    if (lake.r > 0 && Math.hypot(x - lake.x, z - lake.z) < lake.r + margin) return false;
+    if (river && distToPolyline(x, z, river.pts) < river.width / 2 + margin) return false;
+    if (bases.some((b) => Math.hypot(x - b.x, z - b.z) < 70)) return false;
+    return !roads.some((r) => distToPolyline(x, z, r) < 6);
+  };
+  const trees: Tree[] = [];
+  for (const t of m.trees) {
+    const x = t.x * s;
+    const z = t.z * s;
+    trees.push({ ...t, x, z, y: at(x, z) });
+    // Un voisin de la meme essence : le bois garde sa densite.
+    if (rnd() < 0.85) {
+      const a = rnd() * Math.PI * 2;
+      const d = 5 + rnd() * 5;
+      const nx = x + Math.cos(a) * d;
+      const nz = z + Math.sin(a) * d;
+      if (free(nx, nz, 3)) trees.push({ x: nx, z: nz, kind: t.kind, scale: 0.8 + rnd() * 0.5, y: at(nx, nz) });
+    }
+  }
+  const bushes: TankMap["bushes"] = [];
+  for (const b of m.bushes) {
+    const x = b.x * s;
+    const z = b.z * s;
+    bushes.push({ ...b, x, z, y: at(x, z) });
+    if (rnd() < 0.7) {
+      const nx = x + (rnd() - 0.5) * 12;
+      const nz = z + (rnd() - 0.5) * 12;
+      if (free(nx, nz, 2)) bushes.push({ x: nx, z: nz, s: 0.7 + rnd() * 0.9, y: at(nx, nz) });
+    }
+  }
+
+  const { nav, navN } = computeNav({
+    half,
+    houses,
+    walls,
+    rocks,
+    bridges,
+    waterKind: plan.waterKind,
+    waterLevel: plan.waterLevel,
+    lake,
+    river,
+    base: bases[0],
+    sample: at,
+  });
+
+  return {
+    id: m.mapId,
+    name: plan.name,
+    biome: plan.biome,
+    seed,
+    half,
+    world,
+    heights,
+    hn,
+    houses,
+    walls,
+    rocks,
+    trees,
+    bushes,
+    roads,
+    fields: m.fields.map((f) => ({ ...f, x: f.x * s, z: f.z * s, w: f.w * s, d: f.d * s })),
+    bases,
+    // Six rangs de trois devant chaque base : de quoi placer quinze chars et plus.
+    spawns: makeSpawns(bases, 6),
+    waterKind: plan.waterKind,
+    waterLevel: plan.waterLevel,
+    lake,
+    river,
+    bridges,
+    fords: plan.fords.map(P),
+    nav,
+    navN,
+    lanes: m.lanes.map((l) => l.map(P)),
+    villages: plan.villages.map((v) => ({ x: v.x * s, z: v.z * s, r: v.r * s })),
     villageName: plan.villageName,
   };
 }
@@ -1230,8 +1431,9 @@ export function deepWater(map: TankMap, x: number, z: number): boolean {
 
 /** Hauteur du sol (interpolation bilineaire de la grille). */
 export function heightFromGrid(heights: Float32Array, hn: number, x: number, z: number): number {
-  const fx = (x + WORLD_HALF) / HEIGHT_STEP;
-  const fz = (z + WORLD_HALF) / HEIGHT_STEP;
+  const world = ((hn - 1) * HEIGHT_STEP) / 2;
+  const fx = (x + world) / HEIGHT_STEP;
+  const fz = (z + world) / HEIGHT_STEP;
   const i = Math.max(0, Math.min(hn - 2, Math.floor(fx)));
   const j = Math.max(0, Math.min(hn - 2, Math.floor(fz)));
   const u = Math.max(0, Math.min(1, fx - i));
@@ -1384,8 +1586,8 @@ export function lineOfSight(map: TankMap, ax: number, ay: number, az: number, bx
 // ---------------------------------------------------------- chemins
 
 export function navCell(map: TankMap, x: number, z: number): number {
-  const i = Math.floor((x + MAP_HALF) / NAV_STEP);
-  const j = Math.floor((z + MAP_HALF) / NAV_STEP);
+  const i = Math.floor((x + map.half) / NAV_STEP);
+  const j = Math.floor((z + map.half) / NAV_STEP);
   if (i < 0 || j < 0 || i >= map.navN || j >= map.navN) return -1;
   return j * map.navN + i;
 }
@@ -1393,7 +1595,7 @@ export function navCell(map: TankMap, x: number, z: number): number {
 function cellCenter(map: TankMap, c: number): [number, number] {
   const i = c % map.navN;
   const j = (c - i) / map.navN;
-  return [-MAP_HALF + (i + 0.5) * NAV_STEP, -MAP_HALF + (j + 0.5) * NAV_STEP];
+  return [-map.half + (i + 0.5) * NAV_STEP, -map.half + (j + 0.5) * NAV_STEP];
 }
 
 /** La case libre la plus proche (spirale). */

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MAP_HALF, WORLD_HALF, distToPolyline, fbm, heightFromGrid, type Biome, type TankMap } from "./tankTerrain";
+import { MAP_HALF, distToPolyline, fbm, heightFromGrid, type Biome, type TankMap } from "./tankTerrain";
 import type { CamoStyle } from "./tankDefs";
 
 /** Peinture d'un char : style et couleurs (celles d'origine ou un camouflage du garage). */
@@ -218,16 +218,16 @@ function paintRows(
   patch: (u: number, v: number) => number,
 ) {
   const P = PALETTES[map.biome];
-  const span = WORLD_HALF * 2;
+  const span = map.world * 2;
   const px = span / size;
   const H = (x: number, z: number) => heightFromGrid(map.heights, map.hn, x, z);
   const wl = map.waterLevel;
   const lake = map.lake;
   for (let y = y0; y < y1; y++) {
-    const z = -WORLD_HALF + (y + 0.5) * px;
+    const z = -map.world + (y + 0.5) * px;
     const v = y / size;
     for (let x = 0; x < size; x++) {
-      const wx = -WORLD_HALF + (x + 0.5) * px;
+      const wx = -map.world + (x + 0.5) * px;
       const u = x / size;
       const h = H(wx, z);
       const sx = H(wx + 2, z) - H(wx - 2, z);
@@ -248,8 +248,8 @@ function paintRows(
       b += (P.rock[2] - b) * rock;
       // Montagnes de decor : plus de roche, de la neige tout en haut.
       const edge = Math.max(Math.abs(wx), Math.abs(z));
-      if (edge > MAP_HALF) {
-        const k = Math.min(1, (edge - MAP_HALF) / 90);
+      if (edge > map.half) {
+        const k = Math.min(1, (edge - map.half) / ((90 * map.half) / MAP_HALF));
         r += (P.mountain[0] - r) * k * 0.6;
         gg += (P.mountain[1] - gg) * k * 0.6;
         b += (P.mountain[2] - b) * k * 0.6;
@@ -308,8 +308,8 @@ function paintRows(
 /** Par-dessus le sol : champs, villages, routes, bases, fissures de la glace, grain fin. */
 function paintOverlays(map: TankMap, ctx: CanvasRenderingContext2D, size: number, rnd: () => number) {
   const P = PALETTES[map.biome];
-  const span = WORLD_HALF * 2;
-  const toPx = (w: number) => ((w + WORLD_HALF) / span) * size;
+  const span = map.world * 2;
+  const toPx = (w: number) => ((w + map.world) / span) * size;
   const scale = size / span;
 
   // Champs, en sillons.

@@ -2348,7 +2348,7 @@ export function tierLabel(tier: number): string {
 
 // ------------------------------------------------------------------- modes
 
-export type BattleMode = "normale" | "cent";
+export type BattleMode = "normale" | "cent" | "grande";
 
 export interface ModeInfo {
   id: BattleMode;
@@ -2361,6 +2361,8 @@ export interface ModeInfo {
   seconds: number;
   /** Bots plus rapides, plus precis, qui visent toujours les points faibles. */
   hard: boolean;
+  /** Carte agrandie de ce facteur (1 : taille normale). */
+  mapScale: number;
 }
 
 export const MODES: Record<BattleMode, ModeInfo> = {
@@ -2372,6 +2374,7 @@ export const MODES: Record<BattleMode, ModeInfo> = {
     teamSize: 7,
     seconds: 420,
     hard: false,
+    mapScale: 1,
   },
   cent: {
     id: "cent",
@@ -2381,6 +2384,17 @@ export const MODES: Record<BattleMode, ModeInfo> = {
     teamSize: 8,
     seconds: 480,
     hard: true,
+    mapScale: 1,
+  },
+  grande: {
+    id: "grande",
+    name: "Grande bataille",
+    tagline: "Quinze contre quinze sur une carte agrandie (900 m de côté), tous les rangs, dix minutes pour l'emporter.",
+    tiers: [4, 10],
+    teamSize: 15,
+    seconds: 600,
+    hard: false,
+    mapScale: 1.5,
   },
 };
 

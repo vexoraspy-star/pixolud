@@ -42,6 +42,10 @@ export interface TankModel {
   muzzles: Partial<Record<AmmoId, THREE.Object3D[]>>;
   /** Sorties d'echappement, dans le repere du char. */
   exhausts: THREE.Vector3[];
+  /** Centre du compartiment moteur (repere du char) : la fumee d'un char tres abime en sort. */
+  engine: THREE.Vector3;
+  /** Equipement et commandant : visibles de pres seulement (moins de travail au loin). */
+  setDetail: (near: boolean) => void;
   /** Fait tourner le faisceau d'un canon Gatling (il accelere pendant la rafale). */
   spin: (dt: number, firing: boolean) => void;
   /** Fait defiler chaque chenille (metres parcourus par cote). */
@@ -389,6 +393,25 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   const darkParts: THREE.BufferGeometry[] = [];
   /** Equipement de sa propre couleur : toile, bois, bidons, feux. */
   const gearParts: THREE.BufferGeometry[] = [];
+  /** Le chef de char a mi-corps hors de son tourelleau (tourelle, ou casemate). */
+  const commanderParts: THREE.BufferGeometry[] = [];
+  const hullCommander: THREE.BufferGeometry[] = [];
+  const SKINS = [0xe9c4a0, 0xd5a27c, 0xb57d55, 0x8a5a3c, 0xf0d2b6];
+  const skin = SKINS[Math.floor(hash01(def.id.length * 3.7 + def.tier * 1.3) * SKINS.length)];
+  /** Torse, bras poses sur le rebord, tete et casque a ecouteurs ; (x, y) : bas du torse. */
+  const addCommander = (list: THREE.BufferGeometry[], x: number, y: number, z: number) => {
+    const uniform = modern ? 0x55603f : 0x4b5536;
+    const helmet = modern ? 0x4a5a3a : 0x3a2a1e;
+    list.push(gear(lumpy(new THREE.BoxGeometry(0.42, 0.34, 0.28, 2, 2, 2), 0.04, 3).translate(x, y + 0.17, z), uniform));
+    for (const sx of [-1, 1]) {
+      list.push(gear(box(0.11, 0.24, 0.12, x + sx * 0.25, y + 0.2, z + 0.02, 0, 0, sx * 0.25), uniform, 0.92));
+      list.push(gear(box(0.1, 0.09, 0.26, x + sx * 0.22, y + 0.08, z + 0.15), uniform, 0.9));
+    }
+    list.push(gear(new THREE.CylinderGeometry(0.055, 0.06, 0.08, 8).translate(x, y + 0.38, z), skin));
+    list.push(gear(new THREE.SphereGeometry(0.115, 12, 9).translate(x, y + 0.48, z + 0.01), skin));
+    list.push(gear(new THREE.SphereGeometry(0.13, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2).translate(x, y + 0.5, z - 0.01), helmet));
+    for (const sx of [-1, 1]) list.push(gear(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 10).rotateZ(Math.PI / 2).translate(x + sx * 0.12, y + 0.49, z - 0.01), helmet, 0.8));
+  };
   const CANVAS = 0x857b5c;
   const CANVAS_DARK = 0x5f5a45;
   const WOOD = 0x7b5d3c;
@@ -516,6 +539,7 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     );
     // Trappes, episcope et tourelleau du chef sur le toit de la casemate.
     camoParts.push(part(new THREE.CylinderGeometry(0.3, 0.3, 0.12, 14).translate(-tWid * 0.22, deckY + tHei + 0.06, cmRear + 0.9), 0.9));
+    addCommander(hullCommander, -tWid * 0.22, deckY + tHei + 0.02, cmRear + 0.9);
     camoParts.push(part(box(0.25, 0.14, 0.18, tWid * 0.2, deckY + tHei + 0.07, cmFront - topInset - 0.3)));
   }
 
@@ -630,9 +654,35 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       darkParts.push(part(box(0.42, 0.06, 0.2, (k - 1) * 0.46, deckY - glacisRise * 0.38 + 0.04, len / 2 - glacis * 0.62, glacisTilt, 0, 0), 0.6));
     }
   }
-  // Grilles moteur sur le pont arriere (deux pour les modernes).
-  darkParts.push(part(box(W * 0.5, 0.03, len * 0.22, 0, rearDeck + 0.015, -len * 0.3), 0.55));
-  if (modern) darkParts.push(part(box(W * 0.3, 0.03, 0.4, 0, rearDeck + 0.015, -len * 0.46), 0.4));
+  // Moteur sur le pont arriere : un puits sombre, un cadre, des persiennes
+  // inclinees ; devant, deux trappes d'acces avec charnieres et poignees.
+  const grilleZ = L.rearCasemate ? len * 0.18 : -len * 0.3;
+  const grilleL = len * 0.22;
+  const grilleW = W * 0.5;
+  const grilleY = L.rearCasemate ? deckY : rearDeck;
+  darkParts.push(part(box(grilleW, 0.03, grilleL, 0, grilleY + 0.012, grilleZ), 0.2));
+  for (const sx of [-1, 1]) camoParts.push(part(box(0.06, 0.07, grilleL + 0.06, sx * (grilleW / 2 + 0.03), grilleY + 0.035, grilleZ), 0.95));
+  for (const sz of [-1, 1]) camoParts.push(part(box(grilleW + 0.12, 0.07, 0.06, 0, grilleY + 0.035, grilleZ + sz * (grilleL / 2 + 0.03)), 0.95));
+  const slats = Math.max(5, Math.round(grilleL / 0.14));
+  for (let k = 0; k < slats; k++) {
+    const z = grilleZ - grilleL / 2 + (k + 0.5) * (grilleL / slats);
+    camoParts.push(part(box(grilleW - 0.02, 0.012, (grilleL / slats) * 0.8, 0, grilleY + 0.045, z, -0.55, 0, 0), 0.8));
+  }
+  darkParts.push(part(box(0.05, 0.05, grilleL, 0, grilleY + 0.055, grilleZ), 0.45));
+  if (modern) {
+    // Les modernes soufflent aussi par une grille a barreaux, tout au bout.
+    darkParts.push(part(box(W * 0.3, 0.03, 0.4, 0, rearDeck + 0.015, -len * 0.46), 0.3));
+    for (let k = 0; k < 5; k++) darkParts.push(part(box(W * 0.3, 0.04, 0.03, 0, rearDeck + 0.035, -len * 0.46 - 0.16 + k * 0.08), 0.6));
+  }
+  if (!casemate || L.rearCasemate) {
+    const hatchZ = grilleZ + (L.rearCasemate ? -1 : 1) * (grilleL / 2 + 0.38);
+    for (const sx of [-1, 1]) {
+      const hx = sx * W * 0.13;
+      camoParts.push(part(box(W * 0.22, 0.04, 0.52, hx, grilleY + 0.02, hatchZ), 1.04));
+      darkParts.push(part(box(0.1, 0.035, 0.03, hx + sx * W * 0.06, grilleY + 0.055, hatchZ + 0.18), 0.4));
+      for (const hz of [-0.17, 0.17]) darkParts.push(part(new THREE.CylinderGeometry(0.025, 0.025, 0.09, 6).rotateZ(Math.PI / 2).translate(hx - sx * W * 0.1, grilleY + 0.045, hatchZ + hz), 0.5));
+    }
+  }
   // Trappe du pilote, avec ses episcopes.
   camoParts.push(part(box(0.5, 0.08, 0.5, -W * 0.22, deckY + 0.03, len / 2 - glacis - 0.3), 0.92));
   darkParts.push(part(box(0.3, 0.06, 0.06, -W * 0.22, deckY + 0.08, len / 2 - glacis - 0.05), 0.3));
@@ -649,6 +699,46 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
       for (let k = 0; k < 14; k++) {
         darkParts.push(part(box(0.035, 0.03, 0.035, side * (hu - inset - 0.06), deckY + 0.01, -len / 2 + 0.4 + k * ((len - 0.8) / 13)), 1.25));
       }
+    }
+  }
+
+  // Anneaux de levage aux quatre coins du pont.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      darkParts.push(part(new THREE.TorusGeometry(0.055, 0.016, 5, 10).translate(sx * (hu - inset - 0.12), deckY + 0.04, sz * (len / 2 - glacis * (sz > 0 ? 1 : 0) - 0.3)), 0.5));
+    }
+  }
+  // Outils fixes au flanc gauche : pelle, hache et pied-de-biche, tenus par des brides.
+  {
+    const tx = -(hu + 0.03);
+    const ty = c + H * 0.72;
+    const z0 = -len * 0.02;
+    gearParts.push(gear(rod(0.022, tx, ty, z0, tx, ty, z0 + 0.95, 6), WOOD));
+    gearParts.push(gear(box(0.02, 0.2, 0.28, tx, ty, z0 + 1.08), 0x5c5f5a));
+    gearParts.push(gear(rod(0.02, tx, ty - 0.17, z0 + 0.05, tx, ty - 0.17, z0 + 0.82, 6), WOOD, 0.85));
+    gearParts.push(gear(box(0.03, 0.16, 0.12, tx, ty - 0.14, z0 + 0.86), 0x3d3f3c));
+    darkParts.push(part(rod(0.016, tx, ty + 0.15, z0 - 0.1, tx, ty + 0.15, z0 + 1.0, 6), 0.4));
+    for (const bz of [z0 + 0.2, z0 + 0.7]) darkParts.push(part(box(0.04, 0.42, 0.04, tx - 0.005, ty, bz), 0.35));
+  }
+  // A l'arriere des anciens : deux futs d'essence sur leur berceau, ou une roue de secours.
+  if (!modern && !L.howitzer && !L.rearCasemate && !L.wheeled) {
+    if (hash01(def.id.length * 13 + def.tier) < 0.5) {
+      for (const sx of [-1, 1]) {
+        const drum = new THREE.CylinderGeometry(0.26, 0.26, 0.82, 14);
+        drum.rotateZ(Math.PI / 2);
+        drum.translate(sx * W * 0.22, c + H * 0.78, -len / 2 - 0.3);
+        gearParts.push(gear(drum, hash01(def.tier * 7.1) < 0.5 ? 0x4a5236 : 0x6b4a2f));
+        for (const rx of [-0.24, 0.24]) gearParts.push(gear(new THREE.TorusGeometry(0.262, 0.018, 5, 14).rotateY(Math.PI / 2).translate(sx * W * 0.22 + rx, c + H * 0.78, -len / 2 - 0.3), 0x33352c));
+      }
+      darkParts.push(part(box(W * 0.75, 0.05, 0.36, 0, c + H * 0.62, -len / 2 - 0.22), 0.45));
+    } else {
+      // Roue de secours accrochee au flanc gauche, au-dessus de la chenille.
+      const wr = L.wheelRadius;
+      const sx = -(hu + 0.07);
+      const sy = deckY - wr - 0.04;
+      darkParts.push(part(wheel(wr, 0.13, sx, sy, -len * 0.3, 18), 0.3));
+      camoParts.push(part(wheel(wr * 0.62, 0.15, sx, sy, -len * 0.3, 14), 0.85));
+      darkParts.push(part(wheel(wr * 0.22, 0.17, sx, sy, -len * 0.3, 10), 1.2));
     }
   }
 
@@ -843,7 +933,9 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     const cx = -tWid * 0.2;
     const cz = -tLen * 0.15;
     turretParts.push(part(new THREE.CylinderGeometry(0.3, 0.33, 0.28, 14).translate(cx, roofY + 0.12, cz), 1));
-    turretDark.push(part(new THREE.CylinderGeometry(0.27, 0.27, 0.05, 14).translate(cx, roofY + 0.29, cz), 0.8));
+    // La trappe est ouverte, relevee derriere le chef qui regarde dehors.
+    turretDark.push(part(new THREE.CylinderGeometry(0.27, 0.27, 0.05, 14).rotateX(Math.PI / 2 - 0.25).translate(cx, roofY + 0.52, cz - 0.31), 0.8));
+    addCommander(commanderParts, cx, roofY + 0.2, cz);
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2;
       turretDark.push(part(box(0.08, 0.07, 0.05, cx + Math.cos(a) * 0.3, roofY + 0.2, cz + Math.sin(a) * 0.3, 0, -a, 0), 0.35));
@@ -882,10 +974,13 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     }
     // Mitrailleuse du chef sur son affut.
     if (L.aaMG) {
-      turretDark.push(part(rod(0.02, cx, roofY + 0.3, cz, cx, roofY + 0.62, cz), 0.5));
-      turretDark.push(part(box(0.11, 0.12, 0.42, cx, roofY + 0.68, cz + 0.08), 0.42));
-      turretDark.push(part(tubeZ(0.016, 0.02, 0.62, cx, roofY + 0.7, cz + 0.28, 8), 0.3));
-      turretDark.push(part(box(0.14, 0.12, 0.14, cx + 0.12, roofY + 0.64, cz + 0.02), 0.6));
+      // Sur le bord du tourelleau, a portee de main du chef.
+      const mx = cx + 0.34;
+      const mz = cz + 0.08;
+      turretDark.push(part(rod(0.02, mx, roofY + 0.24, mz, mx, roofY + 0.58, mz), 0.5));
+      turretDark.push(part(box(0.11, 0.12, 0.42, mx, roofY + 0.64, mz + 0.08), 0.42));
+      turretDark.push(part(tubeZ(0.016, 0.02, 0.62, mx, roofY + 0.66, mz + 0.28, 8), 0.3));
+      turretDark.push(part(box(0.14, 0.12, 0.14, mx + 0.12, roofY + 0.6, mz + 0.02), 0.6));
     }
     // Char moderne : viseurs, capteur de vent, panier arriere, lance-fumigenes.
     if (modern) {
@@ -1165,8 +1260,8 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   // Boue : pleine au ras du sol, plus rien au-dessus du milieu de la caisse ;
   // un voile de poussiere sur tout ce qui est a plat.
   const dirtTop = c + H * 0.85;
-  const addMesh = (parent: THREE.Object3D, list: THREE.BufferGeometry[], mat: THREE.Material, yOffset: number) => {
-    if (list.length === 0) return;
+  const addMesh = (parent: THREE.Object3D, list: THREE.BufferGeometry[], mat: THREE.Material, yOffset: number): THREE.Mesh | null => {
+    if (list.length === 0) return null;
     const g = mergeGeometries(list, false)!;
     for (const p of list) p.dispose();
     const pos = g.getAttribute("position");
@@ -1183,10 +1278,11 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     m.castShadow = true;
     m.receiveShadow = true;
     parent.add(m);
+    return m;
   };
   addMesh(root, camoParts, camoMat, 0);
   addMesh(root, darkParts, darkMat, 0);
-  addMesh(root, gearParts, gearMat, 0);
+  const details: (THREE.Mesh | null)[] = [addMesh(root, gearParts, gearMat, 0)];
   for (const [k, tg] of tracks.entries()) {
     // Les chenilles sont crottees par plaques.
     tg.setAttribute("dirt", new THREE.BufferAttribute(new Float32Array(tg.getAttribute("position").count).fill(0.48), 1));
@@ -1198,10 +1294,12 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
   const turretLift = turret.position.y;
   addMesh(turret, turretParts, camoMat, turretLift);
   addMesh(turret, turretDark, darkMat, turretLift);
-  addMesh(turret, turretGear, gearMat, turretLift);
+  details.push(addMesh(turret, turretGear, gearMat, turretLift));
+  const crew = [addMesh(turret, commanderParts, gearMat, turretLift), addMesh(root, hullCommander, gearMat, 0)];
   addMesh(gun, gunParts, camoMat, turretLift + gun.position.y);
   addMesh(gun, gunDark, darkMat, turretLift + gun.position.y);
-  addMesh(gun, gunGear, gearMat, turretLift + gun.position.y);
+  details.push(addMesh(gun, gunGear, gearMat, turretLift + gun.position.y));
+  let wrecked = false;
   if (barrelParts.length) {
     addMesh(barrels, barrelParts, darkMat, turretLift + gun.position.y);
     gun.add(barrels);
@@ -1302,6 +1400,11 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     turretHalf,
     fixedTurret: casemate,
     exhausts,
+    engine: new THREE.Vector3(0, (L.rearCasemate ? deckY : rearDeck) + 0.3, L.rearCasemate ? len * 0.18 : -len * 0.3),
+    setDetail: (near) => {
+      for (const m of details) if (m) m.visible = near;
+      for (const m of crew) if (m) m.visible = near && !wrecked;
+    },
     spin: (dt, firing) => {
       if (!barrelParts.length) return;
       spinRate += ((firing ? 34 : 0) - spinRate) * Math.min(1, dt * (firing ? 6 : 1.2));
@@ -1315,6 +1418,9 @@ export function buildTankModel(def: TankDef, opts: TankModelOptions = {}): TankM
     },
     setWrecked: () => {
       shading.uWreck.value = 1;
+      // L'equipage a saute du char.
+      wrecked = true;
+      for (const m of crew) if (m) m.visible = false;
       trackMatL.color.setHex(0x5a5650);
       trackMatR.color.setHex(0x5a5650);
       numberMat.color.setHex(0x3a3632);

@@ -283,7 +283,7 @@ export default function TankGame({
         const m = localStorage.getItem(MAP_KEY);
         if (m && (m === "hasard" || MAP_LIST.some((x) => x.id === m))) setMapChoice(m as MapChoice);
         const md = localStorage.getItem(MODE_KEY);
-        if (md === "normale" || md === "cent") setMode(md);
+        if (md === "normale" || md === "cent" || md === "grande") setMode(md);
       } catch {
         // stockage indisponible
       }
@@ -857,7 +857,7 @@ export default function TankGame({
             <div className="order-2 flex shrink-0 flex-col gap-2 p-2 md:order-1 md:w-60 md:overflow-y-auto">
               <Panel title="Mode de jeu">
                 <div className="flex gap-2 md:flex-col">
-                  {(["cent", "normale"] as const).map((m) => {
+                  {(["cent", "normale", "grande"] as const).map((m) => {
                     const info = MODES[m];
                     const hasTank = tanksForMode(m, admin).some((d) => garage.owned.includes(d.id));
                     return (
@@ -867,7 +867,7 @@ export default function TankGame({
                         onClick={() => pickMode(m)}
                         className={`flex-1 rounded border p-2 text-left transition ${
                           activeMode === m ? "border-red-500 ring-1 ring-red-500" : "border-white/10 hover:border-white/30"
-                        } ${m === "cent" ? "bg-gradient-to-br from-red-900/80 to-black" : "bg-gradient-to-br from-stone-700/60 to-black"}`}
+                        } ${m === "cent" ? "bg-gradient-to-br from-red-900/80 to-black" : m === "grande" ? "bg-gradient-to-br from-emerald-900/70 to-black" : "bg-gradient-to-br from-stone-700/60 to-black"}`}
                       >
                         <p className="text-xs font-black uppercase tracking-widest text-white">{info.name}</p>
                         <p className="mt-0.5 text-[10px] leading-snug text-zinc-300">
@@ -1111,16 +1111,21 @@ export default function TankGame({
                   key={d.id}
                   type="button"
                   onClick={() => pickTank(d.id)}
-                  className={`relative min-w-[136px] rounded border p-2 text-left transition ${
+                  className={`relative w-40 shrink-0 rounded border p-2 text-left transition ${
                     d.id === shownId ? "border-red-500 bg-red-900/30" : "border-white/10 bg-white/5 hover:bg-white/10"
                   } ${st === "possede" ? "" : "opacity-75"}`}
                 >
                   <p className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                     <span className="font-mono text-amber-300">{tierLabel(d.tier)}</span>
-                    <TankClassIcon cls={d.cls} className="h-3.5 w-3.5 text-zinc-300" />
-                    {TANK_CLASS_NAMES[d.cls]}
+                    <TankClassIcon cls={d.cls} className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                    <span className="truncate">{TANK_CLASS_NAMES[d.cls]}</span>
+                    {m && (
+                      <span className="ml-auto shrink-0">
+                        <MasteryBadge rank={m.rank} label={m.label} />
+                      </span>
+                    )}
                   </p>
-                  <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black">
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-black">
                     {d.name}
                     {(() => {
                       const b = tankBadge(d);
@@ -1130,11 +1135,6 @@ export default function TankGame({
                   <p className="font-mono text-[10px] text-zinc-400">
                     {st === "possede" ? `${d.hp} PS · ${d.ammo.perforant.damage} dég.` : st === "verrouille" ? "🔒 Verrouillé" : <Cost def={d} />}
                   </p>
-                  {m && (
-                    <span className="absolute right-1 top-1">
-                      <MasteryBadge rank={m.rank} label={m.label} />
-                    </span>
-                  )}
                 </button>
               );
             })}
