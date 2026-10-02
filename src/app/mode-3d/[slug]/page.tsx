@@ -91,7 +91,7 @@ export default async function Play3DPage({
       {slug === "duel-1v1" && <DuelGame title={title} devAllowed={devAllowed} />}
       {slug === "backrooms" && <BackroomsGame title={title} pseudo={pseudo} devAllowed={devAllowed} />}
       {slug === "front-urbain" && <FrontUrbainGame title={title} />}
-      {slug === "tonnerre-acier" && <TankGame title={title} admin={adminTanks} />}
+      {slug === "tonnerre-acier" && <TankGame title={title} admin={adminTanks} pseudo={pseudo} />}
     </Game3DFrame>
   );
 }

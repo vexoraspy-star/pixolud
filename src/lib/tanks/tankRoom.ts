@@ -76,6 +76,7 @@ export class TankRoom {
   private lastStart = 0;
   private hostSeen = false;
   private known = new Set<string>();
+  private phases = new Map<string, RoomMember["phase"]>();
   private hostTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(code: string, host: boolean, choice: MemberChoice, settings: RoomSettings) {
@@ -133,12 +134,18 @@ export class TankRoom {
     const state = this.channel.presenceState<RoomMember>();
     const list: RoomMember[] = [];
     for (const entries of Object.values(state)) {
-      const m = entries[0];
+      // La plus recente : un joueur qui change de char met sa presence a jour.
+      const m = entries[entries.length - 1];
       if (m && typeof m.key === "string") list.push({ ...m });
     }
     list.sort((a, b) => a.joinedAt - b.joinedAt || a.key.localeCompare(b.key));
     const keys = new Set(list.map((m) => m.key));
     for (const k of this.known) if (!keys.has(k) && k !== this.me) this.fight?.leave?.(k);
+    // Un joueur revenu au salon pendant la bataille l'a quittee.
+    for (const m of list) {
+      if (m.key !== this.me && this.phases.get(m.key) === "bataille" && m.phase === "salon") this.fight?.leave?.(m.key);
+      this.phases.set(m.key, m.phase);
+    }
     const fresh = list.some((m) => !this.known.has(m.key));
     this.known = keys;
     this.members = list;

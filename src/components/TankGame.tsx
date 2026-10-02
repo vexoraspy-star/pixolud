@@ -6,6 +6,7 @@ import Link from "next/link";
 import Game3DSettings from "./Game3DSettings";
 import { ShellIcon, TankClassIcon } from "./TankIcons";
 import type { BattleResult } from "./TankScene";
+import TankLobby, { launchBlocker, memberTeam } from "./TankLobby";
 import {
   AMMO,
   AMMO_ORDER,
@@ -26,10 +27,14 @@ import {
   type TankDef,
 } from "@/lib/tanks/tankDefs";
 import { MAP_LIST, mapInfo, type MapId } from "@/lib/tanks/tankTerrain";
+import { planLineup } from "@/lib/tanks/tankSim";
+import { lineupToNet, roomCode, type RoomStart } from "@/lib/tanks/tankNet";
+import { TankRoom, type RoomSettings } from "@/lib/tanks/tankRoom";
 import {
   BOOSTERS,
   EMPTY_CAREER,
   adminCareer,
+  withBonus,
   MEDALS,
   MODULES,
   SKILLS,
@@ -85,7 +90,7 @@ const MAP_KEY = "pixolud-tanks-carte";
 const MODE_KEY = "pixolud-tanks-mode";
 
 type MapChoice = MapId | "hasard";
-type Tab = "garage" | "chars" | "commandant" | "profil";
+type Tab = "garage" | "chars" | "commandant" | "profil" | "enligne";
 
 function readCamos(): Record<string, string> {
   try {
@@ -223,7 +228,17 @@ function Cost({ def }: { def: TankDef }) {
 
 // ------------------------------------------------------------------ jeu
 
-export default function TankGame({ title, admin = false }: { title: string; /** Compte admin : tous les chars sont au garage. */ admin?: boolean }) {
+export default function TankGame({
+  title,
+  admin = false,
+  pseudo = null,
+}: {
+  title: string;
+  /** Compte admin : tout est deja debloque. */
+  admin?: boolean;
+  /** Pseudo du joueur connecte (son nom dans les parties en ligne). */
+  pseudo?: string | null;
+}) {
   const [tankId, setTankId] = useState("bouledogue");
   const [difficulty, setDifficulty] = useState<Difficulty>("veteran");
   const [screen, setScreen] = useState<"garage" | "bataille" | "resultats">("garage");
@@ -241,6 +256,11 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const [flash, setFlash] = useState<string | null>(null);
   /** Gains de la derniere bataille, boosters compris. */
   const [gains, setGains] = useState<{ xp: number; credits: number; xpBoost: boolean; creditBoost: boolean } | null>(null);
+  /** En ligne : le salon, la bataille en cours, et de quoi redessiner quand le salon change. */
+  const [room, setRoom] = useState<TankRoom | null>(null);
+  const [online, setOnline] = useState<{ room: TankRoom; start: RoomStart } | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [, setRoomTick] = useState(0);
 
   // Choix memorises (lus apres le premier rendu : le serveur ne les connait pas).
   useEffect(() => {
@@ -276,9 +296,13 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
   const maxOf = (f: (d: TankDef) => number) => Math.max(...TANKS.filter((d) => !d.adminOnly).map(f));
   // Un admin a deja tout : chars, credits, XP, modules, commandant (sans rien changer a la carriere enregistree).
   const garage: Career = useMemo(() => (admin ? adminCareer(career) : career), [admin, career]);
-  const modeTanks = tanksForMode(mode, admin);
-  // Un char d'un autre mode (memorise) : on montre le premier du mode.
-  const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : modeTanks[0].id;
+  // Dans le salon d'un autre, on joue le mode choisi par l'hote.
+  const hostMode = room && !room.isHost && room.status === "ouvert" ? room.settings.mode : null;
+  const activeMode = hostMode ?? mode;
+  const modeTanks = tanksForMode(activeMode, admin);
+  // Un char d'un autre mode (memorise) : on montre le meilleur char possede du mode.
+  const bestOwned = modeTanks.filter((d) => garage.owned.includes(d.id)).sort((a, b) => b.tier - a.tier)[0];
+  const shownId = modeTanks.some((d) => d.id === tankId) ? tankId : (bestOwned ?? modeTanks[0]).id;
   const def = tankById(shownId);
   const camo = camos[shownId] ?? null;
   const state = unlockState(garage, def);
@@ -358,6 +382,94 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
     setScreen("bataille");
   }
 
+  // ------------------------------------------------------------- en ligne
+
+  const myName = (pseudo?.trim() || career.commander.name).slice(0, 24);
+
+  // Le salon previent le garage : joueurs, reglages, et le depart d'une bataille.
+  useEffect(() => {
+    if (!room) return;
+    return room.listenLobby({
+      change: () => setRoomTick((t) => t + 1),
+      start: (start) => {
+        room.update({ phase: "bataille", ready: false });
+        setOnline({ room, start });
+        setResult(null);
+        setBattleKey((k) => k + 1);
+        setScreen("bataille");
+      },
+    });
+  }, [room]);
+
+  // Mon char et mon nom, pour les autres joueurs du salon.
+  useEffect(() => {
+    room?.update({ name: myName, tankId: shownId, camo, bonus });
+  }, [room, myName, shownId, camo, bonus]);
+
+  // On quitte le salon en quittant le jeu.
+  useEffect(() => () => room?.leave(), [room]);
+
+  function createRoom() {
+    setRoomError(null);
+    room?.leave();
+    setRoom(new TankRoom(roomCode(), true, { name: myName, tankId: shownId, camo, bonus }, { mode, map: mapChoice, teams: "coop", difficulty }));
+  }
+
+  function joinRoom(code: string) {
+    if (code.length !== 5) {
+      setRoomError("Le code d'un salon a 5 lettres.");
+      return;
+    }
+    setRoomError(null);
+    room?.leave();
+    setRoom(new TankRoom(code, false, { name: myName, tankId: shownId, camo, bonus }, { mode, map: "hasard", teams: "coop", difficulty }));
+  }
+
+  function leaveRoom() {
+    room?.leave();
+    setRoom(null);
+    setOnline(null);
+  }
+
+  /** Hote : un reglage change pour tout le salon (et son garage suit le mode). */
+  function changeSettings(patch: Partial<RoomSettings>) {
+    if (!room) return;
+    room.setSettings({ ...room.settings, ...patch });
+    if (patch.mode && patch.mode !== mode) pickMode(patch.mode);
+  }
+
+  /** Hote : on compose les equipes (joueurs puis bots) et on donne le depart a tout le salon. */
+  function launchOnline() {
+    if (!room || !room.isHost || launchBlocker(room)) return;
+    const s = room.settings;
+    const members = room.members;
+    const seed = Math.floor(Math.random() * 1e9);
+    const mapId = s.map === "hasard" ? MAP_LIST[Math.floor(Math.random() * MAP_LIST.length)].id : s.map;
+    const seats = members.map((m, i) => ({
+      key: m.key,
+      name: m.name,
+      def: withBonus(tankById(m.tankId), m.bonus),
+      team: memberTeam(i, s.teams),
+      camo: m.camo,
+    }));
+    const lineup = lineupToNet(planLineup(seed, s.mode, seats), (key) => members.find((m) => m.key === key)?.bonus ?? null);
+    const start: RoomStart = { id: Date.now(), seed, mapId, mode: s.mode, difficulty: s.difficulty, teams: s.teams, lineup };
+    room.start(start);
+    room.update({ phase: "bataille" });
+    setOnline({ room, start });
+    setResult(null);
+    setBattleKey((k) => k + 1);
+    setScreen("bataille");
+  }
+
+  /** Apres une bataille en ligne (ou en la quittant) : retour au salon. */
+  function backToRoom() {
+    setOnline(null);
+    if (room && room.status !== "ferme") room.update({ phase: "salon", ready: room.isHost });
+    setTab("enligne");
+    setScreen("garage");
+  }
+
   function endBattle(r: BattleResult) {
     const d = tankById(r.tankId);
     const medals = medalsFor(
@@ -379,8 +491,8 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
     const nextMedals = { ...career.medals };
     for (const m of medals) nextMedals[m] = (nextMedals[m] ?? 0) + 1;
     // Boosters : gains doubles tant qu'il reste des batailles.
-    const xpBoost = career.boosters.xp > 0;
-    const creditBoost = career.boosters.credits > 0;
+    const xpBoost = garage.boosters.xp > 0;
+    const creditBoost = garage.boosters.credits > 0;
     const xpGain = r.xp * (xpBoost ? 2 : 1);
     const creditGain = r.credits * (creditBoost ? 2 : 1);
     const next: Career = {
@@ -424,6 +536,26 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
 
   // ------------------------------------------------------------ bataille
 
+  if (screen === "bataille" && online) {
+    const mine = online.start.lineup.find((s) => s.human === online.room.me);
+    if (mine) {
+      return (
+        <TankScene
+          key={battleKey}
+          tankId={mine.defId}
+          camo={mine.camo}
+          mapId={online.start.mapId}
+          mode={online.start.mode}
+          bonus={mine.bonus}
+          difficulty={online.start.difficulty}
+          online={online}
+          onEnd={endBattle}
+          onQuit={backToRoom}
+        />
+      );
+    }
+  }
+
   if (screen === "bataille" && battleMap) {
     return (
       <TankScene
@@ -431,7 +563,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
         tankId={shownId}
         camo={camos[shownId] ?? null}
         mapId={battleMap}
-        mode={mode}
+        mode={activeMode}
         bonus={bonus}
         difficulty={difficulty}
         onEnd={endBattle}
@@ -608,8 +740,18 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
         </div>
 
         <div className="flex justify-center gap-3 border-t border-white/10 bg-black/60 p-3">
+          {online && (
+            <button
+              type="button"
+              onClick={backToRoom}
+              className="rounded bg-gradient-to-b from-sky-600 to-sky-800 px-6 py-2.5 text-sm font-black uppercase tracking-widest ring-1 ring-sky-300/50 hover:from-sky-500"
+            >
+              Retour au salon
+            </button>
+          )}
           <button
             type="button"
+            hidden={online !== null}
             onClick={startBattle}
             className="rounded bg-gradient-to-b from-red-600 to-red-800 px-6 py-2.5 text-sm font-black uppercase tracking-widest shadow-lg shadow-red-950/60 ring-1 ring-red-400/50 hover:from-red-500"
           >
@@ -617,6 +759,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
           </button>
           <button
             type="button"
+            hidden={online !== null}
             onClick={() => setScreen("garage")}
             className="rounded border border-white/25 px-6 py-2.5 text-sm font-bold uppercase tracking-widest hover:bg-white/10"
           >
@@ -635,6 +778,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
     ["chars", "Chars"],
     ["commandant", "Commandant"],
     ["profil", "Profil"],
+    ["enligne", room && room.status === "ouvert" ? `En ligne · ${room.code}` : "En ligne"],
   ];
   const owned = garage.owned.includes(def.id);
 
@@ -696,7 +840,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                         type="button"
                         onClick={() => pickMode(m)}
                         className={`flex-1 rounded border p-2 text-left transition ${
-                          mode === m ? "border-red-500 ring-1 ring-red-500" : "border-white/10 hover:border-white/30"
+                          activeMode === m ? "border-red-500 ring-1 ring-red-500" : "border-white/10 hover:border-white/30"
                         } ${m === "cent" ? "bg-gradient-to-br from-red-900/80 to-black" : "bg-gradient-to-br from-stone-700/60 to-black"}`}
                       >
                         <p className="text-xs font-black uppercase tracking-widest text-white">{info.name}</p>
@@ -708,7 +852,7 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
                     );
                   })}
                 </div>
-                <p className="mt-2 hidden text-[10px] leading-snug text-zinc-400 md:block">{MODES[mode].tagline}</p>
+                <p className="mt-2 hidden text-[10px] leading-snug text-zinc-400 md:block">{MODES[activeMode].tagline}</p>
               </Panel>
               <Panel title="Bataille">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">
@@ -983,6 +1127,22 @@ export default function TankGame({ title, admin = false }: { title: string; /** 
       )}
 
       {tab === "profil" && <Profile career={garage} />}
+
+      {tab === "enligne" && (
+        <TankLobby
+          room={room}
+          error={roomError}
+          myTank={def}
+          myTankOwned={owned}
+          onCreate={createRoom}
+          onJoin={joinRoom}
+          onLeave={leaveRoom}
+          onSettings={changeSettings}
+          onReady={(ready) => room?.update({ ready })}
+          onLaunch={launchOnline}
+          onGarage={() => setTab("garage")}
+        />
+      )}
 
       <Game3DSettings />
     </div>
