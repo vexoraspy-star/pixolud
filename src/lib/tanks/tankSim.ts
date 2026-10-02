@@ -1207,7 +1207,8 @@ export function createBattle(
       for (const a of tanks) {
         if (a.team === e.team || !a.alive) continue;
         const d = Math.hypot(a.x - e.x, a.z - e.z);
-        if (d > a.def.viewRange) continue;
+        // Un char camoufle se laisse approcher de plus pres avant d'etre repere.
+        if (d > a.def.viewRange * (e.def.concealment ?? 1)) continue;
         const eyeA = a.y + a.def.look.clearance + a.def.look.hullHeight + 1.3;
         const bodyE = e.y + e.def.look.clearance + e.def.look.hullHeight * 0.8;
         // Tres pres, on se voit toujours.

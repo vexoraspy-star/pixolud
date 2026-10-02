@@ -244,6 +244,8 @@ export interface TankDef {
   infiniteAmmo?: boolean;
   /** Reserve aux comptes admin : jamais tire au sort pour les bots. */
   adminOnly?: boolean;
+  /** Discretion : l'ennemi le repere a cette fraction de sa portee de vue (1 : normal). */
+  concealment?: number;
   look: TankLook;
 }
 
