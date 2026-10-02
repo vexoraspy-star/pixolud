@@ -67,6 +67,7 @@ function MemberRow({ m, index, teams, me }: { m: RoomMember; index: number; team
 export default function TankLobby({
   room,
   error,
+  inviteCode = "",
   myTank,
   myTankOwned,
   onCreate,
@@ -79,6 +80,8 @@ export default function TankLobby({
 }: {
   room: TankRoom | null;
   error: string | null;
+  /** Code recu par un lien d'invitation (vide sinon). */
+  inviteCode?: string;
   /** Le char choisi au garage. */
   myTank: TankDef;
   myTankOwned: boolean;
@@ -90,14 +93,35 @@ export default function TankLobby({
   onLaunch: () => void;
   onGarage: () => void;
 }) {
-  const [code, setCode] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState(inviteCode);
+  const [copied, setCopied] = useState<"code" | "lien" | null>(null);
+
+  function copy(text: string, what: "code" | "lien") {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1800);
+    });
+  }
 
   // --- Pas encore de salon : creer ou rejoindre ---
   if (!room || room.status === "ferme") {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="mx-auto grid max-w-3xl gap-3 md:grid-cols-2">
+          {inviteCode && !room && (
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-400/50 bg-sky-950/50 p-4 md:col-span-2">
+              <p className="text-sm text-sky-100">
+                Tu es invité dans le salon <b className="font-mono tracking-[0.25em] text-amber-300">{inviteCode}</b>.
+              </p>
+              <button
+                type="button"
+                onClick={() => onJoin(inviteCode)}
+                className="rounded bg-sky-600 px-5 py-2 text-sm font-black uppercase tracking-widest hover:bg-sky-500"
+              >
+                Rejoindre
+              </button>
+            </section>
+          )}
           <section className="rounded-md border border-white/10 bg-black/60 p-4">
             <h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-400">Créer un salon</h2>
             <p className="mt-2 text-xs leading-relaxed text-zinc-300">
@@ -177,18 +201,23 @@ export default function TankLobby({
               <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Code du salon</p>
               <p className="font-mono text-3xl font-black tracking-[0.35em] text-amber-300">{room.code}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard?.writeText(room.code).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1800);
-                });
-              }}
-              className="rounded border border-white/20 px-3 py-1.5 text-xs font-bold uppercase hover:bg-white/10"
-            >
-              {copied ? "Copié !" : "Copier le code"}
-            </button>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => copy(room.code, "code")}
+                className="rounded border border-white/20 px-3 py-1.5 text-xs font-bold uppercase hover:bg-white/10"
+              >
+                {copied === "code" ? "Copié !" : "Copier le code"}
+              </button>
+              <button
+                type="button"
+                title="Un lien qui ouvre directement ce salon"
+                onClick={() => copy(`${window.location.origin}${window.location.pathname}?salon=${room.code}`, "lien")}
+                className="rounded bg-sky-700 px-3 py-1.5 text-xs font-bold uppercase hover:bg-sky-600"
+              >
+                {copied === "lien" ? "Lien copié !" : "Copier le lien d'invitation"}
+              </button>
+            </div>
           </div>
           <h3 className="mt-3 text-[11px] font-black uppercase tracking-[0.2em] text-zinc-300">
             Joueurs ({room.members.length}/{ROOM_MAX})
@@ -198,7 +227,9 @@ export default function TankLobby({
               <MemberRow key={m.key} m={m} index={i} teams={s.teams} me={room.me} />
             ))}
           </ul>
-          {room.members.length < 2 && <p className="mt-2 text-xs text-zinc-400">Donne le code à tes amis : ils le tapent dans l&apos;onglet « En ligne ».</p>}
+          {room.members.length < 2 && (
+            <p className="mt-2 text-xs text-zinc-400">Envoie le lien d&apos;invitation à tes amis, ou donne-leur le code à taper dans l&apos;onglet « En ligne ».</p>
+          )}
         </section>
 
         <div className="flex flex-col gap-3">

@@ -269,6 +269,8 @@ export default function TankGame({
   const [online, setOnline] = useState<{ room: TankRoom; start: RoomStart } | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [, setRoomTick] = useState(0);
+  /** Code du salon recu par un lien d'invitation. */
+  const [inviteCode, setInviteCode] = useState("");
 
   // Choix memorises (lus apres le premier rendu : le serveur ne les connait pas).
   useEffect(() => {
@@ -290,6 +292,12 @@ export default function TankGame({
       setCareer(saved);
       saveCareer(saved);
       setCamos(readCamos());
+      // Lien d'invitation (?salon=ABCDE) : on ouvre l'onglet « En ligne », code deja tape.
+      const invite = new URLSearchParams(window.location.search).get("salon")?.toUpperCase() ?? "";
+      if (/^[A-Z]{5}$/.test(invite)) {
+        setInviteCode(invite);
+        setTab("enligne");
+      }
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -741,7 +749,10 @@ export default function TankGame({
                               <span className={b.alive ? "font-bold text-white" : "line-through"}>{b.tank}</span>
                             </span>
                           </td>
-                          <td className="py-1">{b.name}</td>
+                          <td className="py-1">
+                            {b.name}
+                            {b.human && !b.isPlayer && <span className="ml-1.5 rounded bg-sky-700 px-1 text-[9px] font-black uppercase text-white">joueur</span>}
+                          </td>
                           <td className="py-1 text-right font-mono">{fmt(b.damage)}</td>
                           <td className="py-1 text-right font-mono">{b.kills}</td>
                         </tr>
@@ -1149,6 +1160,7 @@ export default function TankGame({
         <TankLobby
           room={room}
           error={roomError}
+          inviteCode={inviteCode}
           myTank={def}
           myTankOwned={owned}
           onCreate={createRoom}

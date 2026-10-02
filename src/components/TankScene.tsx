@@ -83,7 +83,7 @@ export interface BattleResult {
   assist: number;
   detections: number;
   /** Tableau des scores : chaque char de la bataille. */
-  board: { team: number; name: string; tank: string; cls: TankClass; tier: number; damage: number; kills: number; alive: boolean; isPlayer: boolean }[];
+  board: { team: number; name: string; tank: string; cls: TankClass; tier: number; damage: number; kills: number; alive: boolean; isPlayer: boolean; human?: boolean }[];
 }
 
 interface TeamSlot {
@@ -1182,6 +1182,7 @@ export default function TankScene({
             kills: t.kills,
             alive: t.alive,
             isPlayer: t.isPlayer,
+            human: t.human !== null,
           })),
         });
       }
