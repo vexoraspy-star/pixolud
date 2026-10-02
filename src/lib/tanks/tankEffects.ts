@@ -300,80 +300,27 @@ export function createTankEffects(ground: GroundColors = { dust: [0.66, 0.58, 0.
 
   return {
     group,
-    muzzle: (pos, dir, caliber, groundY) => {
+    muzzle: (pos, dir, caliber) => {
       const k = Math.min(1.6, caliber / 75);
       // Eclair : trois boules de feu etirees dans l'axe du tube.
       for (let i = 0; i < 4; i++) {
         const d = 0.4 + i * 0.7 * k;
         spawn(fire, pos.x + dir.x * d, pos.y + dir.y * d, pos.z + dir.z * d, dir.x * 3, dir.y * 3, dir.z * 3, 0.09, 1.4 * k, 2.4 * k, 1, 0.8, 0.5, 1);
       }
-      // Fumee : un nuage qui part vers l'avant puis s'etale.
-      for (let i = 0; i < 12; i++) {
-        const sp = 6 + Math.random() * 14;
-        spawn(
-          smoke,
-          pos.x,
-          pos.y,
-          pos.z,
-          dir.x * sp + rnd(4),
-          dir.y * sp + rnd(3) + 0.8,
-          dir.z * sp + rnd(4),
-          1.8 + Math.random() * 1.6,
-          0.8 * k,
-          (4.5 + Math.random() * 2) * k,
-          0.78,
-          0.76,
-          0.72,
-          0.55,
-          -0.25,
-          2.2,
-        );
-      }
-      // Souffle au sol : la poussiere se souleve en anneau.
-      if (pos.y - groundY < 4) {
-        for (let i = 0; i < 10; i++) {
-          const a = (i / 10) * Math.PI * 2;
-          spawn(smoke, pos.x + Math.cos(a) * 1.5, groundY + 0.4, pos.z + Math.sin(a) * 1.5, Math.cos(a) * 7, 0.6, Math.sin(a) * 7, 1.4, 1, 3.5, dr * 0.94, dg * 0.94, db * 0.94, 0.4, -0.1, 2.5);
-        }
-      }
+      // Pas de fumee au tir : ces gros nuages faisaient ramer l'image (rafales surtout).
     },
     launch: (pos, dir) => {
+      // Un eclair bref, sans nuage de fumee.
       spawn(fire, pos.x, pos.y, pos.z, dir.x * 4, dir.y * 4, dir.z * 4, 0.08, 0.9, 1.4, 1, 0.8, 0.5, 1);
-      for (let i = 0; i < 3; i++) {
-        const sp = -(2 + Math.random() * 5);
-        spawn(smoke, pos.x, pos.y, pos.z, dir.x * sp + rnd(2), dir.y * sp + rnd(1.5) + 0.5, dir.z * sp + rnd(2), 1.4 + Math.random(), 0.6, 2.8, 0.85, 0.84, 0.8, 0.5, -0.15, 1.8);
-      }
     },
-    trail: (pos, vel, dense) => {
+    trail: (pos, vel) => {
       const sp = Math.hypot(vel.x, vel.y, vel.z) || 1;
       const ux = vel.x / sp;
       const uy = vel.y / sp;
       const uz = vel.z / sp;
       // Flamme du propulseur, juste derriere.
       spawn(fire, pos.x - ux * 0.5, pos.y - uy * 0.5, pos.z - uz * 0.5, ux * 2, uy * 2, uz * 2, 0.07, 0.7, 0.25, 1, 0.78, 0.45, 1);
-      // Fumee blanche laissee en l'air, plus serree derriere un missile.
-      const puffs = dense ? 2 : Math.random() < 0.45 ? 1 : 0;
-      for (let i = 0; i < puffs; i++) {
-        const back = 1 + Math.random() * 2.5;
-        spawn(
-          smoke,
-          pos.x - ux * back + rnd(0.2),
-          pos.y - uy * back + rnd(0.2),
-          pos.z - uz * back + rnd(0.2),
-          rnd(0.5),
-          0.25 + Math.random() * 0.3,
-          rnd(0.5),
-          dense ? 1.8 : 1.2,
-          0.5,
-          dense ? 2.4 : 2,
-          0.84,
-          0.83,
-          0.8,
-          dense ? 0.5 : 0.42,
-          -0.08,
-          0.9,
-        );
-      }
+      // Pas de fumee derriere : seulement la flamme (les salves de roquettes faisaient ramer).
     },
     impact: (pos, kind) => {
       if (kind === "sol" || kind === "mur") {
