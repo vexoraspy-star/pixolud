@@ -52,7 +52,7 @@ export const GAMES_3D: Game3D[] = [
     genre: "Exploration",
     players: "Solo",
     duration: "3 à 10 min",
-    highlights: ["3 difficultés", "Labyrinthe différent à chaque partie", "Mini-carte"],
+    highlights: ["3 difficultés", "Labyrinthe différent à chaque partie", "Mini-carte", "Chronomètre et records"],
   },
   {
     slug: "colosses",
@@ -111,14 +111,14 @@ export const GAMES_3D: Game3D[] = [
     slug: "tonnerre-acier",
     title: "Tonnerre d'Acier",
     description:
-      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling, des chars à roquettes, des missiles guidés et de l'artillerie. Vise les points faibles, fais ricocher les obus et capture la base ennemie.",
+      "Batailles de chars sur quatre cartes (vallée méditerranéenne, col enneigé, oasis du désert, bocage à moulins). En Guerre normale, sept contre sept ; en Guerre de 100, le mode le plus dur, huit contre huit avec des super-lourds, des canons Gatling, des chars à roquettes, des missiles guidés et de l'artillerie. Vise les points faibles, fais ricocher les obus et capture la base ennemie, seul contre des bots ou en ligne avec tes amis.",
     emoji: "💥",
     gradient: "from-lime-800 to-stone-950",
     cover: "/covers/tanks.svg",
     genre: "Combat de chars",
-    players: "Solo contre des bots",
+    players: "Solo ou en ligne jusqu'à 8",
     duration: "5 à 8 min",
-    highlights: ["41 chars, des années trente à aujourd'hui", "Deux modes : Guerre normale et Guerre de 100", "Roquettes, missiles guidés, Gatling, artillerie", "4 cartes, blindage, ricochets, capture"],
+    highlights: ["41 chars et 11 commandants", "En ligne avec tes amis (salon et code)", "Roquettes, missiles guidés, Gatling, artillerie", "Guerre normale et Guerre de 100, 4 cartes"],
   },
   {
     slug: "manoir-maudit",
