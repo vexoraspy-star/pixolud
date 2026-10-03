@@ -223,6 +223,11 @@ export interface AnimatedModel {
   duration(name: string): number;
   /** Vitesse de l'animation en cours (pour caler la foulee sur la vitesse reelle). */
   setSpeed(speed: number): void;
+  /**
+   * Fige l'animation en cours a un instant donne (en secondes) : c'est le jeu
+   * qui pilote le temps, pour qu'un coup touche pile quand le poing est tendu.
+   */
+  seek(time: number): void;
   update(delta: number): void;
   /** Teinte les materiaux dont le nom correspond (couleur d'equipe, tenue). */
   tint(match: (materialName: string) => boolean, color: number): void;
@@ -380,6 +385,11 @@ export async function createAnimatedModel(id: ModelId, height: number): Promise<
     },
     setSpeed(speed) {
       if (currentAction) currentAction.timeScale = speed;
+    },
+    seek(time) {
+      if (!currentAction) return;
+      currentAction.timeScale = 0;
+      currentAction.time = Math.max(0, Math.min(time, currentAction.getClip().duration));
     },
     update(delta) {
       mixer.update(delta);

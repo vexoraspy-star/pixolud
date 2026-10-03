@@ -1,5 +1,11 @@
 import type { Articulation, Squelette } from "./colossesModeles";
-import type { Colosse, CoupId } from "./colosses";
+import type { Colosse } from "./colosses";
+
+/**
+ * La famille d'un coup, pour le modele de secours (dessine en code, utilise
+ * tant que le vrai combattant n'est pas charge) : il n'a que trois gestes.
+ */
+export type CoupId = "poing" | "pied" | "special";
 
 /**
  * Les animations de Colosses.

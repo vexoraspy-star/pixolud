@@ -101,6 +101,11 @@ Conventions Three.js à respecter — chacune vient d'une régression réelle :
   `atan2(cibleX - x, cibleZ - z)`.
 - Les réglages joueur (clavier, sensibilité, luminosité) sont partagés entre tous les jeux 3D via
   `src/lib/settings3d.ts` (localStorage). Un nouveau jeu 3D doit les lire, pas réinventer les siens.
+- **Colosses** (combat 1 contre 1) sépare les règles de l'image : `colossesCombat.ts` est le moteur
+  pur (sans Three.js, testable sous Node avec la méthode du transpileur ci-dessus), `colossesIA.ts`
+  l'ordinateur (il passe par les mêmes commandes que le joueur), `colossesGestes.ts` les gestes du
+  modèle animé. Les zones de touche de `colosses.ts` sont mesurées sur les animations : si on change
+  un geste, on revérifie que le poing ou le pied arrive au bout de la zone pendant la phase active.
 
 ## Supabase
 

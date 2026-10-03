@@ -323,8 +323,13 @@ function couleursZones(perso: Colosse): Record<Zone, number> {
  * Habille le mannequin anime aux couleurs du personnage et lui accroche ses
  * pieces distinctives. Tout ce qui est cree passe par `garder` pour etre
  * libere avec la scene.
+ *
+ * Rend les capes a part : quand le dos se penche (accroupi, balayette), une
+ * cape fixee au dos partirait a l'horizontale comme une planche — la scene
+ * la fait retomber (voir redresserCape).
  */
-export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: Garder): void {
+export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: Garder): { capes: THREE.Object3D[] } {
+  const capes: THREE.Object3D[] = [];
   const zones = couleursZones(perso);
   for (const [zone, couleur] of Object.entries(zones)) {
     modele.tint((nom) => nom === zone, couleur);
@@ -345,6 +350,7 @@ export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: G
     const g = new THREE.Group();
     for (const e of enfants) g.add(e);
     modele.attach(os, g, "Idle");
+    return g;
   };
 
   switch (allure.tete) {
@@ -370,7 +376,8 @@ export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: G
       );
       const cape = boite(0.46, 0.95, 0.03, tissu, 0, -0.42, -0.14);
       cape.rotation.x = 0.12;
-      piece("spine_03", cape, boite(0.12, 0.12, 0.03, lueur, 0, 0.1, 0.13));
+      capes.push(piece("spine_03", cape));
+      piece("spine_03", boite(0.12, 0.12, 0.03, lueur, 0, 0.1, 0.13));
       break;
     }
     case "masque": {
@@ -405,8 +412,29 @@ export function habillerColosse(modele: AnimatedModel, perso: Colosse, garder: G
       );
       const cape = boite(0.5, 1.05, 0.03, tissu, 0, -0.46, -0.14);
       cape.rotation.x = 0.1;
-      piece("spine_03", cape);
+      capes.push(piece("spine_03", cape));
       break;
     }
   }
+  return { capes };
+}
+
+const qOs = new THREE.Quaternion();
+const qCorps = new THREE.Quaternion();
+const qDroit = new THREE.Quaternion();
+
+/**
+ * Fait retomber une cape : au lieu de suivre le dos quand il se penche, elle
+ * reste a peu pres verticale, comme si elle pendait. `attache` est sa rotation
+ * locale d'origine (celle du personnage debout), `corps` le modele entier.
+ */
+export function redresserCape(cape: THREE.Object3D, attache: THREE.Quaternion, corps: THREE.Object3D, part = 0.8): void {
+  const os = cape.parent;
+  if (!os) return;
+  os.updateWorldMatrix(true, false);
+  os.getWorldQuaternion(qOs);
+  corps.getWorldQuaternion(qCorps);
+  // La rotation locale qui garderait la cape droite, comme le corps.
+  qDroit.copy(qOs).invert().multiply(qCorps);
+  cape.quaternion.copy(attache).slerp(qDroit, part);
 }

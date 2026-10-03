@@ -8,10 +8,13 @@ import ColossesScene, { type ColossesEtat, type ColossesOptions } from "./Coloss
 import {
   COLOSSES,
   COLOSSE_ORDER,
+  COUT_BRISE,
   DIFFICULTES,
   ENERGIE_MAX,
   colosseOmbre,
   echelleTournoi,
+  listeDesCoups,
+  type Colosse,
   type ColosseId,
   type Difficulte,
 } from "@/lib/colosses";
@@ -22,7 +25,8 @@ import {
  * Un jeu de combat se juge en trois secondes : on choisit un personnage et on
  * tape. Le menu tient donc sur un ecran — mode, personnage, c'est parti — et
  * les commandes restent affichees pendant le combat, parce que personne ne
- * retient sept touches du premier coup.
+ * retient huit touches du premier coup. La liste complete des coups (combos,
+ * pouvoirs, furie, coup de grace) est dans le menu et dans la pause (Echap).
  *
  * Trois facons de jouer : un combat libre contre l'ordinateur, le tournoi
  * (les trois autres combattants puis son propre reflet), ou a deux sur le
@@ -42,7 +46,23 @@ const VIDE: ColossesEtat = {
   temps: 60,
   annonce: "",
   vainqueur: null,
+  comboA: null,
+  comboB: null,
+  indice: "",
 };
+
+/** Les touches de chaque joueur, pour l'aide a l'ecran. */
+const TOUCHES_AIDE = {
+  solo: { bouger: "Q D / ← →", sauter: "Z / ↑", baisser: "S / ↓", poing: "F", pied: "G", pouvoir: "H", garde: "Espace" },
+  j1: { bouger: "Q D", sauter: "Z", baisser: "S", poing: "F", pied: "G", pouvoir: "H", garde: "Espace" },
+  j2: { bouger: "← →", sauter: "↑", baisser: "↓", poing: "O", pied: "P", pouvoir: "M", garde: "L" },
+};
+
+interface Message {
+  id: number;
+  cote: "A" | "B" | null;
+  texte: string;
+}
 
 export default function ColossesGame({ title }: { title: string }) {
   const [ecran, setEcran] = useState<Ecran>("menu");
@@ -58,23 +78,45 @@ export default function ColossesGame({ title }: { title: string }) {
   const [manche, setManche] = useState(0);
   /** Position dans le tournoi (0 = premier combat). */
   const [etape, setEtape] = useState(0);
+  const [pause, setPause] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  /** Le combattant dont on lit la liste des coups (menu et pause). */
+  const [fiche, setFiche] = useState<ColosseId | null>(null);
+  const prochainMessage = useRef(1);
 
   // Le moteur appelle onEtat ~60 fois par seconde : on ne redessine que
   // lorsqu'un chiffre affiche change vraiment, sinon React travaille pour rien.
   const dernier = useRef("");
   function recevoirEtat(e: ColossesEtat) {
-    const signature = `${Math.ceil(e.vieA)}|${Math.ceil(e.vieB)}|${Math.round(e.energieA)}|${Math.round(
-      e.energieB,
-    )}|${e.roundsA}|${e.roundsB}|${e.round}|${e.temps}|${e.annonce}`;
+    const signature = [
+      Math.ceil(e.vieA),
+      Math.ceil(e.vieB),
+      Math.round(e.energieA),
+      Math.round(e.energieB),
+      e.roundsA,
+      e.roundsB,
+      e.round,
+      e.temps,
+      e.annonce,
+      e.comboA ? `${e.comboA.coups}/${e.comboA.pourcent}` : "",
+      e.comboB ? `${e.comboB.coups}/${e.comboB.pourcent}` : "",
+      e.indice,
+    ].join("|");
     if (signature === dernier.current) return;
     dernier.current = signature;
     setEtat(e);
   }
 
-  // Echap : revenir au menu depuis le combat.
+  function recevoirMessage(cote: "A" | "B" | null, texte: string) {
+    const id = prochainMessage.current++;
+    setMessages((m) => [...m.filter((x) => x.cote !== cote || x.texte !== texte), { id, cote, texte }].slice(-4));
+    window.setTimeout(() => setMessages((m) => m.filter((x) => x.id !== id)), 1400);
+  }
+
+  // Echap : pause pendant le combat (et reprise).
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape" && ecran === "combat") setEcran("menu");
+      if (ev.key === "Escape" && ecran === "combat") setPause((p) => !p);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -93,6 +135,8 @@ export default function ColossesGame({ title }: { title: string }) {
   function combattre() {
     setVainqueur(null);
     setEtat(VIDE);
+    setPause(false);
+    setMessages([]);
     dernier.current = "";
     setManche((m) => m + 1);
     setEcran("combat");
@@ -107,13 +151,15 @@ export default function ColossesGame({ title }: { title: string }) {
     }
   }
 
-  const options: ColossesOptions = { contreOrdinateur, difficulte: niveau, volume, boss };
+  const options: ColossesOptions = { contreOrdinateur, difficulte: niveau, volume, boss, pause };
   const a = COLOSSES[persoA];
   const b = boss ? colosseOmbre(adversaire) : COLOSSES[adversaire];
   const dernierCombat = etape >= echelle.length - 1;
+  const touchesJ1 = contreOrdinateur ? TOUCHES_AIDE.solo : TOUCHES_AIDE.j1;
 
   // ================================================================= menu
   if (ecran === "menu") {
+    const lue = COLOSSES[fiche ?? persoA];
     return (
       <div className="colosses-menu colosses-selection">
         <div className="colosses-menu-inner">
@@ -126,10 +172,10 @@ export default function ColossesGame({ title }: { title: string }) {
           <p className="colosses-kicker">PIXOLUD ORIGINAL · COMBAT 1 CONTRE 1</p>
           <h1 className="colosses-titre" aria-label={title}>COLOSSES<span>Entre dans l’arène.</span></h1>
           <p className="colosses-sous-titre">
-            Deux combattants, trois rounds, un seul debout. Frappe, bloque, saute — et garde ton coup spécial pour le
-            bon moment.
+            Deux combattants, trois rounds, un seul debout. Bloque, enchaîne les combos, lance tes pouvoirs, déchaîne
+            ta furie — et achève ton adversaire d&apos;un coup de grâce.
           </p>
-          <div className="colosses-reperes"><span>04 combattants</span><span>03 rounds</span><span>01 vainqueur</span></div>
+          <div className="colosses-reperes"><span>04 combattants</span><span>12 pouvoirs</span><span>04 coups de grâce</span></div>
           <a className="colosses-decouvrir" href="#colosses-combattants">Choisis ton combattant <span aria-hidden="true">↘</span></a>
           </div>
           <div className="colosses-affiche" aria-hidden="true">
@@ -225,55 +271,35 @@ export default function ColossesGame({ title }: { title: string }) {
             <div className="colosses-touches">
               <div>
                 <h3>Joueur 1</h3>
-                <p>
-                  <b>Q</b> / <b>D</b>
-                  {contreOrdinateur && (
-                    <>
-                      {" "}
-                      ou <b>←</b> / <b>→</b>
-                    </>
-                  )}{" "}
-                  se déplacer · <b>Z</b>
-                  {contreOrdinateur && (
-                    <>
-                      {" "}
-                      ou <b>↑</b>
-                    </>
-                  )}{" "}
-                  sauter · <b>S</b>
-                  {contreOrdinateur && (
-                    <>
-                      {" "}
-                      ou <b>↓</b>
-                    </>
-                  )}{" "}
-                  s&apos;accroupir
-                </p>
-                <p>
-                  <b>F</b> direct · <b>G</b> coup de pied · <b>H</b> spécial
-                </p>
+                <ToucheLigne t={touchesJ1} />
               </div>
               <div>
                 <h3>{contreOrdinateur ? "Ordinateur" : "Joueur 2"}</h3>
                 {contreOrdinateur ? (
-                  <p>Il réagit avec un temps de retard, comme un vrai adversaire.</p>
+                  <p>Il réagit avec un temps de retard, comme un vrai adversaire : il lève la garde, contre tes sauts et punit tes coups ratés.</p>
                 ) : (
-                  <>
-                    <p>
-                      <b>←</b> / <b>→</b> se déplacer · <b>↑</b> sauter · <b>↓</b> s&apos;accroupir
-                    </p>
-                    <p>
-                      <b>O</b> direct · <b>P</b> coup de pied · <b>M</b> spécial
-                    </p>
-                  </>
+                  <ToucheLigne t={TOUCHES_AIDE.j2} />
                 )}
               </div>
             </div>
             <p className="colosses-note">
-              Pour <b>bloquer</b>, recule sans frapper : ton personnage lève la garde et n&apos;encaisse presque plus
-              rien. Un direct passe au-dessus d&apos;un adversaire accroupi, l&apos;onde de choc s&apos;évite en sautant
-              ou en se baissant, et le spécial ne part qu&apos;avec la barre d&apos;énergie pleine.
+              <b>Bloquer</b> : garde (ou recule sans frapper). Debout contre les coups hauts et sautés, <b>accroupi</b> contre
+              les coups bas et la balayette. <b>Pouvoirs</b> : ↓ → + Poing, ← → + Poing, ↓ ← + Pied — ou plus simple, la
+              touche Pouvoir (seule, avec →, avec ↓). Barre pleine : <b>Garde + Pouvoir</b> déclenche la furie. Au dernier
+              round, « Achève-le ! » : <b>↓ → ↓ + Pouvoir</b> pour le coup de grâce.
             </p>
+          </section>
+
+          <section className="colosses-bloc">
+            <h2><span>04</span> Liste des coups</h2>
+            <div className="colosses-onglets" role="tablist" aria-label="Combattant">
+              {COLOSSE_ORDER.map((id) => (
+                <button key={id} type="button" role="tab" aria-selected={lue.id === id} onClick={() => setFiche(id)}>
+                  {COLOSSES[id].emoji} {COLOSSES[id].nom}
+                </button>
+              ))}
+            </div>
+            <ListeCoups perso={lue} />
           </section>
 
           <div className="colosses-bas">
@@ -347,8 +373,10 @@ export default function ColossesGame({ title }: { title: string }) {
   // ================================================================ combat
   const gagne = vainqueur === "A";
   const champion = enTournoi && gagne && dernierCombat;
-  const annonceKo = etat.annonce.startsWith("K.O.");
+  const annonceKo = etat.annonce.startsWith("K.O.") || etat.annonce.startsWith("Coup de grâce");
   const annonceGo = etat.annonce === "Combattez !";
+  const annonceAcheve = etat.annonce.startsWith("Achève");
+  const lueEnPause = COLOSSES[fiche ?? persoA];
 
   return (
     <div className="colosses-arene">
@@ -358,8 +386,10 @@ export default function ColossesGame({ title }: { title: string }) {
         persoB={adversaire}
         options={options}
         onEtat={recevoirEtat}
+        onMessage={recevoirMessage}
         onFin={(v) => {
           setVainqueur(v);
+          setPause(false);
           setEcran("fin");
         }}
       />
@@ -374,6 +404,8 @@ export default function ColossesGame({ title }: { title: string }) {
           energie={etat.energieA}
           rounds={etat.roundsA}
           couleur={a.accent}
+          combo={etat.comboA}
+          messages={messages.filter((m) => m.cote === "A")}
         />
         <div className="colosses-chrono">
           <b>{etat.temps}</b>
@@ -387,6 +419,8 @@ export default function ColossesGame({ title }: { title: string }) {
           energie={etat.energieB}
           rounds={etat.roundsB}
           couleur={b.accent}
+          combo={etat.comboB}
+          messages={messages.filter((m) => m.cote === "B")}
           droite
         />
       </div>
@@ -394,28 +428,51 @@ export default function ColossesGame({ title }: { title: string }) {
       {etat.annonce && ecran === "combat" && (
         <div
           key={etat.annonce}
-          className={`colosses-annonce${annonceKo ? " est-ko" : ""}${annonceGo ? " est-go" : ""}`}
+          className={`colosses-annonce${annonceKo ? " est-ko" : ""}${annonceGo ? " est-go" : ""}${annonceAcheve ? " est-acheve" : ""}`}
         >
-          {etat.annonce}
+          <span>{etat.annonce}</span>
+          {etat.indice && <small className="colosses-indice">{etat.indice}</small>}
         </div>
       )}
 
       {/* --- Les touches, sous les yeux pendant tout le combat --- */}
-      {ecran === "combat" && (
+      {ecran === "combat" && !pause && (
         <div className="colosses-aide" aria-label="Commandes">
-          <AideTouches
-            titre={contreOrdinateur ? null : "J1"}
-            bouger={contreOrdinateur ? "Q D / ← →" : "Q D"}
-            sauter={contreOrdinateur ? "Z / ↑" : "Z"}
-            baisser={contreOrdinateur ? "S / ↓" : "S"}
-            poing="F"
-            pied="G"
-            special="H"
-          />
-          {!contreOrdinateur && (
-            <AideTouches titre="J2" bouger="← →" sauter="↑" baisser="↓" poing="O" pied="P" special="M" />
-          )}
-          <p className="colosses-aide-astuce">Reculer = bloquer</p>
+          <AideTouches titre={contreOrdinateur ? null : "J1"} t={touchesJ1} />
+          {!contreOrdinateur && <AideTouches titre="J2" t={TOUCHES_AIDE.j2} />}
+          <p className="colosses-aide-astuce">Échap : pause et liste des coups</p>
+        </div>
+      )}
+
+      {pause && ecran === "combat" && (
+        <div className="colosses-pause" role="dialog" aria-modal="true" aria-label="Pause">
+          <div className="colosses-pause-boite">
+            <p className="colosses-pause-titre">Pause</p>
+            <div className="colosses-onglets" role="tablist" aria-label="Combattant">
+              {[persoA, adversaire]
+                .filter((id, i, l) => l.indexOf(id) === i)
+                .map((id) => (
+                  <button key={id} type="button" role="tab" aria-selected={lueEnPause.id === id} onClick={() => setFiche(id)}>
+                    {COLOSSES[id].emoji} {COLOSSES[id].nom}
+                  </button>
+                ))}
+            </div>
+            <ListeCoups perso={lueEnPause} />
+            <div className="colosses-fin-boutons">
+              <button type="button" onClick={() => setPause(false)}>
+                ▶ Reprendre (Échap)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPause(false);
+                  setEcran("menu");
+                }}
+              >
+                Quitter le combat
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -473,53 +530,83 @@ export default function ColossesGame({ title }: { title: string }) {
         </div>
       )}
 
-      {ecran === "combat" && (
-        <button type="button" onClick={() => setEcran("menu")} className="colosses-quitter">
-          Échap — menu
+      {ecran === "combat" && !pause && (
+        <button type="button" onClick={() => setPause(true)} className="colosses-quitter">
+          Échap — pause
         </button>
       )}
     </div>
   );
 }
 
-function AideTouches({
-  titre,
-  bouger,
-  sauter,
-  baisser,
-  poing,
-  pied,
-  special,
-}: {
-  titre: string | null;
-  bouger: string;
-  sauter: string;
-  baisser: string;
-  poing: string;
-  pied: string;
-  special: string;
-}) {
+type TouchesAide = (typeof TOUCHES_AIDE)["solo"];
+
+function ToucheLigne({ t }: { t: TouchesAide }) {
+  return (
+    <>
+      <p>
+        <b>{t.bouger}</b> se déplacer · <b>{t.sauter}</b> sauter · <b>{t.baisser}</b> s&apos;accroupir
+      </p>
+      <p>
+        <b>{t.poing}</b> poing · <b>{t.pied}</b> pied · <b>{t.pouvoir}</b> pouvoir · <b>{t.garde}</b> garde
+      </p>
+    </>
+  );
+}
+
+function AideTouches({ titre, t }: { titre: string | null; t: TouchesAide }) {
   return (
     <div className="colosses-aide-ligne">
       {titre && <strong>{titre}</strong>}
       <span>
-        <b>{bouger}</b> bouger
+        <b>{t.bouger}</b> bouger
       </span>
       <span>
-        <b>{sauter}</b> sauter
+        <b>{t.sauter}</b> sauter
       </span>
       <span>
-        <b>{baisser}</b> se baisser
+        <b>{t.baisser}</b> se baisser
       </span>
       <span>
-        <b>{poing}</b> direct
+        <b>{t.poing}</b> poing
       </span>
       <span>
-        <b>{pied}</b> pied
+        <b>{t.pied}</b> pied
       </span>
       <span>
-        <b>{special}</b> spécial
+        <b>{t.pouvoir}</b> pouvoir
       </span>
+      <span>
+        <b>{t.garde}</b> garde
+      </span>
+    </div>
+  );
+}
+
+/** La liste des coups d'un combattant : les bases, ses pouvoirs, sa furie, son coup de grace. */
+function ListeCoups({ perso }: { perso: Colosse }) {
+  const l = listeDesCoups(perso);
+  const ligne = (c: { touches: string; nom: string; detail: string }, cle: string, classe = "") => (
+    <li key={cle} className={classe}>
+      <span className="colosses-coup-touches">{c.touches}</span>
+      <span className="colosses-coup-nom">{c.nom}</span>
+      <span className="colosses-coup-detail">{c.detail}</span>
+    </li>
+  );
+  return (
+    <div className="colosses-coups" data-combattant={perso.id}>
+      <div>
+        <h3>Pouvoirs de {perso.nom}</h3>
+        <ul>
+          {l.pouvoirs.map((c, i) => ligne(c, `p${i}`, "est-pouvoir"))}
+          {ligne(l.furie, "furie", "est-furie")}
+          {ligne(l.grace, "grace", "est-grace")}
+        </ul>
+      </div>
+      <div>
+        <h3>Coups de base</h3>
+        <ul>{l.base.map((c, i) => ligne(c, `b${i}`))}</ul>
+      </div>
     </div>
   );
 }
@@ -532,6 +619,8 @@ function Jauge({
   energie,
   rounds,
   couleur,
+  combo,
+  messages,
   droite = false,
 }: {
   nom: string;
@@ -541,6 +630,8 @@ function Jauge({
   energie: number;
   rounds: number;
   couleur: number;
+  combo: { coups: number; pourcent: number } | null;
+  messages: Message[];
   droite?: boolean;
 }) {
   const part = Math.max(0, Math.min(1, vie / vieMax));
@@ -558,9 +649,22 @@ function Jauge({
       <div className="colosses-vie" role="progressbar" aria-valuenow={Math.round(part * 100)} aria-valuemin={0} aria-valuemax={100}>
         <i style={{ width: `${part * 100}%`, background: part > 0.3 ? undefined : "#e0473c" }} />
       </div>
-      <div className="colosses-energie">
+      <div className={`colosses-energie${energie >= ENERGIE_MAX ? " est-pleine" : ""}`}>
         <i style={{ width: `${(energie / ENERGIE_MAX) * 100}%`, background: teinte }} />
-        {energie >= ENERGIE_MAX && <span>SPÉCIAL PRÊT</span>}
+        <em style={{ insetInlineStart: `${(COUT_BRISE / ENERGIE_MAX) * 100}%` }} aria-hidden="true" />
+        {energie >= ENERGIE_MAX && <span>FURIE PRÊTE</span>}
+      </div>
+      <div className="colosses-flux" aria-live="polite">
+        {combo && (
+          <p className="colosses-combo">
+            <b>{combo.coups}</b> coups · {combo.pourcent} %
+          </p>
+        )}
+        {messages.map((m) => (
+          <p key={m.id} className="colosses-message">
+            {m.texte}
+          </p>
+        ))}
       </div>
     </div>
   );

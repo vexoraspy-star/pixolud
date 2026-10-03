@@ -59,13 +59,13 @@ export const GAMES_3D: Game3D[] = [
     title: "Colosses",
     cover: "/covers/colosses/affiche.webp",
     description:
-      "Combat 1 contre 1 : quatre combattants, trois rounds, des directs, des coups de pied et un coup sp\u00e9cial qui retourne un match. Contre l'ordinateur ou \u00e0 deux sur le m\u00eame clavier.",
+      "Combat 1 contre 1 : quatre combattants, trois rounds, une vraie garde haute et basse, des combos, des uppercuts et des coups saut\u00e9s, trois pouvoirs par combattant, une furie, et \u00ab Ach\u00e8ve-le ! \u00bb pour le coup de gr\u00e2ce. Contre l'ordinateur ou \u00e0 deux sur le m\u00eame clavier.",
     emoji: "\u2694\ufe0f",
     gradient: "from-rose-900 to-slate-950",
     genre: "Combat",
     players: "Solo ou 2 joueurs",
     duration: "3 \u00e0 6 min",
-    highlights: ["4 combattants, 4 coups sp\u00e9ciaux", "\u00c0 deux sur un seul clavier", "Garde, esquive et combos"],
+    highlights: ["4 combattants, 12 pouvoirs", "Combos, jongles et furie", "4 coups de gr\u00e2ce", "\u00c0 deux sur un seul clavier"],
   },
   {
     slug: "duel-1v1",

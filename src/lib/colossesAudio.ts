@@ -295,3 +295,99 @@ export function sonGong(a: ColossesAudio) {
   note(a, 180, 60, 1.1, 0.3, "triangle");
   impact(a, 0.5, 400, 0.35, "lowpass");
 }
+
+/** Un souffle filtre qui monte ou descend : le vent d'un coup, une teleportation. */
+function souffle(a: ColossesAudio, duree: number, de: number, vers: number, gain: number) {
+  const { ctx, master } = a;
+  if (!ctx || !master) return;
+  reveiller(ctx);
+  const n = Math.floor(ctx.sampleRate * duree);
+  const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((Math.PI * i) / n);
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const filtre = ctx.createBiquadFilter();
+  filtre.type = "bandpass";
+  filtre.Q.value = 2.5;
+  const t = ctx.currentTime;
+  filtre.frequency.setValueAtTime(de, t);
+  filtre.frequency.exponentialRampToValueAtTime(Math.max(40, vers), t + duree);
+  const g = ctx.createGain();
+  g.gain.value = gain;
+  source.connect(filtre);
+  filtre.connect(g);
+  g.connect(master);
+  source.start();
+}
+
+/** Le vent d'un gros coup qui part (on l'entend meme s'il rate). */
+export function sonVent(a: ColossesAudio) {
+  souffle(a, 0.16, 500, 1800, 0.22);
+}
+
+/** Un projectile qui part : chaque forme a sa voix. */
+export function sonProjectile(a: ColossesAudio, forme: "lame" | "rocher" | "onde" | "voile") {
+  if (forme === "rocher") {
+    souffle(a, 0.35, 260, 90, 0.4);
+    jouer(a, "lourd", 0.5);
+  } else if (forme === "lame") {
+    souffle(a, 0.3, 2400, 700, 0.3);
+    note(a, 900, 1400, 0.18, 0.08, "triangle");
+  } else if (forme === "voile") {
+    souffle(a, 0.6, 300, 900, 0.25);
+    note(a, 220, 180, 0.6, 0.06, "sine");
+  } else {
+    note(a, 620, 140, 0.4, 0.22);
+    impact(a, 0.2, 900, 0.3);
+  }
+}
+
+/** La foudre : un claquement sec, puis le grondement. */
+export function sonFoudre(a: ColossesAudio) {
+  impact(a, 0.12, 4200, 0.55, "highpass");
+  impact(a, 0.9, 120, 0.6, "lowpass");
+  jouer(a, "lourd", 0.6, 0.04);
+}
+
+/** Le sol qui tremble. */
+export function sonSeisme(a: ColossesAudio) {
+  impact(a, 1.1, 90, 0.75, "lowpass");
+  jouer(a, "chute", 0.9);
+  jouer(a, "lourd", 0.7, 0.08);
+}
+
+/** Disparaitre et reapparaitre. */
+export function sonTeleport(a: ColossesAudio) {
+  souffle(a, 0.28, 2000, 300, 0.3);
+  note(a, 700, 1600, 0.22, 0.07, "sine");
+}
+
+/** La furie se declenche : un accord qui monte. */
+export function sonFurie(a: ColossesAudio) {
+  note(a, 110, 440, 0.7, 0.22, "sawtooth");
+  note(a, 165, 660, 0.7, 0.16, "sawtooth");
+  impact(a, 0.4, 600, 0.4);
+}
+
+/** « Acheve-le ! » : un bourdon grave et menacant. */
+export function sonAcheve(a: ColossesAudio) {
+  note(a, 98, 49, 1.6, 0.26, "sawtooth");
+  note(a, 104, 52, 1.6, 0.2, "sawtooth");
+  jouer(a, "gong", 0.45);
+}
+
+/** Une statue qui eclate en morceaux. */
+export function sonEclats(a: ColossesAudio) {
+  jouer(a, "lourd", 0.9);
+  jouer(a, "chute", 0.8, 0.12);
+  jouer(a, "chute", 0.6, 0.3);
+  impact(a, 0.5, 1500, 0.5, "bandpass");
+}
+
+/** Un rayon de lumiere qui descend du ciel. */
+export function sonRayon(a: ColossesAudio) {
+  note(a, 260, 1040, 1.4, 0.16, "triangle");
+  note(a, 390, 1560, 1.4, 0.1, "sine");
+  souffle(a, 1.4, 400, 3000, 0.2);
+}
