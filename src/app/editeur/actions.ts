@@ -20,6 +20,7 @@ import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/e
 import { emptyPython, isPythonPlayable, type PythonData } from "@/lib/python";
 import { emptyScript, isScriptPlayable, type ScriptData } from "@/lib/script";
 import { scriptLimit, TIERS, tierOf, type Tier } from "@/lib/tiers";
+import { modeleParId } from "@/lib/modeles";
 
 type AnyGameData =
   | MazeData
@@ -215,16 +216,30 @@ export async function createDraft(formData: FormData) {
   if (isBig && type === "Labyrinthe") data = emptyMaze(true);
   if (isBig && type === "Plateforme") data = emptyPlateforme(true);
 
+  // Partir d'un exemple : seul un identifiant de modele connu est accepte, et
+  // il doit correspondre a la categorie demandee. Rien d'autre ne vient du
+  // navigateur.
+  let title: string = config.defaultTitle;
+  let description = "";
+  let emoji: string = config.emoji;
+  const modele = modeleParId(String(formData.get("modele") ?? ""));
+  if (modele && modele.type === type) {
+    data = modele.donnees() as AnyGameData;
+    title = modele.titre;
+    description = modele.description;
+    emoji = modele.emoji;
+  }
+
   const { data: game, error } = await supabase
     .from("games")
     .insert({
-      title: config.defaultTitle,
-      slug: slugify(config.defaultTitle),
-      description: "",
+      title,
+      slug: slugify(title),
+      description,
       category: type,
       author_id: user.id,
       gradient: config.gradient,
-      emoji: config.emoji,
+      emoji,
       // `published` prend sa valeur par defaut (false) : on ne l'ecrit pas, la
       // colonne etant verrouillee cote base (publication via set_game_published).
       data,

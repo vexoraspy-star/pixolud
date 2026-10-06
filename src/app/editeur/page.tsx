@@ -13,6 +13,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
 import { createDraft, deleteDraft } from "./actions";
+import { MODELES } from "@/lib/modeles";
 
 const NEW_GAME_BUTTONS = [
   { type: "Labyrinthe", emoji: "🌀" },
@@ -71,6 +72,36 @@ export default async function EditeurPage() {
           ))}
         </div>
       </div>
+
+      {/* Partir d'un exemple complet plutot que d'une page blanche. */}
+      <section className="mt-8" aria-labelledby="modeles-titre">
+        <h2 id="modeles-titre" className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+          Ou pars d&apos;un exemple tout prêt, puis change ce que tu veux
+        </h2>
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {MODELES.map((m) => (
+            <li key={m.id}>
+              <form action={createDraft} className="h-full">
+                <input type="hidden" name="type" value={m.type} />
+                <input type="hidden" name="modele" value={m.id} />
+                <button
+                  type="submit"
+                  className="flex h-full w-full items-start gap-3 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-violet-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <span className="text-2xl" aria-hidden="true">
+                    {m.emoji}
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white">{m.titre}</span>
+                    <span className="text-xs text-violet-600 dark:text-violet-400">{m.type}</span>
+                    <span className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{m.description}</span>
+                  </span>
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {games && games.length > 0 ? (
         <ul className="mt-8 flex flex-col gap-3">
