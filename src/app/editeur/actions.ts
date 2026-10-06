@@ -215,7 +215,8 @@ export async function createDraft(formData: FormData) {
       author_id: user.id,
       gradient: config.gradient,
       emoji: config.emoji,
-      published: false,
+      // `published` prend sa valeur par defaut (false) : on ne l'ecrit pas, la
+      // colonne etant verrouillee cote base (publication via set_game_published).
       data,
     })
     .select("id")
@@ -330,11 +331,28 @@ export async function publishGame(formData: FormData) {
     );
   }
 
-  await supabase
-    .from("games")
-    .update({ published: true })
-    .eq("id", gameId)
-    .eq("author_id", user.id);
+  // La publication passe par une fonction base qui revérifie, côté serveur
+  // Postgres, que c'est bien ton jeu ET que le quota du palier est respecté.
+  // Sans elle, la colonne `published` restait modifiable directement (console
+  // du navigateur) et la limite de jeux publiés se contournait.
+  // Repli : tant que la fonction n'a pas été créée (fichier SQL pas encore
+  // lancé), on garde l'ancien chemin — le quota reste vérifié juste au-dessus.
+  const { error: pubError } = await supabase.rpc("set_game_published", {
+    p_game_id: gameId,
+    p_public: true,
+  });
+  if (pubError) {
+    const absente = /exist|schema cache|PGRST202|function|not find/i.test(pubError.message);
+    if (absente) {
+      await supabase.from("games").update({ published: true }).eq("id", gameId).eq("author_id", user.id);
+    } else {
+      redirect(
+        `/editeur/${gameId}?error=${encodeURIComponent(
+          "La publication a échoué. Réessaie, ou vérifie la limite de ton palier.",
+        )}`,
+      );
+    }
+  }
 
   revalidatePath("/catalogue");
   revalidatePath("/");

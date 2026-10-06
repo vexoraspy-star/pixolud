@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import GameCard from "@/components/GameCard";
 import { getPublishedGames } from "@/lib/games";
 import { CATEGORIES_SEO, categorieSeoBySlug } from "@/lib/categoriesSeo";
+import { jsonLdScript } from "@/lib/jsonLd";
 
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pixolud.vercel.app";
@@ -76,7 +77,7 @@ export default async function CategoriePage({
 
   return (
     <div className="category-showcase portal-container portal-page">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
 
       <div className="mx-auto max-w-5xl">
         <nav aria-label="Fil d'ariane" className="text-xs text-[var(--portal-muted)]">

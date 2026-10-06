@@ -2,12 +2,24 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+/**
+ * `next` est recopie dans la redirection finale. On n'accepte donc qu'un
+ * chemin interne : il doit commencer par un seul « / ». Sans ce garde-fou,
+ * « next=.evil.com/x » donnerait l'hote « pixolud.vercel.app.evil.com » (un
+ * domaine de l'attaquant) et « next=//evil.com » un site externe — une
+ * redirection ouverte, pratique pour l'hameconnage depuis un vrai lien du site.
+ */
+function cheminInterne(next: string | null): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/";
+  return next;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  const next = cheminInterne(searchParams.get("next"));
 
   if (token_hash && type) {
     const supabase = await createClient();

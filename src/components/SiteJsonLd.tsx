@@ -1,3 +1,5 @@
+import { jsonLdScript } from "@/lib/jsonLd";
+
 /**
  * Donnees structurees (JSON-LD) : elles expliquent a Google ce qu'est le
  * site, et lui permettent d'afficher une barre de recherche Pixolud
@@ -31,7 +33,7 @@ export default function SiteJsonLd({ siteUrl }: { siteUrl: string }) {
       },
     ],
   };
-  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(data) }} />;
 }
 
 /** Une fiche de jeu, pour que Google la comprenne comme un jeu jouable. */
@@ -68,6 +70,8 @@ export function GameJsonLd({
     publisher: { "@type": "Organization", name: "Pixolud", url: siteUrl },
     offers: { "@type": "Offer", price: 0, priceCurrency: "EUR", availability: "https://schema.org/InStock" },
   };
+  // name/description/author viennent des joueurs : l'echappement de
+  // jsonLdScript empeche « </script> » de casser la balise (XSS).
   if (author) data.author = { "@type": "Person", name: author };
   if (image) data.image = image.startsWith("http") ? image : `${siteUrl}${image}`;
   if (datePublished) data.datePublished = datePublished;
@@ -76,5 +80,5 @@ export function GameJsonLd({
     interactionType: "https://schema.org/PlayAction",
     userInteractionCount: plays,
   };
-  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(data) }} />;
 }
