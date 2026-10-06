@@ -11,6 +11,7 @@ export const CATEGORIES = [
   "Calcul Mental",
   "Petit Bac",
   "Devinettes",
+  "Mots Mêlés",
   "Éducation",
   "Python",
   "Game Script",

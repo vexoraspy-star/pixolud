@@ -1,7 +1,7 @@
 const covers: Record<string, string> = {
   cubes: "cubes", "labyrinthe-legendaire": "maze", "manoir-maudit": "manor", backrooms: "backrooms",
   Labyrinthe: "maze", Puzzle: "puzzle", Quiz: "puzzle", Éducation: "puzzle",
-  "Calcul Mental": "puzzle", "Petit Bac": "puzzle", Devinettes: "puzzle",
+  "Calcul Mental": "puzzle", "Petit Bac": "puzzle", Devinettes: "puzzle", "Mots Mêlés": "puzzle",
   territoire: "arcade", chasse: "maze", bulles: "puzzle", echecs: "puzzle", "python-chat": "arcade",
 };
 

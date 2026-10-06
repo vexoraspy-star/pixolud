@@ -12,6 +12,7 @@ import { emptyMelodie, type MelodieData } from "@/lib/melodie";
 import { emptyCalcul, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, type DevinettesData } from "@/lib/devinettes";
+import { emptyMotsMeles, type MotsMelesData } from "@/lib/motsMeles";
 import { emptyEducation, type EducationData } from "@/lib/education";
 import { emptyPython, type PythonData } from "@/lib/python";
 import { emptyScript, type ScriptData } from "@/lib/script";
@@ -27,6 +28,7 @@ import MelodieEditor from "@/components/MelodieEditor";
 import CalculEditor from "@/components/CalculEditor";
 import PetitBacEditor from "@/components/PetitBacEditor";
 import DevinettesEditor from "@/components/DevinettesEditor";
+import MotsMelesEditor from "@/components/MotsMelesEditor";
 import EducationEditor from "@/components/EducationEditor";
 import PythonEditor from "@/components/PythonEditor";
 import ScriptEditor from "@/components/ScriptEditor";
@@ -45,6 +47,7 @@ type AnyData =
   | CalculData
   | PetitBacData
   | DevinettesData
+  | MotsMelesData
   | EducationData
   | PythonData
   | ScriptData;
@@ -191,6 +194,14 @@ export default async function EditeurJeuPage({
         ? (game.data as DevinettesData)
         : emptyDevinettes();
     return <DevinettesEditor {...common} initialData={data} />;
+  }
+
+  if (game.category === "Mots Mêlés") {
+    const data =
+      game.data && typeof game.data === "object" && "mots" in game.data
+        ? (game.data as MotsMelesData)
+        : emptyMotsMeles();
+    return <MotsMelesEditor {...common} initialData={data} />;
   }
 
   if (game.category === "Éducation") {

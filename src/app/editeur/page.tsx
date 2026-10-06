@@ -27,6 +27,7 @@ const NEW_GAME_BUTTONS = [
   { type: "Calcul Mental", emoji: "🧮" },
   { type: "Petit Bac", emoji: "📝" },
   { type: "Devinettes", emoji: "🔍" },
+  { type: "Mots Mêlés", emoji: "🔤" },
   { type: "Éducation", emoji: "🎓" },
   { type: "Python", emoji: "🐍" },
   { type: "Game Script", emoji: "⌨️" },

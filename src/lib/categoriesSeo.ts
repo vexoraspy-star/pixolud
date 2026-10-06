@@ -174,6 +174,18 @@ export const CATEGORIES_SEO: CategorieSeo[] = [
       "En écrire de bonnes est plus difficile qu'il n'y paraît : c'est un excellent exercice d'écriture, et ça se partage en un lien.",
   },
   {
+    slug: "mots-meles",
+    categorie: "Mots Mêlés",
+    emoji: "🔤",
+    titre: "Mots mêlés en ligne : jouer et créer ses grilles",
+    description:
+      "Des grilles de mots mêlés gratuites, sur tous les thèmes, et un créateur pour faire les tiennes en une minute : tu écris tes mots, la grille se fabrique toute seule.",
+    intro:
+      "Retrouver les mots cachés dans une grille de lettres, à l'endroit, en diagonale ou à l'envers : un classique des cahiers de vacances, ici jouable au doigt ou à la souris.",
+    detail:
+      "Pour créer la tienne, il suffit d'un thème et d'une liste de mots — vocabulaire d'une leçon, noms des copains, mots d'une langue étrangère. Le site cache les mots, règle la difficulté et chronomètre les joueurs.",
+  },
+  {
     slug: "education",
     categorie: "Éducation",
     emoji: "🎓",

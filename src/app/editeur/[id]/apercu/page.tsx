@@ -13,6 +13,7 @@ import { emptyMelodie, isMelodiePlayable, type MelodieData } from "@/lib/melodie
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
+import { emptyMotsMeles, isMotsMelesPlayable, type MotsMelesData } from "@/lib/motsMeles";
 import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/education";
 import { emptyPython, isPythonPlayable, type PythonData } from "@/lib/python";
 import MazePlayer from "@/components/MazePlayer";
@@ -27,6 +28,7 @@ import MelodiePlayer from "@/components/MelodiePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
+import MotsMelesPlayer from "@/components/MotsMelesPlayer";
 import EducationPlayer from "@/components/EducationPlayer";
 import PythonPlayer from "@/components/PythonPlayer";
 
@@ -43,6 +45,7 @@ type AnyData =
   | CalculData
   | PetitBacData
   | DevinettesData
+  | MotsMelesData
   | EducationData
   | PythonData;
 
@@ -186,6 +189,16 @@ export default async function ApercuPage({
       playable = isDevinettesPlayable(data);
       player = <DevinettesPlayer data={data} />;
       emptyMessage = "Ajoute au moins une devinette complète pour pouvoir tester.";
+      break;
+    }
+    case "Mots Mêlés": {
+      const data =
+        game.data && typeof game.data === "object" && "mots" in game.data
+          ? (game.data as MotsMelesData)
+          : emptyMotsMeles();
+      playable = isMotsMelesPlayable(data);
+      player = <MotsMelesPlayer data={data} />;
+      emptyMessage = "Écris au moins 3 mots qui tiennent dans la grille pour pouvoir tester.";
       break;
     }
     case "Éducation": {

@@ -15,6 +15,7 @@ import { emptyMelodie, isMelodiePlayable, type MelodieData } from "@/lib/melodie
 import { emptyCalcul, isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { emptyPetitBac, isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { emptyDevinettes, isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
+import { emptyMotsMeles, isMotsMelesPlayable, type MotsMelesData } from "@/lib/motsMeles";
 import { emptyEducation, isEducationPlayable, type EducationData } from "@/lib/education";
 import { emptyPython, isPythonPlayable, type PythonData } from "@/lib/python";
 import { emptyScript, isScriptPlayable, type ScriptData } from "@/lib/script";
@@ -33,6 +34,7 @@ type AnyGameData =
   | CalculData
   | PetitBacData
   | DevinettesData
+  | MotsMelesData
   | EducationData
   | PythonData
   | ScriptData;
@@ -110,6 +112,12 @@ const GAME_TYPES = {
     emoji: "🔍",
     emptyData: emptyDevinettes,
   },
+  "Mots Mêlés": {
+    defaultTitle: "Nouveaux mots mêlés",
+    gradient: "from-teal-400 to-cyan-600",
+    emoji: "🔤",
+    emptyData: emptyMotsMeles,
+  },
   Éducation: {
     defaultTitle: "Nouvelle fiche de révision",
     gradient: "from-blue-600 to-violet-700",
@@ -145,6 +153,7 @@ function isPublishable(category: string, data: unknown, tier: Tier = "studio"): 
   if (category === "Calcul Mental") return isCalculPlayable(data as CalculData);
   if (category === "Petit Bac") return isPetitBacPlayable(data as PetitBacData);
   if (category === "Devinettes") return isDevinettesPlayable(data as DevinettesData);
+  if (category === "Mots Mêlés") return isMotsMelesPlayable(data as MotsMelesData);
   if (category === "Éducation") return isEducationPlayable(data as EducationData);
   if (category === "Python") return isPythonPlayable(data as PythonData);
   if (category === "Game Script") return isScriptPlayable(data as ScriptData, scriptLimit(tier));
@@ -166,6 +175,7 @@ const PUBLISH_ERROR_MESSAGES: Record<string, string> = {
   "Calcul Mental": "Choisis au moins une opération avant de publier.",
   "Petit Bac": "Ajoute au moins 2 catégories non vides avant de publier.",
   Devinettes: "Ajoute au moins une devinette complète (réponse + indices) avant de publier.",
+  "Mots Mêlés": "Écris au moins 3 mots valides qui tiennent dans la grille avant de publier.",
   Éducation: "Ajoute au moins une question complète avant de publier.",
   Python: "Ajoute au moins un exercice complet (consigne + sortie attendue) avant de publier.",
   "Game Script":

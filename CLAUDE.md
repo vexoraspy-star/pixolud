@@ -61,6 +61,11 @@ catégorie. `is<X>Playable()` est la porte de publication : un jeu incomplet ne 
 
 **Ajouter une catégorie implique donc de toucher les cinq emplacements ci-dessus**, plus la liste
 `CATEGORIES`. En oublier un se traduit par un jeu créable mais impossible à jouer, ou l'inverse.
+S'y ajoutent les branches secondaires (vérifié en ajoutant « Mots Mêlés ») : la page éditeur
+`src/app/editeur/[id]/page.tsx`, l'aperçu `src/app/editeur/[id]/apercu/page.tsx`, la liste des
+boutons de création `src/app/editeur/page.tsx`, les emojis de `src/app/page.tsx` et
+`src/components/Mascot.tsx`, l'illustration `src/components/GameArtwork.tsx`, la page SEO
+`src/lib/categoriesSeo.ts` et le nom traduit `"cat.<X>"` dans les six langues de `src/lib/i18n.ts`.
 
 ## Mode 3D — section éditoriale, pas du contenu joueur
 

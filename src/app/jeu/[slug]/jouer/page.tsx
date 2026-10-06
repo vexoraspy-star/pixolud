@@ -13,6 +13,7 @@ import { isMelodiePlayable, type MelodieData } from "@/lib/melodie";
 import { isCalculPlayable, type CalculData } from "@/lib/calcul";
 import { isPetitBacPlayable, type PetitBacData } from "@/lib/petitBac";
 import { isDevinettesPlayable, type DevinettesData } from "@/lib/devinettes";
+import { isMotsMelesPlayable, type MotsMelesData } from "@/lib/motsMeles";
 import { isEducationPlayable, type EducationData } from "@/lib/education";
 import { isPythonPlayable, type PythonData } from "@/lib/python";
 import { isScriptPlayable, type ScriptData } from "@/lib/script";
@@ -28,6 +29,7 @@ import MelodiePlayer from "@/components/MelodiePlayer";
 import CalculPlayer from "@/components/CalculPlayer";
 import PetitBacPlayer from "@/components/PetitBacPlayer";
 import DevinettesPlayer from "@/components/DevinettesPlayer";
+import MotsMelesPlayer from "@/components/MotsMelesPlayer";
 import EducationPlayer from "@/components/EducationPlayer";
 import PythonPlayer from "@/components/PythonPlayer";
 import ScriptPlayer from "@/components/ScriptPlayer";
@@ -46,6 +48,7 @@ type AnyData =
   | CalculData
   | PetitBacData
   | DevinettesData
+  | MotsMelesData
   | EducationData
   | PythonData
   | ScriptData;
@@ -123,6 +126,8 @@ export default async function PlayGamePage({
     player = <PetitBacPlayer data={game.data as PetitBacData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Devinettes" && isDevinettesPlayable(game.data as DevinettesData)) {
     player = <DevinettesPlayer data={game.data as DevinettesData} gameId={game.id} countsAsPlay />;
+  } else if (game.category === "Mots Mêlés" && isMotsMelesPlayable(game.data as MotsMelesData)) {
+    player = <MotsMelesPlayer data={game.data as MotsMelesData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Éducation" && isEducationPlayable(game.data as EducationData)) {
     player = <EducationPlayer data={game.data as EducationData} gameId={game.id} countsAsPlay />;
   } else if (game.category === "Python" && isPythonPlayable(game.data as PythonData)) {
