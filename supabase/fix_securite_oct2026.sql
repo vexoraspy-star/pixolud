@@ -78,9 +78,35 @@ create policy "Repondre a une demande"
 --
 -- Dépend de la fonction public.is_banned (fichier add_admin_panel.sql) :
 -- lance celui-là d'abord si ce n'est pas déjà fait.
+--
+-- Pourquoi un déclencheur et pas « revoke update (published) » : Supabase
+-- donne aux joueurs des droits sur TOUTE la table, et dans ce cas retirer le
+-- droit d'une seule colonne ne change rien. Le déclencheur, lui, refuse tout
+-- changement de `published` venant directement d'un joueur. La fonction
+-- ci-dessous (security definer) et les actions admin (clé serveur) ne
+-- tournent pas sous le rôle des joueurs : elles passent.
 -- ---------------------------------------------------------------------------
 
-revoke insert (published), update (published) on public.games from authenticated;
+create or replace function public.games_published_verrou()
+returns trigger
+language plpgsql
+as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if tg_op = 'INSERT' then
+      new.published := false;
+    elsif new.published is distinct from old.published then
+      raise exception 'Pour publier un jeu, utilise le bouton Publier.';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists games_published_verrou on public.games;
+create trigger games_published_verrou
+  before insert or update on public.games
+  for each row execute function public.games_published_verrou();
 
 create or replace function public.set_game_published(p_game_id uuid, p_public boolean)
 returns void
