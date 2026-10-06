@@ -163,7 +163,21 @@ export default function MusicRadio() {
               </div>
               <button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Réactiver le son" : "Couper le son"} className="radio-mute">{muted ? "🔇" : "🔊"}</button>
             </div>
-            <p className="radio-credit">{current.kind === "audio" ? current.license + (current.attribution ? " · " + current.attribution : "") : "Musique générée, libre de droit"}</p>
+            {/* Credit complet (licence, interprete, lien vers la source) : c'est ce
+                qu'exigent les licences Creative Commons des enregistrements. */}
+            <p className="radio-credit">
+              {current.kind === "audio" ? (
+                <>
+                  {current.license + (current.attribution ? " · " + current.attribution : "")}
+                  {" · "}
+                  <a href={current.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                    source
+                  </a>
+                </>
+              ) : (
+                "Musique générée, libre de droit"
+              )}
+            </p>
           </footer>
         </section>
       )}

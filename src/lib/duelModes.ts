@@ -188,7 +188,7 @@ export const DUEL_MODES: Record<DuelModeId, DuelMode> = {
     name: "Économie",
     tagline: "Achats et manches",
     detail:
-      "Comme Counter-Strike ou Valorant : 1 contre 1 en manches, 7 manches pour gagner. Avant chaque manche, achète tes armes et ton armure avec l'argent gagné. Mourir fait perdre son arme et son armure.",
+      "1 contre 1 en manches, 7 manches pour gagner. Avant chaque manche, achète tes armes et ton armure avec l'argent gagné : chaque billet compte. Mourir fait perdre son arme et son armure.",
     arena: "duel",
     bots: 1,
     // Ici, le score compte les MANCHES gagnees.

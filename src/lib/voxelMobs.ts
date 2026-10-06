@@ -1,5 +1,9 @@
-// Cubes — les monstres, facon Minecraft : zombie, squelette, araignee et
-// explosif.
+// Cubes — les monstres : zombie, squelette, araignee et le baril explosif.
+//
+// Des creatures ORIGINALES : les mecaniques (un monstre qui explose, un
+// squelette qui tire a l'arc) sont libres, mais pas l'apparence des
+// personnages d'un autre jeu. Rien ici ne doit en reprendre la silhouette,
+// le visage ou la tenue.
 //
 // Ce module ne connait pas le monde directement : la scene lui donne un
 // MobWorld (collisions, lumiere, jour/nuit) et un MobEvents (blesser le
@@ -134,10 +138,12 @@ const LEG_YAW = [-0.75, -0.25, 0.25, 0.75];
 const LEG_DROOP = 0.6;
 
 // Couleurs (sRGB)
-const Z_SKIN = 0x5b8f45, Z_SKIN_DARK = 0x456f35, Z_SHIRT = 0x2f7fa6, Z_PANTS = 0x4a3f92, Z_SHOES = 0x3a3a3e, Z_EYE = 0x121812;
+const Z_SKIN = 0x7d8f6a, Z_SKIN_DARK = 0x5f6f4f, Z_SHIRT = 0x6b4a33, Z_PANTS = 0x34363b, Z_SHOES = 0x1e1e21, Z_EYE = 0x121812;
 const S_BONE = 0xd8d4c5, S_BONE_DARK = 0xa9a495, S_CAVITY = 0x3b3935, S_SOCKET = 0x1c1b19, S_WOOD = 0x6b4a2b, S_STRING = 0xe9e5d8;
 const A_THORAX = 0x3a3330, A_ABDO = 0x2c2622, A_PATTERN = 0x5a4c40, A_HEAD = 0x2f2926, A_LEG = 0x3b332e;
-const WHITE = 0xffffff, C_FACE = 0x101410;
+const WHITE = 0xffffff;
+// Le baril explosif : bois rougi, cercles de fer, meche et etincelle, yeux de braise.
+const K_BOIS = 0x8a3b22, K_BOIS_SOMBRE = 0x6e2d19, K_FER = 0x3b3a3a, K_MECHE = 0xd8c39a, K_ETINCELLE = 0xffd23a, K_YEUX = 0xffb347, K_PATTE = 0x4a2a1c;
 
 // ---------------------------------------------------------------------------
 // Petits outils (sans allocation)
@@ -259,7 +265,8 @@ function bowParts(): THREE.BufferGeometry[] {
 
 function buildGeometries() {
   return {
-    // Zombie : tete verte, corps bleu, jambes violettes.
+    // Zombie (modele de secours : le vrai zombie anime, CC0, le remplace des
+    // qu'il est charge) : peau grisatre, veste brune, pantalon sombre.
     zHead: merge([
       box(ZP, 8, 8, 8, 0, 4, 0, Z_SKIN),
       box(ZP, 2, 1, 0.3, -2, 4.5, 4.15, Z_EYE),
@@ -289,7 +296,7 @@ function buildGeometries() {
     sArm: box(ZP, 2, 12, 2, 0, -4, 0, S_BONE),
     sArmBow: merge([box(ZP, 2, 12, 2, 0, -4, 0, S_BONE), ...bowParts()]),
     sLeg: box(ZP, 2, 12, 2, 0, -6, 0, S_BONE),
-    // Araignee : large et basse, huit pattes, yeux rouges.
+    // Araignee : large et basse, huit pattes, huit yeux ambres.
     aBody: merge([
       box(SP, 6, 6, 6, 0, 0, 0, A_THORAX),
       box(SP, 10, 8, 12, 0, 1, -9, A_ABDO),
@@ -298,28 +305,39 @@ function buildGeometries() {
       box(SP, 8, 0.4, 2, 0, 5.2, -11, A_PATTERN),
     ]),
     aHead: box(SP, 8, 8, 8, 0, 0, 4, A_HEAD),
+    // Huit petits yeux ambres en deux arcs, comme une vraie araignee sauteuse.
     aEyes: merge([
-      box(SP, 2, 2, 0.3, -1.8, 0.5, 8.15, WHITE),
-      box(SP, 2, 2, 0.3, 1.8, 0.5, 8.15, WHITE),
-      box(SP, 1, 1, 0.3, -3, 2.2, 8.15, WHITE),
-      box(SP, 1, 1, 0.3, 3, 2.2, 8.15, WHITE),
-      box(SP, 1, 1, 0.3, -1, 2.6, 8.15, WHITE),
-      box(SP, 1, 1, 0.3, 1, 2.6, 8.15, WHITE),
+      box(SP, 1.2, 1.2, 0.3, -3, 0.9, 8.15, WHITE),
+      box(SP, 1.4, 1.4, 0.3, -1, 1.3, 8.15, WHITE),
+      box(SP, 1.4, 1.4, 0.3, 1, 1.3, 8.15, WHITE),
+      box(SP, 1.2, 1.2, 0.3, 3, 0.9, 8.15, WHITE),
+      box(SP, 0.8, 0.8, 0.3, -2.4, 2.9, 8.15, WHITE),
+      box(SP, 0.8, 0.8, 0.3, -0.8, 3.3, 8.15, WHITE),
+      box(SP, 0.8, 0.8, 0.3, 0.8, 3.3, 8.15, WHITE),
+      box(SP, 0.8, 0.8, 0.3, 2.4, 2.9, 8.15, WHITE),
     ]),
     aLegR: box(SP, 16, 1.6, 1.6, 8, 0, 0, A_LEG),
     aLegL: box(SP, 16, 1.6, 1.6, -8, 0, 0, A_LEG),
-    // Explosif : la texture verte tachetee fait tout, le visage est en creux sombre.
-    cHead: merge([
-      box(CP, 8, 8, 8, 0, 4, 0, WHITE),
-      box(CP, 2, 2, 0.3, -2, 5, 4.15, C_FACE),
-      box(CP, 2, 2, 0.3, 2, 5, 4.15, C_FACE),
-      box(CP, 2, 1, 0.3, 0, 3.5, 4.15, C_FACE),
-      box(CP, 4, 2, 0.3, 0, 2, 4.15, C_FACE),
-      box(CP, 1, 1, 0.3, -1.5, 0.5, 4.15, C_FACE),
-      box(CP, 1, 1, 0.3, 1.5, 0.5, 4.15, C_FACE),
+    // Baril explosif : un tonneau de poudre trapu, cercle de fer, deux yeux de
+    // braise, et sur le couvercle la meche qui grille avant l'explosion.
+    cBody: merge([
+      box(CP, 10, 13, 10, 0, 0, 0, K_BOIS),
+      box(CP, 10.6, 1.2, 10.6, 0, 4.6, 0, K_FER),
+      box(CP, 10.6, 1.2, 10.6, 0, -4.6, 0, K_FER),
+      box(CP, 0.6, 13, 10.2, -3, 0, 0, K_BOIS_SOMBRE),
+      box(CP, 0.6, 13, 10.2, 3, 0, 0, K_BOIS_SOMBRE),
+      // Yeux de braise, en biais (colere), sous le cercle du haut.
+      box(CP, 2.4, 1.1, 0.4, -2.2, 2.4, 5.15, K_YEUX),
+      box(CP, 2.4, 1.1, 0.4, 2.2, 2.4, 5.15, K_YEUX),
+      box(CP, 1.2, 0.5, 0.4, -2.6, 3.2, 5.15, K_FER),
+      box(CP, 1.2, 0.5, 0.4, 2.6, 3.2, 5.15, K_FER),
     ]),
-    cBody: box(CP, 8, 12, 4, 0, 0, 0, WHITE),
-    cLeg: box(CP, 4, 6, 4, 0, -3, 0, WHITE),
+    cHead: merge([
+      box(CP, 8, 1.4, 8, 0, 0.7, 0, K_FER),
+      box(CP, 1, 4, 1, 0, 3.4, 0, K_MECHE),
+      box(CP, 1.8, 1.8, 1.8, 0, 6.2, 0, K_ETINCELLE),
+    ]),
+    cLeg: box(CP, 3.6, 5, 3.6, 0, -2.5, 0, K_PATTE),
     // Fleche : pointe en z = 0, le baton vers -z.
     arrow: merge([
       box(1, 0.035, 0.035, 0.52, 0, 0, -0.32, 0x8b6a45),
@@ -368,20 +386,6 @@ function grainTexture(): THREE.CanvasTexture {
     const r = rand();
     const v = Math.round(255 * (r < 0.12 ? 0.74 + rand() * 0.06 : 0.86 + rand() * 0.14));
     return `rgb(${v},${v},${v})`;
-  });
-}
-
-/** Vert tachete de l'explosif. */
-function creeperTexture(): THREE.CanvasTexture {
-  const palette = ["#5dbb4b", "#4fa53f", "#58b048", "#3f8f34", "#6fcf5c", "#2f7a2a", "#8ad97a", "#9fdc92"];
-  const weights = [0.24, 0.2, 0.16, 0.12, 0.1, 0.07, 0.07, 0.04];
-  return pixelTexture(1337, (rand) => {
-    let r = rand();
-    for (let i = 0; i < palette.length; i++) {
-      r -= weights[i];
-      if (r <= 0) return palette[i];
-    }
-    return palette[0];
   });
 }
 
@@ -446,14 +450,9 @@ function buildRig(kind: MobKind, material: THREE.MeshLambertMaterial, G: Geometr
       return { root, material, head, legs, arms: [] };
     }
     case "explosif": {
-      // Avant-gauche, avant-droite, arriere-gauche, arriere-droite.
-      const legs = [
-        add(G.cLeg, 2 * CP, 6 * CP, 4 * CP),
-        add(G.cLeg, -2 * CP, 6 * CP, 4 * CP),
-        add(G.cLeg, 2 * CP, 6 * CP, -4 * CP),
-        add(G.cLeg, -2 * CP, 6 * CP, -4 * CP),
-      ];
-      add(G.cBody, 0, 12 * CP, 0);
+      // Deux pattes courtes sous le tonneau ; le couvercle a meche sert de tete.
+      const legs = [add(G.cLeg, 2.4 * CP, 5 * CP, 0), add(G.cLeg, -2.4 * CP, 5 * CP, 0)];
+      add(G.cBody, 0, 11.5 * CP, 0);
       const head = add(G.cHead, 0, 18 * CP, 0);
       head.rotation.order = "YXZ";
       return { root, material, head, legs, arms: [] };
@@ -585,8 +584,7 @@ function firstClip(model: AnimatedModel, names: string[]): string | null {
 export function createMobs(scene: THREE.Scene, world: MobWorld, events: MobEvents): Mobs {
   const G = buildGeometries();
   const grainTex = grainTexture();
-  const creeperTex = creeperTexture();
-  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xffb02e });
   const arrowMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const flameOuter = new THREE.MeshBasicMaterial({ color: 0xff7a18, transparent: true, opacity: 0.85, depthWrite: false });
   const flameInner = new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.9, depthWrite: false });
@@ -617,7 +615,7 @@ export function createMobs(scene: THREE.Scene, world: MobWorld, events: MobEvent
   function spawn(kind: MobKind, x: number, y: number, z: number) {
     if (disposed || mobs.length >= HARD_CAP || !world.isLoaded(x, z)) return;
     const spec = SPECS[kind];
-    const material = new THREE.MeshLambertMaterial({ map: kind === "explosif" ? creeperTex : grainTex, vertexColors: true });
+    const material = new THREE.MeshLambertMaterial({ map: grainTex, vertexColors: true });
     const rig = buildRig(kind, material, G, eyeMaterial);
     const group = new THREE.Group();
     const tilt = new THREE.Group();
@@ -1151,10 +1149,10 @@ export function createMobs(scene: THREE.Scene, world: MobWorld, events: MobEvent
         break;
       }
       case "explosif": {
-        r.legs[0].rotation.x = sw * 0.7;
-        r.legs[3].rotation.x = sw * 0.7;
-        r.legs[1].rotation.x = -sw * 0.7;
-        r.legs[2].rotation.x = -sw * 0.7;
+        // Il se dandine sur ses deux pattes.
+        r.legs[0].rotation.x = sw * 0.8;
+        r.legs[1].rotation.x = -sw * 0.8;
+        r.root.rotation.z = sw * 0.06;
         // Meche : il gonfle et clignote de plus en plus vite.
         if (m.fusing) {
           const k = m.fuseT / FUSE;
@@ -1558,7 +1556,6 @@ export function createMobs(scene: THREE.Scene, world: MobWorld, events: MobEvent
       arrows.length = 0;
       for (const g of Object.values(G)) g.dispose();
       grainTex.dispose();
-      creeperTex.dispose();
       eyeMaterial.dispose();
       arrowMaterial.dispose();
       flameOuter.dispose();

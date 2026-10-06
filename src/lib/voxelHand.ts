@@ -39,7 +39,8 @@ export interface Hand {
 }
 
 const PEAU = new THREE.Color("#d8a07a");
-const MANCHE = new THREE.Color("#2f8f8a");
+// Manche de cuir brun : notre personnage, pas celui d'un autre jeu.
+const MANCHE = new THREE.Color("#6b4a33");
 
 /** Boite avec une couleur par face (ombrage fixe, facon pixel art). */
 function boite(w: number, h: number, d: number, color: THREE.Color): THREE.BufferGeometry {
