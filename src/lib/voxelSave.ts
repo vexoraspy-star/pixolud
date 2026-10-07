@@ -33,6 +33,8 @@ export function parseWorldSave(raw: string): SavedWorld {
   if (data.armure !== undefined && !(Array.isArray(data.armure) && data.armure.length === 4 && data.armure.every(id => id === 0 || isKnownThing(id)))) throw new Error("Armure invalide.");
   if (data.cultures !== undefined && !(Array.isArray(data.cultures) && data.cultures.length % 4 === 0 && data.cultures.length <= 40000
     && data.cultures.every(finite))) throw new Error("Cultures invalides.");
+  if (data.zonesSansVillage !== undefined && !(Array.isArray(data.zonesSansVillage) && data.zonesSansVillage.length % 2 === 0
+    && data.zonesSansVillage.length <= 20000 && data.zonesSansVillage.every(n => Number.isSafeInteger(n) && Math.abs(n) <= 10000))) throw new Error("Villages invalides.");
   // Validation du format partage avec le moteur.
   decodeEdits(data.edits);
   return data;

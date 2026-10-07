@@ -3,7 +3,7 @@ import type { BlockSound } from "./voxel";
 export type VoxelSound =
   | BlockSound
   | "hurt" | "hit" | "manger" | "boire" | "explosion" | "arc" | "fleche" | "craft" | "ramasser" | "casse" | "equiper"
-  | "zombie" | "squelette" | "araignee" | "meche" | "touche" | "mort";
+  | "zombie" | "squelette" | "araignee" | "meche" | "touche" | "mort" | "village";
 
 /**
  * Sons originaux, synthetises (aucun fichier), crees seulement apres une
@@ -97,6 +97,8 @@ export class VoxelAudio {
         case "meche": this.hiss(5000, 1, 1.4, 0.12, 0, "highpass"); break;
         case "touche": this.tone("square", 260, 150, 0.1, 0.04); this.hiss(900, 2, 0.08, 0.15); break;
         case "mort": this.tone("sawtooth", 200, 50, 0.45, 0.05); break;
+        // Arrivee dans un village : trois notes montantes, douces.
+        case "village": [523, 659, 784].forEach((f, i) => this.tone("triangle", f, f, 0.5, 0.05, i * 0.16)); break;
       }
     } catch { /* Audio indisponible : le jeu reste jouable. */ }
   }

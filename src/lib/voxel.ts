@@ -594,11 +594,23 @@ export function editKey(x: number, y: number, z: number): string {
 /** Une modification du joueur, telle qu'elle est sauvegardee. */
 export type Edits = Map<string, BlockId>;
 
+/**
+ * Constructions posees avec le terrain, comme les arbres (les villages, voir
+ * voxelVillages.ts). Fonctions pures de la graine : rien a sauvegarder.
+ */
+export interface Structures {
+  /** Vrai la ou aucun arbre ne doit pousser (dans un village et autour). */
+  sansArbre(x: number, z: number): boolean;
+  /** Pose dans la zone (cx, cz) les blocs qui la traversent. */
+  poser(cx: number, cz: number, ecrire: (x: number, y: number, z: number, id: BlockId) => void): void;
+}
+
 export class World {
   readonly seed: number;
   readonly chunks = new Map<string, Chunk>();
   /** Tout ce que le joueur a casse ou pose : c'est la seule chose a sauver. */
   readonly edits: Edits;
+  readonly structures: Structures | null;
   /** Chunks dont le maillage doit etre refait. */
   readonly dirty = new Set<string>();
   private trackLightChanges = false;
@@ -612,9 +624,10 @@ export class World {
   private lastCz = NaN;
   private lastChunk: Chunk | undefined;
 
-  constructor(seed: number, edits: Edits = new Map()) {
+  constructor(seed: number, edits: Edits = new Map(), structures: Structures | null = null) {
     this.seed = seed;
     this.edits = edits;
+    this.structures = structures;
   }
 
   chunk(cx: number, cz: number): Chunk | undefined {
@@ -747,6 +760,9 @@ export class World {
       }
     }
     this.decorate(c);
+    // Les villages passent apres la nature (ils aplanissent, fauchent, pavent),
+    // et avant les modifications du joueur, qui ont toujours le dernier mot.
+    this.structures?.poser(c.cx, c.cz, (x, y, z, id) => this.setLocal(c, x, y, z, id, false));
     this.applyEdits(c);
     c.built = true;
     c.dirty = true;
@@ -770,6 +786,7 @@ export class World {
           if (height <= SEA_LEVEL) continue;
           const chance = biome === "foret" ? 0.8 : biome === "plaine" ? 0.22 : biome === "desert" ? 0.3 : 0.12;
           if (hash2(wx, wz, seed + 1901) > chance) continue;
+          if (this.structures?.sansArbre(wx, wz)) continue;
           if (biome === "desert") this.putCactus(c, wx, height + 1, wz);
           else if (biome !== "neige" || r > 0.5) this.putTree(c, wx, height + 1, wz, seed);
         }
@@ -1603,6 +1620,12 @@ export interface SavedWorld {
   armure?: number[];
   /** Cultures plantees : x,y,z,heure de plantation (secondes de jeu) a la suite. */
   cultures?: number[];
+  /**
+   * Regions (rx, rz a la suite) ou aucun village n'apparait. Absent : monde
+   * d'avant les villages, la liste est calculee au chargement pour epargner
+   * les constructions du joueur (voir voxelVillages.ts), puis sauvegardee.
+   */
+  zonesSansVillage?: number[];
 }
 
 export function encodeEdits(edits: Edits): number[] {

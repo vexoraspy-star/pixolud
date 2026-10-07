@@ -18,6 +18,7 @@ import { clockLabel, skyState, type SkyState } from "@/lib/voxelSky";
 import { createHand } from "@/lib/voxelHand";
 import { createVoxelEffects } from "@/lib/voxelEffects";
 import { createMobs } from "@/lib/voxelMobs";
+import { Villages, zonesAProteger, type Village } from "@/lib/voxelVillages";
 import { VoxelAudio, type VoxelSound } from "@/lib/voxelAudio";
 import { CUBES_SAVE_KEY } from "@/lib/voxelSave";
 import { GIVE_CUBES_EVENT, type CubesGive } from "@/lib/adminGive";
@@ -67,7 +68,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     vie: initial.survie?.vie ?? 100, faim: initial.survie?.faim ?? 100, soif: initial.survie?.soif ?? 100, air: 10, underwater: false,
     armure: initial.armure ?? [0, 0, 0, 0], armurePts: armorPoints(initial.armure ?? []), usure: initial.usure ?? {},
     target: "", progress: 0, chunks: 0, fps: 0, pixelRatio: 1, jour: 1, heure: "06:00", nuit: false,
-    stations: { table: false, four: false }, toasts: [], blesse: false, boussole: null, horloge: false, eating: 0, bow: 0,
+    stations: { table: false, four: false }, toasts: [], blesse: false, boussole: null, horloge: false, eating: 0, bow: 0, lieu: "",
   }));
 
   useEffect(() => {
@@ -118,7 +119,10 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     const cutoutMaterial = nuitEtTorches(new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, alphaTest: .15 }));
     const waterMaterial = nuitEtTorches(new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, color: "#b7fff0", transparent: true, opacity: .72, depthWrite: false, side: THREE.DoubleSide }));
 
-    const world = new World(initial.seed, decodeEdits(initial.edits));
+    const edits = decodeEdits(initial.edits);
+    // Villages : un monde d'avant les villages epargne les constructions du joueur.
+    const villages = new Villages(initial.seed, initial.zonesSansVillage ?? zonesAProteger(initial.seed, edits.keys()));
+    const world = new World(initial.seed, edits, villages);
     const meshes = new Map<string, THREE.Group>();
     const player = { ...initial.player };
     const home = spawnPoint(initial.seed);
@@ -143,6 +147,9 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     let withoutLock = false;
     let frameCount = 0, fps = 0, metricsAt = performance.now(), lastHud = 0, saveAt = performance.now(), fastSince = 0, ratioAt = 0;
     let spawnChecked = false, settingsAt = 0, cropsAt = 0, stationsAt = 0;
+    // Village ou se trouve le joueur, et derniere annonce de chacun (pas de repetition en longeant le bord).
+    let villageIci: Village | null = null, villageAt = 0, lieu = "", lieuAt = -1e9;
+    const annonces = new Map<Village, number>();
     let stations = { table: false, four: false };
     let layout = loadLayout3D(), quality = loadQuality3D(), sensitivity = loadSensitivity3D(), brightness = loadBrightness3D();
     let prevYaw = player.yaw, prevPitch = player.pitch;
@@ -292,7 +299,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         version: 2, seed: initial.seed, mode: initial.mode, player: { ...player }, hotbar: [...hotbar], stock: { ...stock },
         edits: encodeEdits(world.edits), savedAt: Date.now(),
         survie: { vie: Math.round(vie), faim: Math.round(faim), soif: Math.round(soif) }, temps: Math.round(temps),
-        usure: { ...usure }, armure: [...armure], cultures: flat,
+        usure: { ...usure }, armure: [...armure], cultures: flat, zonesSansVillage: villages.zones(),
       };
     }
     function save() {
@@ -429,6 +436,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         jour: sky.day, heure: clockLabel(temps), nuit: sky.isNight, stations: { ...stations },
         toasts: toasts.map(t => ({ key: t.key, text: t.text, id: t.id })), blesse: now - hurtAt < 400, boussole, horloge: id === HORLOGE && has(HORLOGE),
         eating: eatT > 0 ? Math.min(1, eatT / 1.2) : 0, bow: bowT > 0 ? Math.min(1, bowT / 1) : 0,
+        lieu: now - lieuAt < 4200 ? lieu : "",
       });
     }
     function headInWater() {
@@ -790,6 +798,15 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
           }
         }
         if (now - stationsAt > 1500) { stationsAt = now; stationsNear(); }
+        // Entree dans un village : son nom s'affiche.
+        if (now - villageAt > 400) {
+          villageAt = now;
+          const v = villages.villageA(Math.floor(player.x), Math.floor(player.z));
+          if (v && v !== villageIci && now - (annonces.get(v) ?? -1e9) > 60000) {
+            annonces.set(v, now); lieu = v.nom; lieuAt = now; play("village");
+          }
+          villageIci = v;
+        }
         if (vie <= 0) syncHud();
         if (now - lastHud > 140) { syncHud(hit ? block(hit.id).name : ""); lastHud = now; }
       } else {

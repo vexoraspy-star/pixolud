@@ -37,6 +37,8 @@ export interface CubesHudState {
   /** Progression du repas (0..1), de la tension de l'arc (0..1). */
   eating: number;
   bow: number;
+  /** Nom du village ou l'on vient d'entrer (vide sinon). */
+  lieu: string;
 }
 
 export interface CubesCommands {
@@ -115,6 +117,12 @@ export function CubesHud({ hud, onSelect }: { hud: CubesHudState; onSelect: (slo
       </div>
       {hud.boussole !== null && <svg aria-label="Boussole : direction du point de départ" viewBox="-10 -10 20 20" width={34} height={34} className="ml-1"><circle r={9} fill="#e8e2d0" stroke="#6b5a3a" strokeWidth={1.5} /><g transform={`rotate(${(hud.boussole * 180) / Math.PI})`}><path d="M0 -7 L2 0 L-2 0 Z" fill="#d6453a" /><path d="M0 7 L2 0 L-2 0 Z" fill="#555" /></g></svg>}
     </div>
+
+    {/* Arrivee dans un village */}
+    {hud.lieu && <div role="status" className="pointer-events-none absolute left-1/2 top-[16%] -translate-x-1/2 text-center">
+      <p className="text-[11px] font-bold uppercase tracking-[.35em] text-[#f6e7bd] drop-shadow-[0_1px_2px_rgba(0,0,0,.8)]">Bienvenue à</p>
+      <p className="mt-1 text-3xl font-bold tracking-tight text-white drop-shadow-[0_2px_6px_rgba(0,0,0,.7)] sm:text-4xl">{hud.lieu}</p>
+    </div>}
 
     {/* Objets ramasses */}
     <div className="pointer-events-none absolute right-4 top-16 flex flex-col items-end gap-1">

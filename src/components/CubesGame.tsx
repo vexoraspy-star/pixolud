@@ -77,7 +77,7 @@ export default function CubesGame({ title }: { title: string }) {
     setPending(null); setError("");
     // Creatif : des blocs a construire. Survie : les mains vides, comme dans le jeu d'origine.
     const hotbar = mode === "creatif" ? [1, 3, 8, 10, 12, 28, 7, 5, 32] : [0, 0, 0, 0, 0, 0, 0, 0, 28];
-    setRun({ version: 2, seed: number, mode, player: { ...spawnPoint(number), yaw: 0, pitch: -.15 }, hotbar, stock: mode === "creatif" ? {} : { 28: 4 }, edits: [], savedAt: Date.now(), survie: { vie: 100, faim: 100, soif: 100 }, temps: 40 });
+    setRun({ version: 2, seed: number, mode, player: { ...spawnPoint(number), yaw: 0, pitch: -.15 }, hotbar, stock: mode === "creatif" ? {} : { 28: 4 }, edits: [], savedAt: Date.now(), survie: { vie: 100, faim: 100, soif: 100 }, temps: 40, zonesSansVillage: [] });
   }
   function resume() {
     try { const raw = localStorage.getItem(CUBES_SAVE_KEY); if (!raw) { setError("Aucun monde sauvegardé sur cet appareil."); return; } setRun(parseWorldSave(raw)); setError(""); }
