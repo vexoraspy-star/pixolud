@@ -19,8 +19,9 @@ import {
   ARC, ARMOR_MATERIALS, ARMOR_SLOTS, BATON, BLE, BOL, BONBON, BOUCLIER, BOUSSOLE, BRIQUE_ITEM, BROCHETTE, CHAIR_POURRIE,
   CHARBON_ITEM, COOKIE, CUIR, DIAMANT_ITEM, EAU_SUCREE, FICELLE, FIOLE, FIOLE_EAU, FLECHE, GALETTE, GATEAU, GOURDE,
   HORLOGE, JUS_MELON, JUS_POMME, LINGOT_FER, LINGOT_OR, LIVRE, MINERAI_FER, MINERAI_OR, OS, PAIN, PAPIER, PEPITE_OR,
-  POMME, POMME_CARAMEL, POMME_DOREE, POUDRE_OS, SALADE_FRUITS, SEAU, SILEX, SOUPE_CHAMPIGNONS, SUCRE, TARTE_CITROUILLE,
-  THE, TOOL_MATERIALS, TOOL_TYPES, TRANCHE_MELON, armure, outil, teinture, type ArmorMaterial, type ThingId,
+  PLUME, POMME, POMME_CARAMEL, POMME_DOREE, POUDRE_OS, SALADE_FRUITS, SEAU, SILEX, SOUPE_CHAMPIGNONS, SUCRE, TARTE_CITROUILLE,
+  THE, TOOL_MATERIALS, TOOL_TYPES, TRANCHE_MELON, VIANDE_CRUE, VIANDE_GRILLEE, armure, outil, teinture, type ArmorMaterial,
+  type ThingId,
   type ToolMaterial,
 } from "./voxelItems";
 
@@ -141,6 +142,8 @@ r("fiole", FIOLE, 3, [[VERRE, 3]], "table", "materiaux");
 r("gourde", GOURDE, 1, [[CUIR, 3], [FICELLE, 1]], "table", "outils");
 r("arc", ARC, 1, [[BATON, 3], [FICELLE, 3]], "table", "outils");
 r("fleches", FLECHE, 4, [[SILEX, 1], [BATON, 1]], "table", "outils");
+// Avec une plume, deux fois plus de fleches.
+r("fleches_plume", FLECHE, 8, [[SILEX, 1], [BATON, 1], [PLUME, 1]], "table", "outils");
 r("bouclier", BOUCLIER, 1, [[PLANCHES, 6], [LINGOT_FER, 1]], "table", "outils");
 r("boussole", BOUSSOLE, 1, [[LINGOT_FER, 4], [T("rouge"), 1]], "table", "outils");
 r("horloge", HORLOGE, 1, [[LINGOT_OR, 4], [VERRE, 1]], "table", "outils");
@@ -184,6 +187,7 @@ cuire("brique", BRIQUE_ITEM, 4, [[TERRE, 4]], "materiaux");
 cuire("terre_cuite", TERRE_CUITE, 4, [[TERRE, 2], [SABLE, 2]], "construction");
 cuire("cuir", CUIR, 1, [[CHAIR_POURRIE, 3]], "materiaux");
 cuire("brochette", BROCHETTE, 1, [[CHAMPIGNON_BRUN, 2], [BATON, 1]], "nourriture");
+cuire("viande_grillee", VIANDE_GRILLEE, 2, [[VIANDE_CRUE, 2]], "nourriture");
 cuire("the", THE, 1, [[FIOLE_EAU, 1], [FEUILLES, 2]], "nourriture");
 // Charbon de bois : le seul qui ne demande pas de charbon (pour demarrer).
 r("charbon_bois", CHARBON_ITEM, 1, [[TRONC, 2]], "four", "materiaux");

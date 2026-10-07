@@ -31,7 +31,7 @@ export type IconShape =
   | "brique" | "papier" | "livre" | "sucre" | "ble" | "graines" | "bol" | "seau" | "seauEau" | "fiole" | "fioleEau"
   | "gourde" | "gourdeEau" | "fleche" | "arc" | "bouclier" | "boussole" | "horloge" | "teinture"
   | "pomme" | "pommeDoree" | "pain" | "cookie" | "gateau" | "tarte" | "tranche" | "soupe" | "viande" | "salade"
-  | "galette" | "brochette" | "bonbon" | "jus" | "the" | "pommeCaramel";
+  | "galette" | "brochette" | "bonbon" | "jus" | "the" | "pommeCaramel" | "plume";
 
 export interface IconSpec {
   shape: IconShape;
@@ -195,6 +195,11 @@ export const JUS_MELON = add("jus_melon", "Jus de melon", "boisson", ic("jus", "
 export const THE = add("the", "Thé des bois", "boisson", ic("the", "#7a9a3a", "#d8f0f4", "#c9a45a"), { ...food(0, 50, 10), stack: 16 });
 export const EAU_SUCREE = add("eau_sucree", "Eau sucrée", "boisson", ic("jus", "#bfe6f0", "#d8f0f4"), { ...food(5, 35), stack: 16 });
 for (const id of [JUS_POMME, JUS_MELON, THE, EAU_SUCREE]) ITEMS[id - ITEM_BASE].food!.rend = FIOLE;
+
+// --- Elevage (ajoutes avec les animaux)
+export const VIANDE_CRUE = add("viande_crue", "Viande crue", "nourriture", ic("viande", "#d9707a", "#a8424e", "#f1e3d3"), food(8, 0));
+export const VIANDE_GRILLEE = add("viande_grillee", "Viande grillée", "nourriture", ic("viande", "#a0602f", "#6b3c20", "#e8d0a0"), food(35, 0));
+export const PLUME = add("plume", "Plume", "materiau", ic("plume", "#f4efe4", "#c9c0ad", "#8a7a5a"));
 ITEMS[SOUPE_CHAMPIGNONS - ITEM_BASE].food!.rend = BOL;
 ITEMS[SALADE_FRUITS - ITEM_BASE].food!.rend = BOL;
 

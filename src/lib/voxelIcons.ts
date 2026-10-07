@@ -1036,6 +1036,21 @@ const VIANDE = [
   ".......qq....",
 ];
 
+/** Plume en diagonale : la tige (c) et ses barbes (a), ombrees d'un cote. */
+const PLUME = [
+  "........aaA.",
+  ".......aaaAA",
+  "......aaacAA",
+  ".....aaacAq.",
+  "....aaacAq..",
+  "...aaacAq...",
+  "...aacAq....",
+  "..aacqq.....",
+  "..acq.......",
+  ".cc.........",
+  "c...........",
+];
+
 const SHAPES: Record<IconShape, Painter> = {
   pioche: (p, pal) => { handle(p, pal, 10); grid(p, pal, PIOCHE, 0, 0); },
   hache: (p, pal) => {
@@ -1166,4 +1181,5 @@ const SHAPES: Record<IconShape, Painter> = {
     dots(p, pal, "w", [[8, 10]]);
   },
   pommeCaramel: (p, pal) => grid(p, pal, POMME_CARAMEL),
+  plume: (p, pal) => grid(p, pal, PLUME),
 };

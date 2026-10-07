@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   AIR, BLE_0, CACTUS, CHUNK, CULTURES, EAU, FOUR, GRES, HERBE, SABLE, SOCLE, TABLE_CRAFT, TERRE, TERRE_LABOUREE, WORLD_HEIGHT, World, block,
-  buildChunkMesh, courbe, decodeEdits, encodeEdits, raycast, spawnPoint, type MeshData, type SavedWorld,
+  buildChunkMesh, columnAt, courbe, decodeEdits, encodeEdits, raycast, spawnPoint, type MeshData, type SavedWorld,
 } from "@/lib/voxel";
 import {
   ARC, ARMOR_SLOTS, BOUCLIER, BOUSSOLE, FIOLE, FIOLE_EAU, FLECHE, GOURDE, GOURDE_EAU, GRAINES, HORLOGE, POUDRE_OS, SEAU, SEAU_EAU,
@@ -18,6 +18,7 @@ import { clockLabel, skyState, type SkyState } from "@/lib/voxelSky";
 import { createHand } from "@/lib/voxelHand";
 import { createVoxelEffects } from "@/lib/voxelEffects";
 import { createMobs } from "@/lib/voxelMobs";
+import { createBetes, type Habitant } from "@/lib/voxelBetes";
 import { Villages, zonesAProteger, type Village } from "@/lib/voxelVillages";
 import { VoxelAudio, type VoxelSound } from "@/lib/voxelAudio";
 import { CUBES_SAVE_KEY } from "@/lib/voxelSave";
@@ -25,9 +26,9 @@ import { GIVE_CUBES_EVENT, type CubesGive } from "@/lib/adminGive";
 import { loadBrightness3D, loadLayout3D, loadQuality3D, loadSensitivity3D, saveBrightness3D } from "@/lib/settings3d";
 import Game3DSettings from "./Game3DSettings";
 import { CubesHud, type CubesCommands, type CubesHudState } from "./CubesHud";
-import { CraftPanel, InventoryPanel } from "./CubesPanels";
+import { CraftPanel, InventoryPanel, TradePanel } from "./CubesPanels";
 
-type Panel = "pause" | "inventaire" | "fabrication";
+type Panel = "pause" | "inventaire" | "fabrication" | "echange";
 
 /** Duree d'un stade de pousse du ble, en secondes de jeu. */
 const POUSSE = 150;
@@ -51,6 +52,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     equip: (id) => commands.current?.equip(id),
     unequip: (slot) => commands.current?.unequip(slot),
     consume: (id) => commands.current?.consume(id),
+    echanger: (i) => commands.current?.echanger(i) ?? false,
     refreshStations: () => commands.current?.refreshStations(),
   }));
   const [paused, setPaused] = useState(true);
@@ -68,7 +70,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
     vie: initial.survie?.vie ?? 100, faim: initial.survie?.faim ?? 100, soif: initial.survie?.soif ?? 100, air: 10, underwater: false,
     armure: initial.armure ?? [0, 0, 0, 0], armurePts: armorPoints(initial.armure ?? []), usure: initial.usure ?? {},
     target: "", progress: 0, chunks: 0, fps: 0, pixelRatio: 1, jour: 1, heure: "06:00", nuit: false,
-    stations: { table: false, four: false }, toasts: [], blesse: false, boussole: null, horloge: false, eating: 0, bow: 0, lieu: "",
+    stations: { table: false, four: false }, toasts: [], blesse: false, boussole: null, horloge: false, eating: 0, bow: 0, lieu: "", echange: null,
   }));
 
   useEffect(() => {
@@ -196,6 +198,24 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       drop: (_x, _y, _z, thing, count) => { if (survie && count > 0) donner(thing, count); },
       sound: (kind) => play(kind),
     });
+
+    // ------------------------------------------------------------ animaux et habitants
+    const betes = createBetes(scene, {
+      collides: (x, y, z, h, r) => collides(x, y, z, h, r),
+      isLoaded: (x, z) => world.isLoaded(x, z),
+      blockAt: (x, y, z) => world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)),
+      solidAt: (x, y, z) => block(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))).solid,
+      liquidAt: (x, y, z) => block(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))).liquid,
+      brightness: brightnessAt,
+      isDay: () => !sky.isNight,
+      biomeAt: (x, z) => columnAt(Math.floor(x), Math.floor(z), initial.seed).biome,
+      villageA: (x, z, marge) => villages.villageA(Math.floor(x), Math.floor(z), marge),
+    }, {
+      drop: (thing, count) => { if (survie && count > 0) donner(thing, count); },
+      sound: (kind) => play(kind),
+    });
+    /** L'habitant avec qui on echange (panneau « echange »). */
+    let habitantOuvert: Habitant | null = null;
 
     // ------------------------------------------------------------ terrain
     function geometry(data: MeshData) {
@@ -437,6 +457,11 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         toasts: toasts.map(t => ({ key: t.key, text: t.text, id: t.id })), blesse: now - hurtAt < 400, boussole, horloge: id === HORLOGE && has(HORLOGE),
         eating: eatT > 0 ? Math.min(1, eatT / 1.2) : 0, bow: bowT > 0 ? Math.min(1, bowT / 1) : 0,
         lieu: now - lieuAt < 4200 ? lieu : "",
+        echange: habitantOuvert && {
+          nom: habitantOuvert.nom, titre: habitantOuvert.titre, metier: habitantOuvert.metier, village: habitantOuvert.village,
+          phrase: habitantOuvert.phrase,
+          offres: habitantOuvert.offres.map(o => ({ donne: o.donne, recoit: o.recoit, possible: !survie || o.donne.every(([d, n]) => (stock[d] ?? 0) >= n) })),
+        },
       });
     }
     function headInWater() {
@@ -500,6 +525,14 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         donner(armure[slot], 1, true); armure[slot] = 0; play("equiper"); syncHud();
       },
       consume(id) { if (consumeItem(id)) syncHud(); },
+      echanger(i) {
+        const o = habitantOuvert?.offres[i];
+        if (!o || (survie && !o.donne.every(([d, n]) => (stock[d] ?? 0) >= n))) return false;
+        if (survie) for (const [d, n] of o.donne) retirer(d, n);
+        donner(o.recoit[0], o.recoit[1]);
+        play("craft"); hand.setHeld(visibleHeld()); syncHud();
+        return true;
+      },
       refreshStations() { stationsNear(); syncHud(); },
     };
     function visibleHeld() { const id = heldId(); return has(id) ? id : 0; }
@@ -584,11 +617,22 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       if (above !== AIR && block(above).shape === "croix") breakBlock(hitX, hitY + 1, hitZ, above);
     }
 
+    /** Clic droit sur un habitant : il salue, et le panneau des echanges s'ouvre. */
+    function parlerAuVise() {
+      camera.getWorldDirection(direction);
+      const bloc = targetBlock();
+      const h = betes.parler(camera.position.x, camera.position.y, camera.position.z, direction.x, direction.y, direction.z, bloc ? Math.min(4, bloc.distance + .3) : 4);
+      if (!h) return false;
+      habitantOuvert = h; ouvrir("echange");
+      return true;
+    }
+
     // ------------------------------------------------------------ entrees
     function mouseDown(e: MouseEvent) {
       if (!active) return;
       if (e.button === 2) {
         rightHeld = true;
+        if (parlerAuVise()) { rightHeld = false; return; }
         const id = heldId(), it = item(id);
         // Nourriture et arc : on maintient le clic.
         if ((it?.food && has(id)) || (id === ARC && has(ARC))) return;
@@ -755,13 +799,15 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         if (held) {
           camera.getWorldDirection(direction);
           const mobDistance = mobs.rayDistance(camera.position.x, camera.position.y, camera.position.z, direction.x, direction.y, direction.z, 3.6);
-          if (mobDistance < (hit ? hit.distance + .3 : Infinity)) {
+          const beteDistance = betes.rayDistance(camera.position.x, camera.position.y, camera.position.z, direction.x, direction.y, direction.z, 3.6);
+          if (Math.min(mobDistance, beteDistance) < (hit ? hit.distance + .3 : Infinity)) {
             attacked = true;
             const tool = has(id) ? item(id)?.tool : undefined;
             const cooldown = tool?.type === "epee" ? .45 : .55;
             if (sinceStart - attackAt > cooldown) {
               attackAt = sinceStart; hand.swing();
-              if (mobs.hitMelee(camera.position.x, camera.position.y, camera.position.z, direction.x, direction.y, direction.z, 3.6, tool?.damage ?? 1)) {
+              const cible = mobDistance <= beteDistance ? mobs : betes;
+              if (cible.hitMelee(camera.position.x, camera.position.y, camera.position.z, direction.x, direction.y, direction.z, 3.6, tool?.damage ?? 1)) {
                 play("hit"); if (tool) user(id, tool.type === "epee" ? 1 : 2);
                 faim = Math.max(0, faim - .1);
               }
@@ -785,6 +831,8 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
         // Monstres (survie seulement), apres un moment de calme.
         if (survie && sinceStart > GRACE) mobs.trySpawn(player);
         mobs.update(dt, player);
+        betes.peupler(player);
+        betes.update(dt, player);
 
         // Cultures : le ble pousse avec le temps de jeu.
         if (now - cropsAt > 1000) {
@@ -875,7 +923,7 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
       canvas.removeEventListener("mousedown", mouseDown); canvas.removeEventListener("contextmenu", contextMenu); canvas.removeEventListener("wheel", wheel);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       observer.disconnect(); for (const key of meshes.keys()) removeMesh(key);
-      mobs.dispose(); effects.dispose(); hand.dispose(); atmosphere.dispose();
+      mobs.dispose(); betes.dispose(); effects.dispose(); hand.dispose(); atmosphere.dispose();
       outlineGeometry.dispose(); outlineMaterial.dispose(); atlas.dispose();
       material.dispose(); cutoutMaterial.dispose(); waterMaterial.dispose(); audio.dispose(); renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
     };
@@ -913,9 +961,9 @@ export default function CubesScene({ initial, onExit }: { initial: SavedWorld; o
           <div className="mt-5 grid gap-2 sm:grid-cols-2">{[
             ["ZQSD / WASD", "Se déplacer"], ["Souris", "Regarder autour de soi"], ["Espace", "Sauter / nager"], ["Clic gauche", "Creuser, frapper"],
             ["Clic droit", "Poser, utiliser, ouvrir une table"], ["Clic droit maintenu", "Manger, boire, tirer à l’arc"], ["E · C", "Inventaire · Fabrication"], ["1–9 / molette", "Changer d’objet"],
-            hud.mode === "creatif" ? ["F · Espace / Maj", "Vol · monter / descendre"] : ["Maj", "Courir (donne faim)"], ["Clic droit sur l’eau", hud.mode === "survie" ? "Boire (main vide)" : "Remplir un seau"],
+            hud.mode === "creatif" ? ["F · Espace / Maj", "Vol · monter / descendre"] : ["Maj", "Courir (donne faim)"], ["Clic droit sur l’eau", hud.mode === "survie" ? "Boire (main vide)" : "Remplir un seau"], ["Clic droit sur un habitant", "Parler, échanger"],
           ].map(([key, action]) => <div key={key} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5 text-xs"><span className="text-[#b9c9b9]">{action}</span><kbd className="rounded border border-white/15 bg-black/10 px-2 py-1 text-[10px] text-[#f2df9f]">{key}</kbd></div>)}</div>
-        </> : panel === "inventaire" ? <InventoryPanel hud={hud} commands={cmd} /> : <CraftPanel hud={hud} commands={cmd} />}
+        </> : panel === "inventaire" ? <InventoryPanel hud={hud} commands={cmd} /> : panel === "echange" ? <TradePanel hud={hud} commands={cmd} /> : <CraftPanel hud={hud} commands={cmd} />}
         <div className="mt-5 flex flex-wrap gap-2">
           {!fatal && <button disabled={!terrainReady} onClick={() => { if (dead) commands.current?.respawn(); else commands.current?.resume(); }} className="rounded-xl bg-[#e4d39a] px-6 py-3 font-bold text-[#172d20] shadow-lg hover:bg-[#f4e4ac] disabled:cursor-wait disabled:opacity-50">{!terrainReady ? "Préparation…" : dead ? "Réapparaître" : "Jouer"}</button>}
           {lockFailed && !dead && <button onClick={() => commands.current?.resumeWithoutLock()} className="rounded-xl bg-sky-300 px-4 py-2 font-semibold text-slate-950">Jouer sans capture</button>}

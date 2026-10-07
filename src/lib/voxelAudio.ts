@@ -3,7 +3,8 @@ import type { BlockSound } from "./voxel";
 export type VoxelSound =
   | BlockSound
   | "hurt" | "hit" | "manger" | "boire" | "explosion" | "arc" | "fleche" | "craft" | "ramasser" | "casse" | "equiper"
-  | "zombie" | "squelette" | "araignee" | "meche" | "touche" | "mort" | "village";
+  | "zombie" | "squelette" | "araignee" | "meche" | "touche" | "mort" | "village"
+  | "vache" | "mouton" | "poule" | "canard" | "habitant";
 
 /**
  * Sons originaux, synthetises (aucun fichier), crees seulement apres une
@@ -99,6 +100,13 @@ export class VoxelAudio {
         case "mort": this.tone("sawtooth", 200, 50, 0.45, 0.05); break;
         // Arrivee dans un village : trois notes montantes, douces.
         case "village": [523, 659, 784].forEach((f, i) => this.tone("triangle", f, f, 0.5, 0.05, i * 0.16)); break;
+        // Animaux : un meuglement grave, un beelement chevrotant, des gloussements, deux coin-coin.
+        case "vache": this.tone("triangle", 165, 118, 0.9, 0.07); this.tone("sawtooth", 83, 60, 0.9, 0.012); break;
+        case "mouton": for (let i = 0; i < 6; i++) this.tone("square", i % 2 ? 410 : 370, i % 2 ? 390 : 360, 0.07, 0.018, i * 0.07); break;
+        case "poule": [0, 0.12, 0.21].forEach((d) => { this.tone("triangle", 760, 540, 0.06, 0.05, d); this.hiss(2200, 3, 0.04, 0.05, d); }); break;
+        case "canard": [0, 0.22].forEach((d) => { this.tone("square", 430, 300, 0.12, 0.028, d); this.hiss(1300, 2, 0.1, 0.06, d); }); break;
+        // Un habitant salue : « hm-hm ! »
+        case "habitant": this.tone("sine", 220, 262, 0.18, 0.07); this.tone("sine", 262, 196, 0.22, 0.07, 0.2); break;
       }
     } catch { /* Audio indisponible : le jeu reste jouable. */ }
   }

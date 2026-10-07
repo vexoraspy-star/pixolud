@@ -11,6 +11,9 @@
 // apparition selon l'heure et l'obscurite, intelligence, physique, fleches,
 // animations, mort et butin.
 //
+// Ses petits outils de modelage (box, merge, grainTexture, rayBox) servent
+// aussi aux animaux et aux habitants (voxelBetes.ts).
+//
 // Regles du Mode 3D respectees ici :
 //   - MeshLambertMaterial (corps) et MeshBasicMaterial (yeux, flammes)
 //     seulement, aucune lumiere ajoutee ;
@@ -177,7 +180,7 @@ function seeded(seed: number): () => number {
  * Distance d'entree d'un rayon (direction unitaire) dans une boite alignee,
  * Infinity s'il la manque. Methode des « dalles ».
  */
-function rayBox(
+export function rayBox(
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
   x0: number, y0: number, z0: number, x1: number, y1: number, z1: number,
 ): number {
@@ -216,7 +219,7 @@ function rayBox(
  * texel de la texture 8x8 couvre un pixel du modele, comme dans le jeu
  * d'origine, et chaque pave commence a un endroit different de la texture.
  */
-function box(p: number, w: number, h: number, d: number, cx: number, cy: number, cz: number, hex: number): THREE.BufferGeometry {
+export function box(p: number, w: number, h: number, d: number, cx: number, cy: number, cz: number, hex: number): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(w * p, h * p, d * p);
   g.translate(cx * p, cy * p, cz * p);
   g.clearGroups();
@@ -243,7 +246,7 @@ function box(p: number, w: number, h: number, d: number, cx: number, cy: number,
   return g;
 }
 
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+export function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const g = mergeGeometries(parts, false);
   for (const part of parts) part.dispose();
   if (!g) throw new Error("voxelMobs : fusion de geometries impossible");
@@ -381,7 +384,7 @@ function pixelTexture(seed: number, pick: (rand: () => number) => string): THREE
 }
 
 /** Grain gris clair : multiplie les couleurs des sommets, donne l'aspect « pixel ». */
-function grainTexture(): THREE.CanvasTexture {
+export function grainTexture(): THREE.CanvasTexture {
   return pixelTexture(7, (rand) => {
     const r = rand();
     const v = Math.round(255 * (r < 0.12 ? 0.74 + rand() * 0.06 : 0.86 + rand() * 0.14));

@@ -39,6 +39,15 @@ export interface CubesHudState {
   bow: number;
   /** Nom du village ou l'on vient d'entrer (vide sinon). */
   lieu: string;
+  /** L'habitant a qui l'on parle, et ce qu'il propose (possible : on a de quoi payer). */
+  echange: {
+    nom: string;
+    titre: string;
+    metier: string;
+    village: string;
+    phrase: string;
+    offres: { donne: [number, number][]; recoit: [number, number]; possible: boolean }[];
+  } | null;
 }
 
 export interface CubesCommands {
@@ -55,6 +64,8 @@ export interface CubesCommands {
   unequip(slot: number): void;
   consume(id: number): void;
   refreshStations(): void;
+  /** Fait l'echange n de l'habitant ouvert ; faux s'il manque quelque chose. */
+  echanger(index: number): boolean;
 }
 
 /** Une rangee de 10 icones (coeurs, cuisses, gouttes) remplies a moitie pres. */

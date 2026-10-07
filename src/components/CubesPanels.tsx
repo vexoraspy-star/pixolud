@@ -148,3 +148,44 @@ export function CraftPanel({ hud, commands }: { hud: CubesHudState; commands: Cu
   </div>;
 }
 
+const EMBLEMES: Record<string, string> = { fermier: "🌾", boulanger: "🥖", forgeron: "⚒️", berger: "🐑", marchand: "💰" };
+
+/** Les echanges d'un habitant : ce qu'on donne, ce qu'on recoit. */
+export function TradePanel({ hud, commands }: { hud: CubesHudState; commands: CubesCommands }) {
+  const [dernier, setDernier] = useState("");
+  const e = hud.echange;
+  const survie = hud.mode === "survie";
+  if (!e) return <p className="mt-4 text-sm text-white/70">Approche-toi d’un habitant et fais un clic droit pour lui parler.</p>;
+  const offres = e.offres;
+  function echanger(i: number) {
+    const o = offres[i];
+    setDernier(commands.echanger(i) ? `+${o.recoit[1]} ${thingName(o.recoit[0])}` : "Il te manque quelque chose.");
+  }
+  return <div className="mt-4">
+    <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+      <span aria-hidden="true" className="text-3xl leading-none">{EMBLEMES[e.metier] ?? "🙂"}</span>
+      <div className="min-w-0">
+        <p className="text-sm font-bold">{e.nom} <span className="font-normal text-[#c8dba8]">· {e.titre} à {e.village}</span></p>
+        <p className="mt-1 text-sm italic leading-5 text-white/85">« {e.phrase} »</p>
+      </div>
+    </div>
+    <p className="mt-4 text-[10px] font-bold uppercase tracking-[.2em] text-[#c8dba8]">Échanges</p>
+    <p role="status" className="mt-1 h-4 text-xs text-amber-100">{dernier}</p>
+    <ul className="mt-1 flex flex-col gap-2">
+      {offres.map((o, i) => <li key={i} className={`flex flex-wrap items-center gap-2.5 rounded-xl border p-2.5 ${o.possible ? "border-emerald-200/25 bg-emerald-200/5" : "border-white/10 bg-black/20"}`}>
+        <span className="flex items-center gap-1.5">
+          {o.donne.map(([id, n]) => {
+            const have = hud.stock[id] ?? 0;
+            return <span key={id} title={thingName(id)} className={`flex items-center gap-1 rounded bg-black/25 py-0.5 pl-0.5 pr-1.5 text-xs tabular-nums ${!survie || have >= n ? "text-white/90" : "text-rose-300"}`}><CubesItemIcon id={id} size={24} />{survie ? `${have}/${n}` : `×${n}`}</span>;
+          })}
+        </span>
+        <span aria-hidden="true" className="text-lg text-[#e4d39a]">→</span>
+        <span title={thingName(o.recoit[0])} className="flex items-center gap-1 rounded bg-black/25 py-0.5 pl-0.5 pr-1.5 text-xs"><CubesItemIcon id={o.recoit[0]} size={24} />×{o.recoit[1]}</span>
+        <span className="min-w-0 flex-1 text-xs text-white/80">{o.recoit[1]} {thingName(o.recoit[0])}</span>
+        <button disabled={!o.possible} onClick={() => echanger(i)} className="rounded-lg bg-[#e4d39a] px-3 py-1.5 text-xs font-bold text-[#172d20] hover:bg-[#f4e4ac] disabled:cursor-not-allowed disabled:opacity-35">Échanger</button>
+      </li>)}
+    </ul>
+    <p className="mt-3 text-[10px] leading-4 text-white/50">Les habitants se promènent le jour et rentrent chez eux la nuit. Les objets à donner doivent être dans ton inventaire.</p>
+  </div>;
+}
+
